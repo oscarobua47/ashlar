@@ -1,0 +1,30 @@
+{
+  "name": "mc-ai-builder-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI clients build in a Minecraft Paper server through the MC AI Builder plugin",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "mc-ai-builder-mcp": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "node --test dist/**/*.test.js",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "typescript": "^6",
+    "tsx": "^4",
+    "@types/node": "^22",
+    "@modelcontextprotocol/client": "^2.0.0"
+  }
+}

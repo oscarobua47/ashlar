@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
+
+import type { PluginClient } from "../plugin-client.js";
+import { runTool } from "./helpers.js";
+
+interface HealthResult {
+    plugin: string;
+    server: string;
+    minecraft: string;
+    onlinePlayers: number;
+    queuedOperations: number;
+    uptimeSeconds: number;
+}
+
+const DESCRIPTION = `Checks connectivity to the Minecraft server and reports its current state. Calls the plugin's "health" RPC and returns the plugin version, the Paper server version, the number of online players, how many build operations are currently queued, the plugin's uptime, and whether the MCP server itself currently has a live, authenticated connection to the plugin.
+
+WHEN TO USE: at the start of a session to confirm the connection works before attempting any builds; after a "cannot reach the plugin" error from mc_build/mc_survey/mc_inspect/mc_snapshot/mc_restore/mc_command, to check whether the connection has recovered (the MCP server reconnects automatically in the background, so retrying mc_status a few seconds later is often enough); before a very large mc_build call, to confirm queuedOperations is low so the new request will not sit behind a long queue; when a user asks "is the server up" or "are we connected".
+
+WHEN NOT TO USE: to read terrain or block data (use mc_survey for terrain height/material, mc_inspect for exact block contents) - mc_status carries no information about the world itself, only about the server process and the connection to it. Do not call it in a tight loop while waiting for a large mc_build to finish; the build's own response already reports how many blocks it changed, and mc_status will not show progress mid-call.
+
+PARAMETERS: none. This tool takes no arguments.
+
+SIDE EFFECTS: none. This is a read-only connectivity check; it never modifies the world and cannot fail due to world state, only due to connection or plugin problems. It completes in well under a second under normal conditions. If the plugin is unreachable, the result is an error explaining why (for example, a wrong MC_PLUGIN_TOKEN, the plugin process being down, or a network/firewall problem) rather than a crash or a hang; the MCP server keeps retrying the connection in the background regardless of whether mc_status is called.`;
+
+export function registerMcStatus(server: McpServer, client: PluginClient): void {
+    server.registerTool(
+        "mc_status",
+        {
+            title: "Server status",
+            description: DESCRIPTION,
+            inputSchema: z.object({}),
+            annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+        },
+        async () => {
+            return runTool(client, async () => {
+                const result = (await client.request("health", {})) as HealthResult;
+                const connLine = client.isConnected()
+                    ? "MCP <-> plugin connection: up (authenticated)."
+                    : "MCP <-> plugin connection: currently down; the MCP server is retrying in the background.";
+                return [
+                    `Plugin version: ${result.plugin}`,
+                    `Server: ${result.server} (Minecraft ${result.minecraft})`,
+                    `Online players: ${result.onlinePlayers}`,
+                    `Queued build operations: ${result.queuedOperations}`,
+                    `Plugin uptime: ${result.uptimeSeconds}s`,
+                    connLine
+                ].join("\n");
+            });
+        }
+    );
+}
