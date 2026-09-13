@@ -10,6 +10,7 @@ plugin/.kotlin/
 # Node
 mcp-server/node_modules/
 mcp-server/dist/
+mcp-server/tools/out/
 
 # IDE
 .idea/

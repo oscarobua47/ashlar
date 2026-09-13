@@ -37,8 +37,12 @@ import java.util.Locale;
  * {@link #MAX_SIGNS}; {@link #signsTruncated} is set beyond the cap), added
  * to the {@code read_region} result but not consumed by the {@code
  * snapshot} path above - snapshots still ignore block-entity data.
+ *
+ * <p>Not {@code final}: {@link RenderTask} (docs/prompts/step4e-prompt.md)
+ * extends it to reuse the budgeted scan, overriding only {@link
+ * #buildResult} to additionally resolve map colors.
  */
-public final class ReadTask extends BuildTask {
+public class ReadTask extends BuildTask {
 
     private static final int DEADLINE_CHECK_INTERVAL = 256;
     private static final int MAX_SIGNS = 200;

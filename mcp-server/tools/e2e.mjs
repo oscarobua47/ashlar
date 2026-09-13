@@ -14,6 +14,7 @@
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 
 import { Client } from "@modelcontextprotocol/client";
@@ -121,7 +122,7 @@ async function runHttpChecks() {
         } catch {
             // reported as a failed check below
         }
-        check(`/mcp/<token> tools/list response lists 8 tools (got ${toolCount})`, toolCount === 8);
+        check(`/mcp/<token> tools/list response lists 9 tools (got ${toolCount})`, toolCount === 9);
 
         const wrongToken = await fetch(`${base}/mcp/wrong-token`, { method: "POST", headers: jsonHeaders, body });
         await wrongToken.text();
@@ -149,13 +150,14 @@ async function main() {
     // --- tools/list -------------------------------------------------------
     section("tools/list");
     const { tools } = await client.listTools();
-    check("exactly 8 tools", tools.length === 8);
+    check("exactly 9 tools", tools.length === 9);
     const expectedNames = [
         "mc_status",
         "mc_players",
         "mc_survey",
         "mc_build",
         "mc_inspect",
+        "mc_render",
         "mc_snapshot",
         "mc_restore",
         "mc_command"
@@ -231,6 +233,71 @@ async function main() {
     check("mc_survey not an error", !surveyResult.isError);
     check("mc_survey output contains a legend", /Legend:/.test(surveyText));
     check("mc_survey output contains largest flat zone line", /Largest flat zone/.test(surveyText));
+
+    // --- mc_render: top + south + slice, while the tower still stands -------
+    const outDir = path.join(__dirname, "out");
+    fs.mkdirSync(outDir, { recursive: true });
+
+    function checkRenderResult(result, label, pngPath) {
+        check(`${label} not an error`, !result.isError);
+        const text = textOf(result);
+        console.log(text);
+        const imageBlock = result.content.find(c => c.type === "image");
+        check(`${label} returned an image content block`, !!imageBlock);
+        if (!imageBlock) {
+            failures++;
+            return;
+        }
+        const bytes = Buffer.from(imageBlock.data, "base64");
+        fs.writeFileSync(pngPath, bytes);
+        check(`${label} PNG starts with the PNG magic bytes`, bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47);
+        check(`${label} PNG size is sane (500 bytes - 3MB), got ${bytes.length}`, bytes.length > 500 && bytes.length <= 3 * 1024 * 1024);
+        const sizeMatch = text.match(/Size: (\d+)x(\d+)px/);
+        check(`${label} text reports a Size: WxHpx line`, !!sizeMatch);
+        if (sizeMatch) {
+            const width = Number(sizeMatch[1]);
+            const height = Number(sizeMatch[2]);
+            check(`${label} width is sane (1-1200), got ${width}`, width > 0 && width <= 1200);
+            check(`${label} height is sane (1-1200), got ${height}`, height > 0 && height <= 1200);
+        }
+        check(`${label} text has a Legend section`, /Legend/.test(text));
+        return { text, bytes };
+    }
+
+    section("mc_render (top view of the tower)");
+    const renderTop = await client.callTool({
+        name: "mc_render",
+        arguments: { from: [BASE_X, 60, BASE_Z], to: [BASE_X + 59, 75, BASE_Z + 59], view: "top" }
+    });
+    const topOut = checkRenderResult(renderTop, "mc_render top", path.join(outDir, "top.png"));
+    if (topOut) {
+        check("mc_render top text mentions View: top", /View: top/.test(topOut.text));
+    }
+
+    section("mc_render (south facade of the tower)");
+    const renderSouth = await client.callTool({
+        name: "mc_render",
+        arguments: { from: [BASE_X + 20, 64, BASE_Z + 20], to: [BASE_X + 39, 75, BASE_Z + 39], view: "south" }
+    });
+    const southOut = checkRenderResult(renderSouth, "mc_render south", path.join(outDir, "south.png"));
+    if (southOut) {
+        check("mc_render south text mentions View: south", /View: south/.test(southOut.text));
+    }
+
+    section("mc_render (slice y=66 through the tower ring)");
+    const renderSlice = await client.callTool({
+        name: "mc_render",
+        arguments: {
+            from: [BASE_X + 24, 66, BASE_Z + 24],
+            to: [BASE_X + 35, 66, BASE_Z + 35],
+            view: "slice",
+            slice: { axis: "y", at: 66 }
+        }
+    });
+    const sliceOut = checkRenderResult(renderSlice, "mc_render slice", path.join(outDir, "slice.png"));
+    if (sliceOut) {
+        check("mc_render slice text mentions View: slice", /View: slice/.test(sliceOut.text));
+    }
 
     // --- mc_inspect: slice through the tower --------------------------------
     section("mc_inspect (slice y=66 through the tower)");

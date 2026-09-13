@@ -9,6 +9,15 @@ export interface ToolTextResult {
     isError?: boolean;
 }
 
+/** A single MCP result content block. Only the variants mc_* tools actually return so far. */
+export type ContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
+export interface ToolContentResult {
+    [key: string]: unknown;
+    content: ContentBlock[];
+    isError?: boolean;
+}
+
 export function textResult(text: string): ToolTextResult {
     return { content: [{ type: "text", text }] };
 }
@@ -24,6 +33,28 @@ export async function runTool(client: PluginClient, body: () => Promise<string>)
     try {
         const text = await body();
         return textResult(text);
+    } catch (err) {
+        if (err instanceof PluginError) {
+            return { content: [{ type: "text", text: formatPluginError(err, client.pluginUrl) }], isError: true };
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text", text: message }], isError: true };
+    }
+}
+
+/**
+ * Same error-handling contract as {@link runTool}, but for a handler body
+ * that returns a full content-block array (docs/prompts/step4e-prompt.md:
+ * mc_render mixes an `image` block with a `text` legend) instead of a
+ * single text string.
+ */
+export async function runToolContent(
+    client: PluginClient,
+    body: () => Promise<ContentBlock[]>
+): Promise<ToolContentResult> {
+    try {
+        const content = await body();
+        return { content };
     } catch (err) {
         if (err instanceof PluginError) {
             return { content: [{ type: "text", text: formatPluginError(err, client.pluginUrl) }], isError: true };

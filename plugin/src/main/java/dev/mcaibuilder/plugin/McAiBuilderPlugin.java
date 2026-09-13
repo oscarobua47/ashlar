@@ -11,6 +11,7 @@ import dev.mcaibuilder.plugin.handler.HealthHandler;
 import dev.mcaibuilder.plugin.handler.HeightmapHandler;
 import dev.mcaibuilder.plugin.handler.PlayersHandler;
 import dev.mcaibuilder.plugin.handler.ReadRegionHandler;
+import dev.mcaibuilder.plugin.handler.RenderHandler;
 import dev.mcaibuilder.plugin.handler.RunCommandHandler;
 import dev.mcaibuilder.plugin.handler.SetBlocksHandler;
 import dev.mcaibuilder.plugin.handler.SnapshotHandler;
@@ -25,6 +26,8 @@ import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Entry point. Step 1 laid the network/auth/dispatch scaffolding; Step 2
@@ -32,7 +35,8 @@ import java.util.concurrent.CompletableFuture;
  * Step 3 rounds out v1 with the read-only and safety-net methods:
  * {@code heightmap}, {@code read_region}, {@code snapshot}/{@code restore}/
  * {@code list_snapshots}, and {@code run_command}. Step 4.5 adds the
- * player-domain read-only method {@code players}.
+ * player-domain read-only method {@code players}. Step 4.8 adds {@code
+ * render} (region -> PNG).
  */
 public final class McAiBuilderPlugin extends JavaPlugin {
 
@@ -41,9 +45,14 @@ public final class McAiBuilderPlugin extends JavaPlugin {
     private RpcDispatcher dispatcher;
     private TickBudgetExecutor executor;
     private SnapshotStore snapshotStore;
+    private ExecutorService renderExecutor;
 
     @Override
     public void onEnable() {
+        // Must be set before any AWT class loads (render RPC's BufferedImage/ImageIO
+        // use, step4e-prompt.md): most servers run headless with no display/fonts.
+        System.setProperty("java.awt.headless", "true");
+
         Instant startedAt = Instant.now();
         MainThread.init(this);
 
@@ -89,6 +98,16 @@ public final class McAiBuilderPlugin extends JavaPlugin {
         dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
         dispatcher.register("run_command", new RunCommandHandler(config));
         dispatcher.register("players", new PlayersHandler());
+        // Dedicated single thread for render's image work (ImageRenderer + PNG
+        // encoding, step4e-prompt.md): never the main thread, and kept separate
+        // from RpcDispatcher's responseExecutor so a slow render cannot delay
+        // every other RPC's response delivery.
+        this.renderExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "mc-ai-builder-render");
+            t.setDaemon(true);
+            return t;
+        });
+        dispatcher.register("render", new RenderHandler(config, executor, renderExecutor));
 
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());
@@ -104,6 +123,9 @@ public final class McAiBuilderPlugin extends JavaPlugin {
     public void onDisable() {
         if (executor != null) {
             executor.shutdown();
+        }
+        if (renderExecutor != null) {
+            renderExecutor.shutdown();
         }
         if (wsServer != null) {
             wsServer.shutdown();

@@ -240,6 +240,73 @@ public final class RequestValidator {
         return new HeightmapArea(x1, z1, x2, z2);
     }
 
+    private static final List<String> VALID_RENDER_VIEWS = List.of("top", "north", "south", "east", "west", "slice");
+    private static final List<String> VALID_SLICE_AXES = List.of("x", "y", "z");
+
+    /** Validated {@code render} request parameters (docs/prompts/step4e-prompt.md), besides the region (see {@link #validateReadRegion}). */
+    public record RenderParams(String view, String sliceAxis, int sliceAt, int scale, int grid) {
+    }
+
+    /**
+     * Validates a {@code render} request's {@code view}/{@code slice}/{@code scale}/{@code grid} fields. The
+     * region itself is validated separately via {@link #validateReadRegion} (same rules as {@code read_region}:
+     * world allow-list, build-region, Y range, {@code limits.max-read-volume}, chunk cap), and is passed in here
+     * only so {@code slice.at} can be checked against it.
+     */
+    public RenderParams validateRenderParams(JsonObject params, Region region) {
+        String view = optString(params, "view", "top").trim().toLowerCase(Locale.ROOT);
+        if (!VALID_RENDER_VIEWS.contains(view)) {
+            throw new RpcError(ErrorCode.BAD_REQUEST,
+                    "\"view\" must be one of " + VALID_RENDER_VIEWS + ", got '" + view + "'");
+        }
+
+        String sliceAxis = null;
+        int sliceAt = 0;
+        if (view.equals("slice")) {
+            if (!params.has("slice") || !params.get("slice").isJsonObject()) {
+                throw new RpcError(ErrorCode.BAD_REQUEST,
+                        "view \"slice\" requires a \"slice\" object with \"axis\" and \"at\"");
+            }
+            JsonObject sliceObj = params.getAsJsonObject("slice");
+            sliceAxis = requireString(sliceObj, "axis").trim().toLowerCase(Locale.ROOT);
+            if (!VALID_SLICE_AXES.contains(sliceAxis)) {
+                throw new RpcError(ErrorCode.BAD_REQUEST,
+                        "\"slice.axis\" must be one of " + VALID_SLICE_AXES + ", got '" + sliceAxis + "'");
+            }
+            sliceAt = requireInt(sliceObj, "at");
+            int lo, hi;
+            switch (sliceAxis) {
+                case "x" -> {
+                    lo = region.minX();
+                    hi = region.maxX();
+                }
+                case "y" -> {
+                    lo = region.minY();
+                    hi = region.maxY();
+                }
+                default -> {
+                    lo = region.minZ();
+                    hi = region.maxZ();
+                }
+            }
+            if (sliceAt < lo || sliceAt > hi) {
+                throw new RpcError(ErrorCode.BAD_REQUEST,
+                        "\"slice.at\" (" + sliceAt + ") must lie within [" + lo + "," + hi
+                                + "] on axis '" + sliceAxis + "'");
+            }
+        }
+
+        int scale = optInt(params, "scale", 0);
+        if (scale < 0 || scale > 16) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"scale\" must be between 0 and 16, got " + scale);
+        }
+        int grid = optInt(params, "grid", 10);
+        if (grid < 0 || grid > 64) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"grid\" must be between 0 and 64, got " + grid);
+        }
+        return new RenderParams(view, sliceAxis, sliceAt, scale, grid);
+    }
+
     private void checkBuildRegion(int minX, int maxX, int minZ, int maxZ) {
         PluginConfig.WorldConfig.BuildRegion buildRegion = config.world().buildRegion();
         if (!buildRegion.enabled()) {
@@ -351,6 +418,24 @@ public final class RequestValidator {
             throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must be a string");
         }
         return e.getAsString();
+    }
+
+    private static int requireInt(JsonObject obj, String field) {
+        if (!obj.has(field) || !obj.get(field).isJsonPrimitive() || !obj.get(field).getAsJsonPrimitive().isNumber()) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must be an integer");
+        }
+        return obj.get(field).getAsInt();
+    }
+
+    private static int optInt(JsonObject obj, String field, int fallback) {
+        if (!obj.has(field) || obj.get(field).isJsonNull()) {
+            return fallback;
+        }
+        JsonElement e = obj.get(field);
+        if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must be a number");
+        }
+        return e.getAsInt();
     }
 
     private static boolean optBoolean(JsonObject obj, String field, boolean fallback) {
