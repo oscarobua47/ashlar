@@ -9,6 +9,21 @@ import { runTool } from "./helpers.js";
 
 const fillModeEnum = z.enum(["replace", "keep", "outline", "hollow", "walls"]);
 
+/**
+ * Orientation rules for the block states an AI most often gets wrong
+ * (observed in real sessions: floating ladders, doors flush with the wrong
+ * face). Attached to the `block` field descriptions so the model sees them
+ * exactly when it writes a block state string.
+ */
+const ORIENTATION_RULES =
+    " Orientation rules: for attached blocks (ladder, wall_torch, wall_sign, wall_banner, lever/button with face=wall) " +
+    "`facing` points AWAY from the supporting block - a ladder on the west wall of a room is ladder[facing=east]. " +
+    "Doors: the panel sits flush with the block face OPPOSITE to `facing`, so a door in a south wall that should be flush " +
+    "with the outside uses facing=north; place half=lower at y and half=upper at y+1 with identical other properties; " +
+    "hinge=left/right chooses the swing side. Stairs: the tall half is on the `facing` side (you walk up toward `facing`); " +
+    "half=top for upside-down stairs. Beds: part=foot at pos, part=head one block toward `facing`. Chests/furnaces: " +
+    "`facing` is the side the front is on. Slabs: type=bottom|top|double.";
+
 const fillOpSchema = z.object({
     from: z.tuple([z.number().int(), z.number().int(), z.number().int()]).describe("Inclusive [x, y, z] corner."),
     to: z
@@ -19,14 +34,16 @@ const fillOpSchema = z.object({
         .min(1)
         .describe(
             'Block state string in the "minecraft:" namespace, optionally with properties, ' +
-                'e.g. "minecraft:stone" or "minecraft:oak_log[axis=y]".'
+                'e.g. "minecraft:stone" or "minecraft:oak_log[axis=y]".' +
+                ORIENTATION_RULES
         ),
     mode: fillModeEnum
         .optional()
         .describe(
             '"replace" (default) overwrites everything; "keep" only fills air; "outline" places only the 1-block shell on all six ' +
                 'faces; "hollow" places that shell and clears the inside; "walls" places only the four vertical sides (no floor or ceiling) ' +
-                'and leaves the inside untouched - use "walls" for rooms and buildings, then add a floor and a roof with separate fills.'
+                'and leaves the inside untouched - use "walls" for rooms and buildings, then add a floor and a roof with separate fills. ' +
+                'On natural terrain, clear the interior with an "air" fill first: "walls" does not remove grass, flowers, snow or dirt inside.'
         ),
     filter: z
         .string()
@@ -36,6 +53,8 @@ const fillOpSchema = z.object({
                 'e.g. "minecraft:air" to build only into empty space.'
         )
 });
+
+
 
 const signSchema = z.object({
     front: z
@@ -65,7 +84,8 @@ const sparseOpSchema = z.object({
         .min(1)
         .describe(
             'Block state string in the "minecraft:" namespace, with properties for orientation where relevant, ' +
-                'e.g. "minecraft:oak_stairs[facing=north,half=bottom]".'
+                'e.g. "minecraft:oak_stairs[facing=north,half=bottom]".' +
+                ORIENTATION_RULES
         ),
     sign: signSchema
         .optional()

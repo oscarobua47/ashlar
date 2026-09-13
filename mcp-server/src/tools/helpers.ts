@@ -73,9 +73,11 @@ export async function runToolContent(
  * Logs one stderr line per successful tool call with the size of what was
  * returned and a rough token estimate, so users can see what each call costs
  * the model: text at ~4 characters per token, images at width*height/750
- * (the documented Claude image formula). Estimates only.
+ * (the documented Claude image formula). Estimates only. Set MC_LOG_USAGE=0
+ * to silence these lines.
  */
 function logUsage(name: string, startedAt: number, content: ContentBlock[]): void {
+    if (process.env.MC_LOG_USAGE === "0") return;
     const parts: string[] = [];
     let tokens = 0;
     for (const block of content) {

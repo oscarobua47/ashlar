@@ -112,6 +112,7 @@ Environment variables (always required):
 
 Environment variables (optional, always read):
   MC_REQUEST_TIMEOUT_MS   Per-request timeout to the plugin, in milliseconds. Default: 600000
+  MC_LOG_USAGE            Set to 0 to stop logging per-call size/token estimates to stderr. Default: on
 
 Environment variables (--http mode only):
   MCP_HTTP_HOST           Interface to bind. Default: 127.0.0.1
