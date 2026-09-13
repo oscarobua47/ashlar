@@ -27,6 +27,10 @@ export class PluginClient {
     private readonly defaultTimeoutMs: number;
     private readonly connectWaitMs: number;
 
+    // Included in every log line below so the two stdio instances a client
+    // like Claude Desktop can start per configured server are distinguishable.
+    private readonly logTag = `[plugin-client ${process.pid}]`;
+
     private ws: WebSocket | null = null;
     private authenticated = false;
     private closed = false;
@@ -137,19 +141,19 @@ export class PluginClient {
 
     private connect(): void {
         if (this.closed) return;
-        console.error(`[plugin-client] connecting to ${this.url}`);
+        console.error(`${this.logTag} connecting to ${this.url}`);
         let ws: WebSocket;
         try {
             ws = new WebSocket(this.url);
         } catch (err) {
-            console.error(`[plugin-client] failed to open connection: ${(err as Error).message}`);
+            console.error(`${this.logTag} failed to open connection: ${(err as Error).message}`);
             this.scheduleReconnect();
             return;
         }
         this.ws = ws;
 
         ws.addEventListener("open", () => {
-            console.error("[plugin-client] connected, authenticating");
+            console.error(`${this.logTag} connected, authenticating`);
             this.sendRaw({ id: "auth-1", method: "auth", params: { token: this.token } });
         });
 
@@ -158,7 +162,7 @@ export class PluginClient {
         });
 
         ws.addEventListener("close", ev => {
-            console.error(`[plugin-client] disconnected (code=${ev.code}${ev.reason ? `, reason=${ev.reason}` : ""})`);
+            console.error(`${this.logTag} disconnected (code=${ev.code}${ev.reason ? `, reason=${ev.reason}` : ""})`);
             this.handleDisconnect();
         });
 
@@ -193,7 +197,7 @@ export class PluginClient {
         try {
             msg = JSON.parse(raw) as Record<string, unknown>;
         } catch {
-            console.error(`[plugin-client] received non-JSON message, ignoring`);
+            console.error(`${this.logTag} received non-JSON message, ignoring`);
             return;
         }
 
@@ -206,12 +210,12 @@ export class PluginClient {
             if (msg.ok) {
                 this.authenticated = true;
                 this.reconnectDelayMs = 1000;
-                console.error("[plugin-client] authenticated");
+                console.error(`${this.logTag} authenticated`);
                 this.flushConnectWaiters();
             } else {
                 const error = msg.error as { code?: string; message?: string } | undefined;
                 console.error(
-                    `[plugin-client] authentication failed: ${error?.code ?? "UNKNOWN"} ${error?.message ?? ""}`
+                    `${this.logTag} authentication failed: ${error?.code ?? "UNKNOWN"} ${error?.message ?? ""}`
                 );
             }
             return;
@@ -237,7 +241,7 @@ export class PluginClient {
         const last = this.lastProgressLogAt.get(id) ?? 0;
         if (now - last >= 2000) {
             this.lastProgressLogAt.set(id, now);
-            console.error(`[plugin-client] progress ${id}: ${msg.done}/${msg.total}`);
+            console.error(`${this.logTag} progress ${id}: ${msg.done}/${msg.total}`);
         }
     }
 }

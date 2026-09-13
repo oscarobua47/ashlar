@@ -8,6 +8,6 @@ import { buildServer } from "../server.js";
 /** Serves MCP over stdio. All logging in this mode must go to stderr (stdout is the JSON-RPC channel). */
 export function startStdio(client: PluginClient): StdioServerHandle {
     const handle = serveStdio(() => buildServer(client));
-    console.error("mc-ai-builder-mcp: serving over stdio");
+    console.error(`mc-ai-builder-mcp[${process.pid}]: serving over stdio`);
     return handle;
 }

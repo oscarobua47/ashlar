@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// End-to-end verification script (plan.md section 4.5 item 2). Spawns the
+// End-to-end verification script (plan.md section 4.5.2/4.5.3). Spawns the
 // built dist/cli.js in --stdio mode as a real MCP client would, and drives
 // it through every mc_* tool against a running plugin test server. Prints
 // each tool's text output verbatim so it can be pasted into a verification
-// report.
+// report. Also spawns a second dist/cli.js in --http mode to check the
+// Authorization-header and token-in-path authentication paths.
 //
 // Usage:
 //   cd mcp-server && npm run build
@@ -13,6 +14,7 @@
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
@@ -22,6 +24,11 @@ const distCli = path.join(__dirname, "..", "dist", "cli.js");
 
 const MC_PLUGIN_URL = process.env.MC_PLUGIN_URL ?? "ws://127.0.0.1:8765";
 const MC_PLUGIN_TOKEN = process.env.MC_PLUGIN_TOKEN ?? "24e77d575101fd68043ba698c67bf45d";
+// Distinct from the plugin server's default port 3000, since a developer's
+// machine commonly already has another mc-ai-builder-mcp --http instance
+// bound there (plan.md 4.5.2 HTTP checks).
+const MCP_HTTP_PORT = process.env.MCP_HTTP_PORT ?? "3100";
+const MCP_HTTP_TOKEN = process.env.MCP_HTTP_TOKEN ?? "http-test-token-0123456789";
 
 let failures = 0;
 
@@ -42,6 +49,89 @@ function textOf(result) {
     return result.content.map(c => (c.type === "text" ? c.text : `[${c.type}]`)).join("\n");
 }
 
+// A successful POST /mcp response body is SSE-framed ("event: message\ndata:
+// {...}\n\n") even with responseMode "json" configured server-side, so pull
+// the JSON-RPC payload out of the last "data:" line rather than parsing the
+// body directly as JSON.
+function parseMcpResponseBody(text) {
+    const dataLines = text
+        .split("\n")
+        .filter(line => line.startsWith("data: "))
+        .map(line => line.slice("data: ".length));
+    const payload = dataLines.length > 0 ? dataLines[dataLines.length - 1] : text;
+    return JSON.parse(payload);
+}
+
+// --- HTTP mode: bearer header vs. token-in-path (plan.md 4.5.2) -----------
+async function runHttpChecks() {
+    section("HTTP mode (Authorization header vs. token-in-path)");
+
+    const child = spawn(process.execPath, [distCli, "--http"], {
+        env: {
+            ...getDefaultEnvironment(),
+            MC_PLUGIN_URL,
+            MC_PLUGIN_TOKEN,
+            MCP_HTTP_TOKEN,
+            MCP_HTTP_PORT
+        },
+        stdio: ["ignore", "ignore", "pipe"]
+    });
+
+    let stderrBuf = "";
+    const ready = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("timed out waiting for the HTTP server to start")), 10_000);
+        child.stderr.on("data", chunk => {
+            stderrBuf += chunk.toString();
+            if (stderrBuf.includes("serving over HTTP")) {
+                clearTimeout(timer);
+                resolve();
+            }
+        });
+        child.on("exit", code => {
+            clearTimeout(timer);
+            reject(new Error(`HTTP server process exited early (code=${code}); stderr: ${stderrBuf}`));
+        });
+    });
+
+    try {
+        await ready;
+
+        const base = `http://127.0.0.1:${MCP_HTTP_PORT}`;
+        const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+        const jsonHeaders = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+
+        const withHeader = await fetch(`${base}/mcp`, {
+            method: "POST",
+            headers: { ...jsonHeaders, authorization: `Bearer ${MCP_HTTP_TOKEN}` },
+            body
+        });
+        await withHeader.text();
+        check(`/mcp with correct Authorization header -> 200 (got ${withHeader.status})`, withHeader.status === 200);
+
+        const noHeader = await fetch(`${base}/mcp`, { method: "POST", headers: jsonHeaders, body });
+        await noHeader.text();
+        check(`/mcp with no header -> 401 (got ${noHeader.status})`, noHeader.status === 401);
+
+        const pathToken = await fetch(`${base}/mcp/${MCP_HTTP_TOKEN}`, { method: "POST", headers: jsonHeaders, body });
+        const pathTokenText = await pathToken.text();
+        check(`/mcp/<token> with no header -> 200 (got ${pathToken.status})`, pathToken.status === 200);
+        let toolCount = null;
+        try {
+            toolCount = parseMcpResponseBody(pathTokenText)?.result?.tools?.length ?? null;
+        } catch {
+            // reported as a failed check below
+        }
+        check(`/mcp/<token> tools/list response lists 8 tools (got ${toolCount})`, toolCount === 8);
+
+        const wrongToken = await fetch(`${base}/mcp/wrong-token`, { method: "POST", headers: jsonHeaders, body });
+        await wrongToken.text();
+        check(`/mcp/wrong-token -> 401 (got ${wrongToken.status})`, wrongToken.status === 401);
+    } finally {
+        child.kill("SIGTERM");
+        await new Promise(resolve => child.once("exit", resolve));
+    }
+}
+
 async function main() {
     const transport = new StdioClientTransport({
         command: process.execPath,
@@ -59,8 +149,17 @@ async function main() {
     // --- tools/list -------------------------------------------------------
     section("tools/list");
     const { tools } = await client.listTools();
-    check("exactly 7 tools", tools.length === 7);
-    const expectedNames = ["mc_status", "mc_survey", "mc_build", "mc_inspect", "mc_snapshot", "mc_restore", "mc_command"];
+    check("exactly 8 tools", tools.length === 8);
+    const expectedNames = [
+        "mc_status",
+        "mc_players",
+        "mc_survey",
+        "mc_build",
+        "mc_inspect",
+        "mc_snapshot",
+        "mc_restore",
+        "mc_command"
+    ];
     for (const name of expectedNames) {
         check(`tool "${name}" present`, tools.some(t => t.name === name));
     }
@@ -80,6 +179,14 @@ async function main() {
     console.log(textOf(status));
     check("mc_status not an error", !status.isError);
     check("mc_status mentions plugin version", /Plugin version:/.test(textOf(status)));
+
+    // --- mc_players -----------------------------------------------------
+    section("mc_players");
+    const playersResult = await client.callTool({ name: "mc_players", arguments: {} });
+    const playersText = textOf(playersResult);
+    console.log(playersText);
+    check("mc_players not an error", !playersResult.isError);
+    check('mc_players reports "No players online." on the empty test server', playersText.trim() === "No players online.");
 
     // --- mc_build: platform + hollow tower + stairs, with snapshot ---------
     section('mc_build (platform + hollow tower + stairs, snapshot:true)');
@@ -196,6 +303,13 @@ async function main() {
     check('invalid-block message contains "not a valid block state"', /not a valid block state/.test(textOf(badBlock)));
 
     await client.close();
+
+    try {
+        await runHttpChecks();
+    } catch (err) {
+        console.log(`  [FAIL] HTTP checks: ${err.message}`);
+        failures++;
+    }
 
     console.log(`\n${"=".repeat(80)}`);
     if (failures > 0) {

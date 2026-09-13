@@ -9,6 +9,7 @@ import dev.mcaibuilder.plugin.engine.TickBudgetExecutor;
 import dev.mcaibuilder.plugin.handler.FillBatchHandler;
 import dev.mcaibuilder.plugin.handler.HealthHandler;
 import dev.mcaibuilder.plugin.handler.HeightmapHandler;
+import dev.mcaibuilder.plugin.handler.PlayersHandler;
 import dev.mcaibuilder.plugin.handler.ReadRegionHandler;
 import dev.mcaibuilder.plugin.handler.RunCommandHandler;
 import dev.mcaibuilder.plugin.handler.SetBlocksHandler;
@@ -30,7 +31,8 @@ import java.util.concurrent.CompletableFuture;
  * added the world-mutating core ({@code fill_batch}/{@code set_blocks});
  * Step 3 rounds out v1 with the read-only and safety-net methods:
  * {@code heightmap}, {@code read_region}, {@code snapshot}/{@code restore}/
- * {@code list_snapshots}, and {@code run_command}.
+ * {@code list_snapshots}, and {@code run_command}. Step 4.5 adds the
+ * player-domain read-only method {@code players}.
  */
 public final class McAiBuilderPlugin extends JavaPlugin {
 
@@ -86,6 +88,7 @@ public final class McAiBuilderPlugin extends JavaPlugin {
         dispatcher.register("restore", snapshotHandler.restore());
         dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
         dispatcher.register("run_command", new RunCommandHandler(config));
+        dispatcher.register("players", new PlayersHandler());
 
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());
