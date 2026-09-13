@@ -63,7 +63,7 @@ export function registerMcSnapshot(server: McpServer, client: PluginClient): voi
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
         },
         async ({ action, world, from, to, label }) => {
-            return runTool(client, async () => {
+            return runTool(client, "mc_snapshot", async () => {
                 if ((action ?? "create") === "list") {
                     const result = (await client.request("list_snapshots", {})) as ListSnapshotsResult;
                     if (result.snapshots.length === 0) {

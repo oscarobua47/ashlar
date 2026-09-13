@@ -39,10 +39,17 @@ const inputSchema = z.object({
                 "SOLID_OR_LIQUID: highest solid or liquid block (a river reads as its water surface). " +
                 "SOLID_OR_LIQUID_NO_LEAVES (default): same as SOLID_OR_LIQUID but ignores leaves, useful for finding " +
                 "ground level under a forest canopy. ANY: highest non-air block including leaves and snow layers."
+        ),
+    matrix: z
+        .boolean()
+        .optional()
+        .describe(
+            "Whether to include the numeric height matrix (one number per block, about one token each). " +
+                "Default: included only for areas up to 40x40 (1600 cells). Set true when you need exact heights for a larger area."
         )
 });
 
-const DESCRIPTION = `Surveys terrain by reading surface height over a rectangular x/z area and rendering it as an ASCII relief map so an AI can form spatial intuition about the ground before building. Internally calls the plugin's "heightmap" RPC twice in parallel (once with the requested \`type\`, once with SOLID) and compares the results to mark cells covered by water or lava, since one heightmap call alone cannot distinguish "flat ground" from "flat water". The response includes a one-line summary (area, min/max/median height, dominant surface materials, and the largest flat buildable zone found), an ASCII relief map with a coordinate ruler and height legend, and the numeric height matrix for precise calculations. Areas wider than 80 blocks or deeper than 60 are downsampled (each character then represents a step x step block, noted in the output) so the map always fits on screen.
+const DESCRIPTION = `Surveys terrain by reading surface height over a rectangular x/z area and rendering it as an ASCII relief map so an AI can form spatial intuition about the ground before building. Internally calls the plugin's "heightmap" RPC twice in parallel (once with the requested \`type\`, once with SOLID) and compares the results to mark cells covered by water or lava, since one heightmap call alone cannot distinguish "flat ground" from "flat water". The response includes a one-line summary (area, min/max/median height, dominant surface materials, and the largest flat buildable zone found), an ASCII relief map with a coordinate ruler and height legend, and, for areas up to 40x40, the numeric height matrix for precise calculations (larger areas omit it unless \`matrix: true\`, since it costs about one token per block). Areas wider than 80 blocks or deeper than 60 are downsampled (each character then represents a step x step block, noted in the output) so the map always fits on screen.
 
 WHEN TO USE: before any nontrivial build, to find a flat spot, see where water/lava is, and pick a sensible y level, rather than guessing coordinates. Also useful mid-project to check terrain outside the current build area, or to answer "what does the land around x,z look like".
 
@@ -61,8 +68,8 @@ export function registerMcSurvey(server: McpServer, client: PluginClient): void 
             inputSchema,
             annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
         },
-        async ({ world, from, to, type }) => {
-            return runTool(client, async () => {
+        async ({ world, from, to, type, matrix }) => {
+            return runTool(client, "mc_survey", async () => {
                 const [x1raw, z1raw] = from;
                 const [x2raw, z2raw] = to;
                 const x1 = Math.min(x1raw, x2raw);
@@ -93,7 +100,8 @@ export function registerMcSurvey(server: McpServer, client: PluginClient): void 
                     to: [x2, z2],
                     heights: requested.heights,
                     liquid,
-                    surface: requested.surface
+                    surface: requested.surface,
+                    matrix
                 });
             });
         }

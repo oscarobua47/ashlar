@@ -150,7 +150,7 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
         },
         async ({ world, fills, blocks, snapshot, connect }) => {
-            return runTool(client, async () => {
+            return runTool(client, "mc_build", async () => {
                 const fillList = fills ?? [];
                 const blockList = blocks ?? [];
                 const lines: string[] = [];

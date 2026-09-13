@@ -52,7 +52,7 @@ export function registerMcPlayers(server: McpServer, client: PluginClient): void
             annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
         },
         async () => {
-            return runTool(client, async () => {
+            return runTool(client, "mc_players", async () => {
                 const result = (await client.request("players", {})) as PlayersResult;
                 if (result.count === 0) {
                     return "No players online.";

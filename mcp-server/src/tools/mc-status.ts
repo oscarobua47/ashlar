@@ -35,7 +35,7 @@ export function registerMcStatus(server: McpServer, client: PluginClient): void 
             annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
         },
         async () => {
-            return runTool(client, async () => {
+            return runTool(client, "mc_status", async () => {
                 const result = (await client.request("health", {})) as HealthResult;
                 const connLine = client.isConnected()
                     ? "MCP <-> plugin connection: up (authenticated)."

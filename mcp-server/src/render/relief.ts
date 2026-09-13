@@ -19,7 +19,17 @@ export interface ReliefInput {
     liquid: boolean[][];
     /** surface material id -> count, as returned by the plugin's heightmap RPC */
     surface: Record<string, number>;
+    /**
+     * Whether to append the numeric height matrix. Defaults to "only when
+     * the area is at most MATRIX_AUTO_CELLS cells": the matrix costs about
+     * one token per cell, so a 60x60 survey would otherwise spend ~3,600
+     * tokens on numbers the model rarely needs.
+     */
+    matrix?: boolean;
 }
+
+/** Areas up to this many cells get the numeric matrix by default (40x40). */
+export const MATRIX_AUTO_CELLS = 1600;
 
 export interface LegendEntry {
     char: string;
@@ -260,7 +270,10 @@ export function renderRelief(input: ReliefInput): string {
     const downsampleNote =
         step > 1 ? [`Downsampled: 1 char = ${step}x${step} blocks (median height per cell).`, ""] : [];
 
-    const matrixLines = renderMatrix(heights, x1, z1, step);
+    const includeMatrix = input.matrix ?? width * depth <= MATRIX_AUTO_CELLS;
+    const matrixLines = includeMatrix
+        ? renderMatrix(heights, x1, z1, step)
+        : [`Height matrix omitted for this ${width}x${depth} area (${width * depth} cells); pass matrix: true if you need exact per-block heights, or survey a smaller area.`];
 
     return [summary, "", ...downsampleNote, ...mapLines, "", `Legend: ${legendLine}`, "", ...matrixLines].join("\n");
 }

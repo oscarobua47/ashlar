@@ -38,7 +38,7 @@ export function registerMcRestore(server: McpServer, client: PluginClient): void
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
         },
         async ({ id }) => {
-            return runTool(client, async () => {
+            return runTool(client, "mc_restore", async () => {
                 const result = (await client.request("restore", { id })) as RestoreResult;
                 return `Restored snapshot ${result.id}: ${result.restored}/${result.volume} blocks changed in ${result.elapsedMs}ms.`;
             });

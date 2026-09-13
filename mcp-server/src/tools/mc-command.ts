@@ -40,7 +40,7 @@ export function registerMcCommand(server: McpServer, client: PluginClient): void
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
         },
         async ({ command }) => {
-            return runTool(client, async () => {
+            return runTool(client, "mc_command", async () => {
                 const result = (await client.request("run_command", { command })) as RunCommandResult;
                 const lines: string[] = [];
                 lines.push(result.output.length > 0 ? result.output.join("\n") : "(command produced no feedback)");

@@ -29,9 +29,11 @@ export function textResult(text: string): ToolTextResult {
  * suggested next step, anything else falls back to its message. Every
  * mc_* tool handler is a thin wrapper around this.
  */
-export async function runTool(client: PluginClient, body: () => Promise<string>): Promise<ToolTextResult> {
+export async function runTool(client: PluginClient, name: string, body: () => Promise<string>): Promise<ToolTextResult> {
+    const startedAt = Date.now();
     try {
         const text = await body();
+        logUsage(name, startedAt, [{ type: "text", text }]);
         return textResult(text);
     } catch (err) {
         if (err instanceof PluginError) {
@@ -50,10 +52,13 @@ export async function runTool(client: PluginClient, body: () => Promise<string>)
  */
 export async function runToolContent(
     client: PluginClient,
+    name: string,
     body: () => Promise<ContentBlock[]>
 ): Promise<ToolContentResult> {
+    const startedAt = Date.now();
     try {
         const content = await body();
+        logUsage(name, startedAt, content);
         return { content };
     } catch (err) {
         if (err instanceof PluginError) {
@@ -62,4 +67,36 @@ export async function runToolContent(
         const message = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text", text: message }], isError: true };
     }
+}
+
+/**
+ * Logs one stderr line per successful tool call with the size of what was
+ * returned and a rough token estimate, so users can see what each call costs
+ * the model: text at ~4 characters per token, images at width*height/750
+ * (the documented Claude image formula). Estimates only.
+ */
+function logUsage(name: string, startedAt: number, content: ContentBlock[]): void {
+    const parts: string[] = [];
+    let tokens = 0;
+    for (const block of content) {
+        if (block.type === "text") {
+            const t = Math.ceil(block.text.length / 4);
+            tokens += t;
+            parts.push(`${block.text.length} chars (~${t} tokens)`);
+        } else if (block.type === "image") {
+            const dims = pngDimensions(block.data);
+            const t = dims ? Math.ceil((dims.width * dims.height) / 750) : 0;
+            tokens += t;
+            parts.push(dims ? `image ${dims.width}x${dims.height} (~${t} tokens)` : "image (size unknown)");
+        }
+    }
+    const elapsedMs = Date.now() - startedAt;
+    console.error(`[tool ${process.pid}] ${name}: ${elapsedMs} ms, ${parts.join(" + ")} = ~${tokens} tokens`);
+}
+
+/** Reads width/height from a base64 PNG's IHDR chunk without decoding the image. */
+function pngDimensions(base64: string): { width: number; height: number } | null {
+    const head = Buffer.from(base64.slice(0, 64), "base64");
+    if (head.length < 24 || head.readUInt32BE(12) !== 0x49484452) return null; // "IHDR"
+    return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
 }

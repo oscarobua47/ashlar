@@ -82,7 +82,7 @@ export function registerMcRender(server: McpServer, client: PluginClient): void 
             annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
         },
         async ({ world, from, to, view, slice, scale, grid }) => {
-            return runToolContent(client, async () => {
+            return runToolContent(client, "mc_render", async () => {
                 const [x1, y1, z1] = [Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.min(from[2], to[2])];
                 const [x2, y2, z2] = [Math.max(from[0], to[0]), Math.max(from[1], to[1]), Math.max(from[2], to[2])];
                 const volume = (x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1);
