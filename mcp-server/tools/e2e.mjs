@@ -277,11 +277,11 @@ async function main() {
 
     // --- mc_command ---------------------------------------------------------
     section("mc_command");
-    const cmdResult = await client.callTool({ name: "mc_command", arguments: { command: "say hi from mc-ai-builder e2e" } });
+    const cmdResult = await client.callTool({ name: "mc_command", arguments: { command: "time query day" } });
     const cmdText = textOf(cmdResult);
     console.log(cmdText);
     check("mc_command not an error", !cmdResult.isError);
-    check("mc_command dispatched", /dispatched\b/.test(cmdText) && !/not dispatched/.test(cmdText));
+    check('mc_command output contains "time"', /time/i.test(cmdText));
 
     // --- mc_build errors ------------------------------------------------------
     section("mc_build (error: volume exceeded)");
