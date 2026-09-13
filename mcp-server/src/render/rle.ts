@@ -6,12 +6,24 @@
  * dependency, so it is unit-testable in isolation.
  */
 
+/** One {@code read_region} sign entry (Fix 3, step4d): a sign block's text/appearance, read from its block entity. */
+export interface SignEntry {
+    pos: [number, number, number];
+    block: string;
+    front: string[];
+    back: string[];
+    waxed: boolean;
+}
+
 export interface RegionDataJson {
     bounds: { from: [number, number, number]; to: [number, number, number] };
     order: string;
     palette: string[];
     runs: Array<[number, number]>;
     volume: number;
+    /** Sign block-entity text/appearance for every sign in the region (Fix 3, step4d), capped server-side. */
+    signs?: SignEntry[];
+    signsTruncated?: boolean;
 }
 
 export interface DecodedRegion {

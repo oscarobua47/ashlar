@@ -80,3 +80,10 @@ run-command:
   # enabled. This is an escape hatch with full console privileges; disable
   # it if you do not need it.
   enabled: true
+
+engine:
+  # Whether fill_batch/set_blocks run a shape-only connection pass after
+  # writing, so glass panes, fences, walls, iron bars and stairs connect to
+  # their neighbours like hand-placed blocks. Overridable per-request via
+  # "connect": false in a fill_batch/set_blocks call.
+  connect-blocks: true

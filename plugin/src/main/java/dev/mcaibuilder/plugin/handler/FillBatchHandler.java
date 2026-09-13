@@ -52,18 +52,19 @@ public final class FillBatchHandler implements RpcHandler {
             JsonArray opsArray = requireNonEmptyArray(params, "ops");
 
             return MainThread.call(() -> new int[]{world.getMinHeight(), world.getMaxHeight()})
-                    .thenCompose(heights -> startFill(validator, world, opsArray, heights, session, id));
+                    .thenCompose(heights -> startFill(validator, world, opsArray, params, heights, session, id));
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);
         }
     }
 
     private CompletableFuture<JsonElement> startFill(RequestValidator validator, World world, JsonArray opsArray,
-            int[] heights, ClientSession session, JsonElement id) {
+            JsonObject params, int[] heights, ClientSession session, JsonElement id) {
         try {
             List<FillOp> ops = validator.validateFillOps(opsArray, heights[0], heights[1]);
             Region region = boundingRegion(ops);
-            FillTask task = new FillTask(region, ops, world);
+            boolean connect = validator.resolveConnect(params);
+            FillTask task = new FillTask(region, ops, world, connect);
             return executor.submit(task, session, id);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);

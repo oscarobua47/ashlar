@@ -43,18 +43,19 @@ public final class SetBlocksHandler implements RpcHandler {
             JsonArray blocksArray = requireNonEmptyArray(params, "blocks");
 
             return MainThread.call(() -> new int[]{world.getMinHeight(), world.getMaxHeight()})
-                    .thenCompose(heights -> startSet(validator, world, blocksArray, heights, session, id));
+                    .thenCompose(heights -> startSet(validator, world, blocksArray, params, heights, session, id));
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);
         }
     }
 
     private CompletableFuture<JsonElement> startSet(RequestValidator validator, World world, JsonArray blocksArray,
-            int[] heights, ClientSession session, JsonElement id) {
+            JsonObject params, int[] heights, ClientSession session, JsonElement id) {
         try {
             List<SparseOp> ops = validator.validateSparseOps(blocksArray, heights[0], heights[1]);
             Region region = boundingRegion(ops);
-            SparseTask task = new SparseTask(region, ops, world);
+            boolean connect = validator.resolveConnect(params);
+            SparseTask task = new SparseTask(region, ops, world, connect);
             return executor.submit(task, session, id);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);

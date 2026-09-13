@@ -19,7 +19,17 @@ public enum FillMode {
     /** Only write {@code block} to cells on the region's single-layer shell; interior is untouched. */
     OUTLINE,
     /** Write {@code block} on the shell and air in the interior. */
-    HOLLOW;
+    HOLLOW,
+    /**
+     * Write {@code block} only on the four vertical sides (x == minX || x ==
+     * maxX || z == minZ || z == maxZ), for every y in the region; the
+     * interior (including the floor and ceiling layers) is left untouched,
+     * unlike {@link #HOLLOW} which also clears the interior to air and, by
+     * sealing the top/bottom faces too, would flatten a room's floor and
+     * ceiling into solid blocks. Use {@code walls} for rooms and buildings,
+     * then add a floor and a roof with separate fills.
+     */
+    WALLS;
 
     /** Case-insensitive parse; blank/absent means the default ({@link #REPLACE}). */
     public static FillMode fromString(String raw) {

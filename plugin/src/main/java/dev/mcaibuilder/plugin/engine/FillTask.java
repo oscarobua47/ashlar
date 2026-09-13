@@ -9,6 +9,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -32,6 +33,8 @@ public final class FillTask extends BuildTask {
     private final List<FillOp> ops;
     private final World world;
     private final long[] opChanged;
+    private final List<int[]> connectablePositions = new ArrayList<>();
+    private final ConnectionPass connectionPass;
 
     private int opIndex = 0;
     private int cursorY;
@@ -39,11 +42,12 @@ public final class FillTask extends BuildTask {
     private int cursorX;
     private boolean cursorInitialized = false;
 
-    public FillTask(Region region, List<FillOp> ops, World world) {
+    public FillTask(Region region, List<FillOp> ops, World world, boolean connect) {
         super(region);
         this.ops = ops;
         this.world = world;
         this.opChanged = new long[ops.size()];
+        this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
     }
 
     @Override
@@ -88,7 +92,10 @@ public final class FillTask extends BuildTask {
             opIndex++;
             cursorInitialized = false;
         }
-        return true;
+        // Main cursor is done; spend any remaining tick budget on the connection
+        // pass (Fix 2, docs/prompts/step4d-prompt.md), resumable across ticks
+        // exactly like the main cursor above.
+        return connectionPass.step(deadlineNanos);
     }
 
     /**
@@ -108,6 +115,7 @@ public final class FillTask extends BuildTask {
                 case REPLACE, KEEP -> op.block();
                 case OUTLINE -> isShell ? op.block() : null;
                 case HOLLOW -> isShell ? op.block() : AIR;
+                case WALLS -> WallGeometry.isWallCell(x, z, r) ? op.block() : null;
             };
             if (target != null) {
                 Block block = world.getBlockAt(x, y, z);
@@ -119,9 +127,12 @@ public final class FillTask extends BuildTask {
                     block.setBlockData(target, false);
                     opChanged[opIndex]++;
                     addChanged(1);
+                    if (ConnectionPass.isConnectable(target)) {
+                        connectablePositions.add(new int[]{x, y, z});
+                    }
                 }
             }
-            // else: OUTLINE interior, not part of the shell, leave untouched.
+            // else: OUTLINE/WALLS cell outside the shape for this mode, leave untouched.
 
             advance(1);
             cursorX++;

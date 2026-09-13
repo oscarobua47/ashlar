@@ -3,7 +3,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
-import { decodeRegionData, type RegionDataJson } from "../render/rle.js";
+import { decodeRegionData, type RegionDataJson, type SignEntry } from "../render/rle.js";
 import { renderSlice, renderStats } from "../render/slice.js";
 import type { PluginClient } from "../plugin-client.js";
 import { runTool } from "./helpers.js";
@@ -70,11 +70,33 @@ export function registerMcInspect(server: McpServer, client: PluginClient): void
                 })) as ReadRegionResult;
                 const decoded = decodeRegionData(result);
 
-                if (slice) {
-                    return renderSlice(decoded, slice);
-                }
-                return renderStats(decoded, result.world ?? world ?? "(default)");
+                const body = slice ? renderSlice(decoded, slice) : renderStats(decoded, result.world ?? world ?? "(default)");
+                const signsSection = renderSigns(result.signs, result.signsTruncated);
+                return signsSection ? `${body}\n\n${signsSection}` : body;
             });
         }
     );
+}
+
+/**
+ * Renders the {@code Signs:} section (Fix 3, docs/prompts/step4d-prompt.md):
+ * one {@code x,y,z: "line1 | line2 | line3 | line4"} line per sign, using
+ * the front side's text. Returns {@code null} when there are no signs in
+ * the region, so mc_inspect output for a region with no signs is unchanged.
+ */
+function renderSigns(signs: SignEntry[] | undefined, truncated: boolean | undefined): string | null {
+    if (!signs || signs.length === 0) {
+        return null;
+    }
+    const lines = ["Signs:"];
+    for (const sign of signs) {
+        const [x, y, z] = sign.pos;
+        const hasFrontText = sign.front.some(line => line.length > 0);
+        const text = (hasFrontText ? sign.front : sign.back).join(" | ");
+        lines.push(`  ${x},${y},${z}: "${text}"`);
+    }
+    if (truncated) {
+        lines.push("  (more signs exist in this region than could be listed; narrow the from/to range to see them)");
+    }
+    return lines.join("\n");
 }

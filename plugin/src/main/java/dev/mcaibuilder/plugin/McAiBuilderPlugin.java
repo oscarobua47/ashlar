@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import dev.mcaibuilder.plugin.config.ConfigException;
 import dev.mcaibuilder.plugin.config.PluginConfig;
 import dev.mcaibuilder.plugin.engine.TickBudgetExecutor;
-import dev.mcaibuilder.plugin.handler.DebugReapplyHandler;
 import dev.mcaibuilder.plugin.handler.FillBatchHandler;
 import dev.mcaibuilder.plugin.handler.HealthHandler;
 import dev.mcaibuilder.plugin.handler.HeightmapHandler;
@@ -90,8 +89,6 @@ public final class McAiBuilderPlugin extends JavaPlugin {
         dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
         dispatcher.register("run_command", new RunCommandHandler(config));
         dispatcher.register("players", new PlayersHandler());
-        // TEMPORARY: step 4.7 Fix 2 experiment only; removed before the task finishes.
-        dispatcher.register("debug_reapply", new DebugReapplyHandler());
 
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());

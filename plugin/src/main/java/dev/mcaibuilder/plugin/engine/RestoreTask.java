@@ -7,6 +7,9 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Executes a {@code restore} request: replays a {@link RegionData}'s runs
  * back onto the world in the same {@code y,z,x} order they were encoded in
@@ -27,6 +30,8 @@ public final class RestoreTask extends BuildTask {
     private final World world;
     private final RegionData data;
     private final BlockData[] paletteBlocks;
+    private final List<int[]> connectablePositions = new ArrayList<>();
+    private final ConnectionPass connectionPass;
 
     private int runIndexCursor = 0;
     private int posInRun = 0;
@@ -35,11 +40,15 @@ public final class RestoreTask extends BuildTask {
     private int cursorZ;
     private boolean cursorInitialized = false;
 
-    public RestoreTask(Region region, World world, RegionData data, BlockData[] paletteBlocks) {
+    // Note: snapshots do not capture block-entity data (sign text among it),
+    // per plan.md/step4d-prompt.md Fix 3 - restoring sign text is v1.1. A
+    // restored sign block therefore comes back blank, same as before Fix 3.
+    public RestoreTask(Region region, World world, RegionData data, BlockData[] paletteBlocks, boolean connect) {
         super(region);
         this.world = world;
         this.data = data;
         this.paletteBlocks = paletteBlocks;
+        this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
     }
 
     @Override
@@ -73,6 +82,9 @@ public final class RestoreTask extends BuildTask {
                     // The only block-writing call allowed anywhere: never triggers physics.
                     block.setBlockData(target, false);
                     addChanged(1);
+                    if (ConnectionPass.isConnectable(target)) {
+                        connectablePositions.add(new int[]{cursorX, cursorY, cursorZ});
+                    }
                 }
                 advance(1);
                 posInRun++;
@@ -89,7 +101,9 @@ public final class RestoreTask extends BuildTask {
             posInRun = 0;
             runIndexCursor++;
         }
-        return true;
+        // Main cursor is done; spend any remaining tick budget on the connection
+        // pass (Fix 2), resumable across ticks exactly like the loop above.
+        return connectionPass.step(deadlineNanos);
     }
 
     /** Moves (x,y,z) to the next cell in y-outer/z-middle/x-inner order, matching the encoder's traversal. */

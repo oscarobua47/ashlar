@@ -21,7 +21,8 @@ public record PluginConfig(
         WorldConfig world,
         SnapshotConfig snapshot,
         LoggingConfig logging,
-        RunCommandConfig runCommand
+        RunCommandConfig runCommand,
+        EngineConfig engine
 ) {
 
     public record ServerConfig(String host, int port, String token, List<String> allowedIps) {
@@ -43,6 +44,10 @@ public record PluginConfig(
     }
 
     public record RunCommandConfig(boolean enabled) {
+    }
+
+    /** {@code connect-blocks}: whether the Fix 2 connection pass runs by default (step4d-prompt.md). */
+    public record EngineConfig(boolean connectBlocks) {
     }
 
     /** Empty allow-list means "allow all", per spec &sect;3.1. */
@@ -105,6 +110,7 @@ public record PluginConfig(
 
         boolean logOperations = fc.getBoolean("logging.log-operations", true);
         boolean runCommandEnabled = fc.getBoolean("run-command.enabled", true);
+        boolean connectBlocks = fc.getBoolean("engine.connect-blocks", true);
 
         return new PluginConfig(
                 new ServerConfig(host, port, token, List.copyOf(allowedIps)),
@@ -113,7 +119,8 @@ public record PluginConfig(
                         new WorldConfig.BuildRegion(buildRegionEnabled, minX, minZ, maxX, maxZ)),
                 new SnapshotConfig(snapshotEnabled, maxSnapshots, maxVolume),
                 new LoggingConfig(logOperations),
-                new RunCommandConfig(runCommandEnabled));
+                new RunCommandConfig(runCommandEnabled),
+                new EngineConfig(connectBlocks));
     }
 
     private static long positiveOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {

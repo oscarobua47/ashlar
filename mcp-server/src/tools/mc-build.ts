@@ -7,7 +7,7 @@ import { PluginError } from "../errors.js";
 import type { PluginClient } from "../plugin-client.js";
 import { runTool } from "./helpers.js";
 
-const fillModeEnum = z.enum(["replace", "keep", "outline", "hollow"]);
+const fillModeEnum = z.enum(["replace", "keep", "outline", "hollow", "walls"]);
 
 const fillOpSchema = z.object({
     from: z.tuple([z.number().int(), z.number().int(), z.number().int()]).describe("Inclusive [x, y, z] corner."),
@@ -24,8 +24,9 @@ const fillOpSchema = z.object({
     mode: fillModeEnum
         .optional()
         .describe(
-            'Fill mode: "replace" (default) overwrites everything in the box; "keep" only fills cells that are ' +
-                'currently air; "outline" places only the 1-block-thick shell; "hollow" places the shell and clears the interior to air.'
+            '"replace" (default) overwrites everything; "keep" only fills air; "outline" places only the 1-block shell on all six ' +
+                'faces; "hollow" places that shell and clears the inside; "walls" places only the four vertical sides (no floor or ceiling) ' +
+                'and leaves the inside untouched - use "walls" for rooms and buildings, then add a floor and a roof with separate fills.'
         ),
     filter: z
         .string()
@@ -36,6 +37,27 @@ const fillOpSchema = z.object({
         )
 });
 
+const signSchema = z.object({
+    front: z
+        .array(z.string().max(64))
+        .min(1)
+        .max(4)
+        .optional()
+        .describe('Up to 4 lines of text for the sign\'s front side, top to bottom. Missing lines are left blank. Each line max 64 characters.'),
+    back: z
+        .array(z.string().max(64))
+        .min(1)
+        .max(4)
+        .optional()
+        .describe('Up to 4 lines of text for the sign\'s back side, top to bottom. Missing lines are left blank. Each line max 64 characters.'),
+    color: z
+        .string()
+        .optional()
+        .describe('Dye color name for the text, e.g. "black" (default) or "red". Applies to whichever of front/back is given.'),
+    glowing: z.boolean().optional().describe("Whether the text has the glow-ink-sac glowing effect. Default false."),
+    waxed: z.boolean().optional().describe("Whether the sign is waxed (can no longer be edited by right-clicking with a dye). Default false.")
+});
+
 const sparseOpSchema = z.object({
     pos: z.tuple([z.number().int(), z.number().int(), z.number().int()]).describe("Absolute [x, y, z] position."),
     block: z
@@ -44,6 +66,12 @@ const sparseOpSchema = z.object({
         .describe(
             'Block state string in the "minecraft:" namespace, with properties for orientation where relevant, ' +
                 'e.g. "minecraft:oak_stairs[facing=north,half=bottom]".'
+        ),
+    sign: signSchema
+        .optional()
+        .describe(
+            'Sign text/appearance to write onto this entry\'s block, which must be a sign (block name ending in "_sign" or ' +
+                '"_hanging_sign"). At least one of front/back must be given.'
         )
 });
 
@@ -63,18 +91,26 @@ const inputSchema = z
             .optional()
             .describe(
                 "When true, snapshot the bounding box of all fills/blocks before building, so mc_restore can undo this call. Default: false."
+            ),
+        connect: z
+            .boolean()
+            .optional()
+            .describe(
+                "Whether connectable blocks (glass panes, fences, walls, iron bars, stairs, redstone wire) get a shape-only update " +
+                    "after placing so they connect to their neighbours. Default: true. Set false to skip this pass (e.g. for speed on a " +
+                    "very large batch, or to intentionally leave a disconnected placeholder shape)."
             )
     })
     .refine(v => (v.fills && v.fills.length > 0) || (v.blocks && v.blocks.length > 0), {
         message: '"fills" and/or "blocks" must be provided, with at least one non-empty'
     });
 
-const DESCRIPTION = `Places blocks in the Minecraft world in bulk. Accepts a list of cuboid fill operations and/or a list of individual block placements; one call can change up to 500,000 blocks. The server executes them asynchronously across ticks, so large builds do not lag players.
+const DESCRIPTION = `Places blocks in the Minecraft world in bulk: cuboid fill operations and/or individual block placements, up to 500,000 blocks per call. Executes asynchronously across ticks, so large builds do not lag players.
 
 WHEN TO USE: any task that places more than a handful of blocks - buildings, terrain shaping, clearing space, roads, walls. Prefer a few large \`fills\` over many small ones. Use \`blocks\` for details that need a specific orientation or state (stairs, doors, torches, signs): pass the full block state string, e.g. \`minecraft:oak_stairs[facing=north,half=bottom]\`.
 WHEN NOT TO USE: to read the world (use \`mc_survey\` before building and \`mc_inspect\` after); to run a server command (use \`mc_command\`).
 
-COORDINATES: X grows east, Z grows south, Y grows up. \`from\` and \`to\` are inclusive corners in any order. Volume = (x2-x1+1)*(y2-y1+1)*(z2-z1+1). Operations run in array order - put clearing (\`minecraft:air\`) before filling. \`mode\`: \`replace\` (default) overwrites everything; \`keep\` only fills air; \`outline\` places only the 1-block shell; \`hollow\` places the shell and clears the inside. \`filter\` restricts a fill to blocks matching that state (e.g. \`filter: "minecraft:air"\` builds only into empty space). Blocks are placed without physics updates: sand/gravel will not fall and water will not flow until something touches it.
+COORDINATES: X grows east, Z grows south, Y grows up. \`from\` and \`to\` are inclusive corners in any order. Volume = (x2-x1+1)*(y2-y1+1)*(z2-z1+1). Operations run in array order - put clearing (\`minecraft:air\`) before filling. \`mode\`: "replace" (default) overwrites everything; "keep" only fills air; "outline" places only the 1-block shell on all six faces; "hollow" places that shell and clears the inside; "walls" places only the four vertical sides (no floor or ceiling) and leaves the inside untouched - use "walls" for rooms and buildings, then add a floor and a roof with separate fills. \`filter\` restricts a fill to blocks matching that state (e.g. \`filter: "minecraft:air"\` builds only into empty space). Blocks are placed without physics updates (sand/gravel do not fall, water does not flow); connectable blocks such as glass panes, fences, walls, iron bars and stairs get a shape-only update afterwards so they connect to their neighbours like hand-placed blocks. To write a sign, pass a \`sign\` object on a \`blocks\` entry whose block is a sign (e.g. \`minecraft:oak_wall_sign[facing=south]\` for a sign on a wall, \`minecraft:oak_sign[rotation=8]\` for a standing sign).
 
 SIDE EFFECTS: permanently modifies the world. Set \`snapshot: true\` (recommended for anything you might want to undo) to save the affected region first; the response then includes a snapshot id for \`mc_restore\`. Limits per call: 500,000 blocks total, 256 chunks footprint, one world. Requests that exceed a limit are rejected before anything changes. Typical time: 50,000 blocks in about 1-3 seconds.`;
 
@@ -113,7 +149,7 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
             inputSchema,
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
         },
-        async ({ world, fills, blocks, snapshot }) => {
+        async ({ world, fills, blocks, snapshot, connect }) => {
             return runTool(client, async () => {
                 const fillList = fills ?? [];
                 const blockList = blocks ?? [];
@@ -144,7 +180,8 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
                 if (fillList.length > 0) {
                     const result = (await client.request("fill_batch", {
                         world,
-                        ops: fillList
+                        ops: fillList,
+                        connect
                     })) as FillBatchResult;
                     lines.push("Fills:");
                     for (const op of result.ops) {
@@ -159,7 +196,8 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
                 if (blockList.length > 0) {
                     const result = (await client.request("set_blocks", {
                         world,
-                        blocks: blockList
+                        blocks: blockList,
+                        connect
                     })) as SetBlocksResult;
                     lines.push(`Blocks: ${result.changed}/${result.requested} changed in ${result.elapsedMs}ms`);
                 }

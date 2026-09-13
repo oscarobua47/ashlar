@@ -8,11 +8,13 @@ import dev.mcaibuilder.plugin.config.PluginConfig;
 import dev.mcaibuilder.plugin.rpc.ErrorCode;
 import dev.mcaibuilder.plugin.rpc.RpcError;
 import org.bukkit.Bukkit;
+import org.bukkit.DyeColor;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Validates {@code fill_batch}/{@code set_blocks} requests entirely before
@@ -109,9 +111,92 @@ public final class RequestValidator {
             JsonObject entry = blocksArray.get(i).getAsJsonObject();
             BlockData block = BlockDataParser.parse(requireString(entry, "block"));
             int[] pos = positions.get(i);
-            result.add(new SparseOp(pos[0], pos[1], pos[2], block));
+            SignData sign = parseSign(entry, block);
+            result.add(new SparseOp(pos[0], pos[1], pos[2], block, sign));
         }
         return result;
+    }
+
+    /**
+     * Parses an entry's optional {@code "sign"} object (Fix 3,
+     * docs/prompts/step4d-prompt.md): {@code {"front":[...], "back":[...],
+     * "color":"black", "glowing":false, "waxed":true}}, all fields optional
+     * except at least one of {@code front}/{@code back}. Returns {@code
+     * null} when the entry has no {@code sign} field. Rejects {@code sign}
+     * outright when {@code block}'s material is not a sign, so a shape or
+     * material error here always rejects the whole {@code set_blocks}
+     * request up front, same as every other check in this class.
+     */
+    private SignData parseSign(JsonObject entry, BlockData block) {
+        if (!entry.has("sign") || entry.get("sign").isJsonNull()) {
+            return null;
+        }
+        if (!entry.get("sign").isJsonObject()) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"sign\" must be a JSON object");
+        }
+        JsonObject signObj = entry.getAsJsonObject("sign");
+        String materialName = block.getMaterial().name().toLowerCase(Locale.ROOT);
+        if (!materialName.endsWith("_sign") && !materialName.endsWith("_hanging_sign")) {
+            throw new RpcError(ErrorCode.BAD_REQUEST,
+                    "\"sign\" was given for block '" + materialName
+                            + "', which is not a sign (its material name must end with '_sign' or '_hanging_sign')");
+        }
+        List<String> front = optSignLines(signObj, "front");
+        List<String> back = optSignLines(signObj, "back");
+        if (front == null && back == null) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"sign\" must include at least one of \"front\"/\"back\"");
+        }
+        String color = optString(signObj, "color", null);
+        if (color != null) {
+            try {
+                DyeColor.valueOf(color.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new RpcError(ErrorCode.BAD_REQUEST, "\"sign.color\" is not a valid dye color: '" + color + "'");
+            }
+        }
+        boolean glowing = optBoolean(signObj, "glowing", false);
+        boolean waxed = optBoolean(signObj, "waxed", false);
+        return new SignData(front, back, color, glowing, waxed);
+    }
+
+    /** A sign side's lines: 1-4 strings, each &lt;= 64 characters, padded to 4 entries with {@code ""}. */
+    private static List<String> optSignLines(JsonObject signObj, String field) {
+        if (!signObj.has(field) || signObj.get(field).isJsonNull()) {
+            return null;
+        }
+        if (!signObj.get(field).isJsonArray()) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"sign." + field + "\" must be an array of 1-4 strings");
+        }
+        JsonArray arr = signObj.getAsJsonArray(field);
+        if (arr.isEmpty() || arr.size() > 4) {
+            throw new RpcError(ErrorCode.BAD_REQUEST,
+                    "\"sign." + field + "\" must have between 1 and 4 strings, got " + arr.size());
+        }
+        List<String> lines = new ArrayList<>(List.of("", "", "", ""));
+        for (int i = 0; i < arr.size(); i++) {
+            JsonElement el = arr.get(i);
+            if (!el.isJsonPrimitive() || !el.getAsJsonPrimitive().isString()) {
+                throw new RpcError(ErrorCode.BAD_REQUEST, "\"sign." + field + "\" must contain only strings");
+            }
+            String line = el.getAsString();
+            if (line.length() > 64) {
+                throw new RpcError(ErrorCode.BAD_REQUEST, "\"sign." + field + "[" + i + "]\" exceeds 64 characters");
+            }
+            lines.set(i, line);
+        }
+        return lines;
+    }
+
+    /**
+     * Resolves the {@code connect} request-level override for {@code
+     * fill_batch}/{@code set_blocks} (Fix 2, docs/prompts/step4d-prompt.md),
+     * defaulting to {@code engine.connect-blocks} when the request omits it.
+     */
+    public boolean resolveConnect(JsonObject params) {
+        if (!params.has("connect") || params.get("connect").isJsonNull()) {
+            return config.engine().connectBlocks();
+        }
+        return optBoolean(params, "connect", config.engine().connectBlocks());
     }
 
     /**
@@ -266,5 +351,16 @@ public final class RequestValidator {
             throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must be a string");
         }
         return e.getAsString();
+    }
+
+    private static boolean optBoolean(JsonObject obj, String field, boolean fallback) {
+        if (!obj.has(field) || obj.get(field).isJsonNull()) {
+            return fallback;
+        }
+        JsonElement e = obj.get(field);
+        if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isBoolean()) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must be a boolean");
+        }
+        return e.getAsBoolean();
     }
 }
