@@ -1,0 +1,75 @@
+# =============================================================================
+# MC AI Builder configuration
+#
+# SECURITY WARNING: the port opened below is a raw, plaintext WebSocket.
+# Anyone who can reach it and guess/steal the token can control this server.
+#   - Always set a long, random `server.token`.
+#   - Always fill in `server.allowed-ips` with the IP(s) of your MCP Server.
+#   - This plugin does NOT provide TLS. Put a reverse proxy (Caddy, Nginx,
+#     Cloudflare Tunnel, ...) in front of it to terminate TLS if the
+#     connection ever crosses an untrusted network. Do not expose this port
+#     directly to the public internet without one.
+# =============================================================================
+
+server:
+  # Interface to bind the WebSocket server to. "0.0.0.0" listens on all
+  # interfaces; use "127.0.0.1" if the MCP Server runs on the same host.
+  host: "0.0.0.0"
+
+  # TCP port for the WebSocket server. Pick an idle port on your host/panel.
+  port: 8765
+
+  # Required. Authentication token clients must present on connect.
+  # Leave empty and the plugin will refuse to start. Use a long random value
+  # (>= 16 characters), e.g. `openssl rand -hex 24`.
+  token: ""
+
+  # Optional allow-list of client IP addresses. Empty list = no restriction.
+  # Strongly recommended: set this to the IP of your MCP Server.
+  allowed-ips: []
+
+limits:
+  # Maximum number of blocks a single fill_batch/set_blocks request may touch.
+  max-blocks-per-operation: 500000
+
+  # Maximum region volume read_region may return in a single call.
+  max-read-volume: 200000
+
+  # Maximum milliseconds of work performed per server tick by build tasks.
+  tick-budget-ms: 20
+
+  # Maximum number of operations that may be queued at once.
+  max-queued-operations: 16
+
+world:
+  # Default world name used when a request omits "world".
+  default: "world"
+
+  # Whitelist of world names operations are allowed to touch.
+  allowed-worlds: ["world"]
+
+  # Optional bounding box that further restricts where builds may happen.
+  build-region:
+    enabled: false
+    min: {x: -1000, z: -1000}
+    max: {x: 1000, z: 1000}
+
+snapshot:
+  # Whether the snapshot/restore feature is available.
+  enabled: true
+
+  # Maximum number of snapshots kept on disk; oldest is evicted first.
+  max-snapshots: 20
+
+  # Maximum region volume that may be captured in a single snapshot.
+  max-volume: 200000
+
+logging:
+  # Whether every executed operation is appended to operations.log.
+  log-operations: true
+
+run-command:
+  # Whether the run_command RPC (arbitrary console command execution) is
+  # enabled. This is an escape hatch with full console privileges; disable
+  # it if you do not need it.
+  enabled: true

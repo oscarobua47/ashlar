@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Gradle
+plugin/.gradle/
+plugin/build/
+plugin/run/
+plugin/.kotlin/
+
+# Node
+mcp-server/node_modules/
+mcp-server/dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
