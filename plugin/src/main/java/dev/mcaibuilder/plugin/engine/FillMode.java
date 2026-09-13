@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package dev.mcaibuilder.plugin.engine;
+
+import dev.mcaibuilder.plugin.rpc.ErrorCode;
+import dev.mcaibuilder.plugin.rpc.RpcError;
+
+import java.util.Locale;
+
+/**
+ * How a {@code fill_batch} operation treats each cell in its region
+ * (spec &sect;3.3). {@code REPLACE} is the default when a request omits
+ * {@code mode}.
+ */
+public enum FillMode {
+    /** Unconditionally write {@code block} to every cell. */
+    REPLACE,
+    /** Only write {@code block} where the current block is air. */
+    KEEP,
+    /** Only write {@code block} to cells on the region's single-layer shell; interior is untouched. */
+    OUTLINE,
+    /** Write {@code block} on the shell and air in the interior. */
+    HOLLOW;
+
+    /** Case-insensitive parse; blank/absent means the default ({@link #REPLACE}). */
+    public static FillMode fromString(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return REPLACE;
+        }
+        try {
+            return FillMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "unknown fill mode: '" + raw + "'");
+        }
+    }
+}

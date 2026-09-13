@@ -12,6 +12,8 @@ import dev.mcaibuilder.plugin.net.ClientSession;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -25,10 +27,24 @@ public final class RpcDispatcher {
     private final Map<String, RpcHandler> handlers = new HashMap<>();
     private final OperationLog operationLog;
     private final Logger logger;
+    // Response sending and operations.log writes happen here instead of on the
+    // main thread (which completes fill_batch/set_blocks futures) or a
+    // java-websocket network thread (which completed simple futures like
+    // health/auth synchronously before this existed).
+    private final ExecutorService responseExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "mc-ai-builder-response");
+        t.setDaemon(true);
+        return t;
+    });
 
     public RpcDispatcher(OperationLog operationLog, Logger logger) {
         this.operationLog = operationLog;
         this.logger = logger;
+    }
+
+    /** Shuts down the response executor. Call from {@code onDisable}. */
+    public void shutdown() {
+        responseExecutor.shutdown();
     }
 
     public void register(String method, RpcHandler handler) {
@@ -71,7 +87,7 @@ public final class RpcDispatcher {
         }
 
         try {
-            handler.handle(session, request.params()).whenComplete((result, throwable) -> {
+            handler.handle(session, id, request.params()).whenCompleteAsync((result, throwable) -> {
                 if (throwable != null) {
                     Throwable cause = (throwable instanceof CompletionException && throwable.getCause() != null)
                             ? throwable.getCause()
@@ -85,7 +101,7 @@ public final class RpcDispatcher {
                 } else {
                     sendAndLog(session, RpcResponse.ok(id, result), method);
                 }
-            });
+            }, responseExecutor);
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Handler for method '" + method + "' threw synchronously", e);
             sendAndLog(session, RpcResponse.error(id, ErrorCode.INTERNAL, e.getClass().getName()), method);
@@ -100,6 +116,25 @@ public final class RpcDispatcher {
             logger.log(Level.WARNING, "Failed to send response to " + session.getRemoteIp(), e);
         }
         boolean ok = json.has("ok") && json.get("ok").getAsBoolean();
-        operationLog.append(session.getRemoteIp(), method, ok ? "ok" : "error", 0);
+        operationLog.append(session.getRemoteIp(), method, ok ? "ok" : "error", extractBlocksChanged(json));
+    }
+
+    /**
+     * Reads how many blocks a completed operation changed from its result
+     * object, if any: {@code fill_batch} reports {@code totalChanged},
+     * {@code set_blocks} reports {@code changed}. Anything else (health,
+     * auth, an error response) has no such field and logs 0.
+     */
+    private static long extractBlocksChanged(JsonObject responseJson) {
+        if (!responseJson.has("result") || !responseJson.get("result").isJsonObject()) {
+            return 0;
+        }
+        JsonObject result = responseJson.getAsJsonObject("result");
+        for (String field : new String[]{"totalChanged", "changed"}) {
+            if (result.has(field) && result.get(field).isJsonPrimitive() && result.get(field).getAsJsonPrimitive().isNumber()) {
+                return result.get(field).getAsLong();
+            }
+        }
+        return 0;
     }
 }

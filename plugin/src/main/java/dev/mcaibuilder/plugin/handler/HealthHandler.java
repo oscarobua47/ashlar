@@ -3,6 +3,7 @@ package dev.mcaibuilder.plugin.handler;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import dev.mcaibuilder.plugin.engine.TickBudgetExecutor;
 import dev.mcaibuilder.plugin.net.ClientSession;
 import dev.mcaibuilder.plugin.rpc.MainThread;
 import dev.mcaibuilder.plugin.rpc.RpcHandler;
@@ -22,23 +23,23 @@ public final class HealthHandler implements RpcHandler {
 
     private final JavaPlugin plugin;
     private final Instant startedAt;
+    private final TickBudgetExecutor executor;
 
-    public HealthHandler(JavaPlugin plugin, Instant startedAt) {
+    public HealthHandler(JavaPlugin plugin, Instant startedAt, TickBudgetExecutor executor) {
         this.plugin = plugin;
         this.startedAt = startedAt;
+        this.executor = executor;
     }
 
     @Override
-    public CompletableFuture<JsonElement> handle(ClientSession session, JsonObject params) {
+    public CompletableFuture<JsonElement> handle(ClientSession session, JsonElement id, JsonObject params) {
         return MainThread.call(() -> {
             JsonObject result = new JsonObject();
             result.addProperty("plugin", plugin.getPluginMeta().getVersion());
             result.addProperty("server", Bukkit.getName() + " " + Bukkit.getVersion());
             result.addProperty("minecraft", Bukkit.getBukkitVersion());
             result.addProperty("onlinePlayers", Bukkit.getOnlinePlayers().size());
-            // TODO(step2): report the real tick-budget executor queue length
-            // once the block execution engine exists.
-            result.addProperty("queuedOperations", 0);
+            result.addProperty("queuedOperations", executor.queuedCount());
             result.addProperty("uptimeSeconds", Duration.between(startedAt, Instant.now()).getSeconds());
             return (JsonElement) result;
         });
