@@ -29,6 +29,15 @@ dependencies {
     // If the compiler cannot resolve com.google.gson.*, uncomment the line
     // below - but nothing else should be added.
     // compileOnly("com.google.code.gson:gson:2.11.0")
+
+    // Test-only: paper-api is compileOnly and not on the test classpath, so
+    // RegionData's Gson usage needs an explicit test dependency (main gets it
+    // transitively through paper-api). JUnit 5 for the RegionData RLE codec
+    // unit tests (plan.md 3.1/3.3), which are pure Java with no Bukkit/paper-api
+    // dependency at all.
+    testImplementation("com.google.code.gson:gson:2.11.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.processResources {

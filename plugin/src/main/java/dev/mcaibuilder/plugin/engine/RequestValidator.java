@@ -63,6 +63,7 @@ public final class RequestValidator {
             checkYRange(region.minY(), region.maxY(), worldMinHeight, worldMaxHeight);
             long volume = region.volume();
             checkVolume(volume, "op volume");
+            checkChunkCount(region);
             totalVolume += volume;
             regions.add(region);
         }
@@ -86,13 +87,22 @@ public final class RequestValidator {
         checkVolume(blocksArray.size(), "block count");
 
         List<int[]> positions = new ArrayList<>(blocksArray.size());
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
         for (JsonElement el : blocksArray) {
             JsonObject entry = requireObject(el, "block entry");
             int[] pos = requireCoords(entry, "pos");
             checkBuildRegion(pos[0], pos[0], pos[2], pos[2]);
             checkYRange(pos[1], pos[1], worldMinHeight, worldMaxHeight);
             positions.add(pos);
+            minX = Math.min(minX, pos[0]);
+            minY = Math.min(minY, pos[1]);
+            minZ = Math.min(minZ, pos[2]);
+            maxX = Math.max(maxX, pos[0]);
+            maxY = Math.max(maxY, pos[1]);
+            maxZ = Math.max(maxZ, pos[2]);
         }
+        checkChunkCount(new Region(minX, minY, minZ, maxX, maxY, maxZ));
 
         List<SparseOp> result = new ArrayList<>(blocksArray.size());
         for (int i = 0; i < blocksArray.size(); i++) {
@@ -102,6 +112,47 @@ public final class RequestValidator {
             result.add(new SparseOp(pos[0], pos[1], pos[2], block));
         }
         return result;
+    }
+
+    /**
+     * Validates a {@code read_region}/{@code snapshot}-style request: a
+     * single inclusive {@code from}/{@code to} region checked against
+     * build-region, world Y range, a caller-supplied volume limit ({@code
+     * limits.max-read-volume} for read_region, {@code snapshot.max-volume}
+     * for snapshot) and {@code limits.max-chunks-per-operation}.
+     */
+    public Region validateReadRegion(JsonObject params, int worldMinHeight, int worldMaxHeight, long maxVolume) {
+        Region region = Region.of(requireCoords(params, "from"), requireCoords(params, "to"));
+        checkBuildRegion(region.minX(), region.maxX(), region.minZ(), region.maxZ());
+        checkYRange(region.minY(), region.maxY(), worldMinHeight, worldMaxHeight);
+        checkVolumeLimit(region.volume(), maxVolume, "region volume");
+        checkChunkCount(region);
+        return region;
+    }
+
+    /** The x/z area (inclusive) a validated {@code heightmap} request covers. */
+    public record HeightmapArea(int x1, int z1, int x2, int z2) {
+    }
+
+    /**
+     * Validates a {@code heightmap} request's {@code from}/{@code to} (each
+     * an {@code [x,z]} pair, spec &sect;3.2) against build-region, the area
+     * limit ({@code limits.max-read-volume}, reused per plan.md &sect;3.2) and
+     * {@code limits.max-chunks-per-operation} (treating the area as a region
+     * with a single y, plan.md &sect;2.6/&sect;3.1).
+     */
+    public HeightmapArea validateHeightmapArea(JsonObject params, long maxArea) {
+        int[] from = requireCoords2(params, "from");
+        int[] to = requireCoords2(params, "to");
+        int x1 = Math.min(from[0], to[0]);
+        int x2 = Math.max(from[0], to[0]);
+        int z1 = Math.min(from[1], to[1]);
+        int z2 = Math.max(from[1], to[1]);
+        checkBuildRegion(x1, x2, z1, z2);
+        long area = (long) (x2 - x1 + 1) * (z2 - z1 + 1);
+        checkVolumeLimit(area, maxArea, "heightmap area");
+        checkChunkCount(new Region(x1, 0, z1, x2, 0, z2));
+        return new HeightmapArea(x1, z1, x2, z2);
     }
 
     private void checkBuildRegion(int minX, int maxX, int minZ, int maxZ) {
@@ -128,9 +179,29 @@ public final class RequestValidator {
     }
 
     private void checkVolume(long volume, String what) {
-        long max = config.limits().maxBlocksPerOperation();
+        checkVolumeLimit(volume, config.limits().maxBlocksPerOperation(), what);
+    }
+
+    /** Shared volume-vs-limit check; callers pick the limit (different RPCs cap against different config values). */
+    public void checkVolumeLimit(long volume, long max, String what) {
         if (volume > max) {
             throw new RpcError(ErrorCode.VOLUME_EXCEEDED, what + " " + volume + " exceeds limit " + max);
+        }
+    }
+
+    /**
+     * Checks a region's x/z footprint against {@code limits.max-chunks-per-operation}
+     * (plan.md &sect;2.6/&sect;3.1). Applies to every operation that force-loads
+     * chunks: fill_batch (per op), set_blocks (bounding box of the sparse
+     * points), read_region, snapshot, restore (the snapshot's region), and
+     * heightmap (x/z area treated as a region with a single y).
+     */
+    public void checkChunkCount(Region region) {
+        long chunks = region.chunkCount();
+        long max = config.limits().maxChunksPerOperation();
+        if (chunks > max) {
+            throw new RpcError(ErrorCode.VOLUME_EXCEEDED,
+                    "operation spans " + chunks + " chunks, exceeding limit " + max);
         }
     }
 
@@ -151,6 +222,25 @@ public final class RequestValidator {
         }
         int[] result = new int[3];
         for (int i = 0; i < 3; i++) {
+            JsonElement e = arr.get(i);
+            if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
+                throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must contain only integers");
+            }
+            result[i] = e.getAsInt();
+        }
+        return result;
+    }
+
+    private static int[] requireCoords2(JsonObject obj, String field) {
+        if (!obj.has(field) || !obj.get(field).isJsonArray()) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must be an array of 2 integers");
+        }
+        JsonArray arr = obj.getAsJsonArray(field);
+        if (arr.size() != 2) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must have exactly 2 integers, got " + arr.size());
+        }
+        int[] result = new int[2];
+        for (int i = 0; i < 2; i++) {
             JsonElement e = arr.get(i);
             if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
                 throw new RpcError(ErrorCode.BAD_REQUEST, "\"" + field + "\" must contain only integers");

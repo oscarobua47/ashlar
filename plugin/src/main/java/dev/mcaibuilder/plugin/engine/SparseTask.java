@@ -58,11 +58,12 @@ public final class SparseTask extends BuildTask {
     }
 
     @Override
-    public JsonElement buildResult(long elapsedMs) {
+    public JsonElement buildResult(long queuedMs, long elapsedMs) {
         JsonObject result = new JsonObject();
         result.addProperty("world", world.getName());
         result.addProperty("requested", ops.size());
         result.addProperty("changed", changed());
+        result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
         return result;
     }

@@ -27,7 +27,8 @@ public record PluginConfig(
     public record ServerConfig(String host, int port, String token, List<String> allowedIps) {
     }
 
-    public record LimitsConfig(long maxBlocksPerOperation, long maxReadVolume, long tickBudgetMs, int maxQueuedOperations) {
+    public record LimitsConfig(long maxBlocksPerOperation, long maxReadVolume, long tickBudgetMs,
+            int maxQueuedOperations, int maxChunksPerOperation) {
     }
 
     public record WorldConfig(String defaultWorld, List<String> allowedWorlds, BuildRegion buildRegion) {
@@ -83,6 +84,7 @@ public record PluginConfig(
         long maxReadVolume = positiveOrDefault(fc, "limits.max-read-volume", 200_000, logger);
         long tickBudgetMs = positiveOrDefault(fc, "limits.tick-budget-ms", 20, logger);
         int maxQueuedOperations = (int) positiveOrDefault(fc, "limits.max-queued-operations", 16, logger);
+        int maxChunksPerOperation = (int) positiveOrDefault(fc, "limits.max-chunks-per-operation", 256, logger);
 
         String defaultWorld = fc.getString("world.default", "world");
         List<String> allowedWorlds = new ArrayList<>(fc.getStringList("world.allowed-worlds"));
@@ -106,7 +108,7 @@ public record PluginConfig(
 
         return new PluginConfig(
                 new ServerConfig(host, port, token, List.copyOf(allowedIps)),
-                new LimitsConfig(maxBlocksPerOperation, maxReadVolume, tickBudgetMs, maxQueuedOperations),
+                new LimitsConfig(maxBlocksPerOperation, maxReadVolume, tickBudgetMs, maxQueuedOperations, maxChunksPerOperation),
                 new WorldConfig(defaultWorld, List.copyOf(allowedWorlds),
                         new WorldConfig.BuildRegion(buildRegionEnabled, minX, minZ, maxX, maxZ)),
                 new SnapshotConfig(snapshotEnabled, maxSnapshots, maxVolume),

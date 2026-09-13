@@ -48,6 +48,7 @@ public final class TickBudgetExecutor {
     // helpers it calls, all of which run on the main thread.
     private QueuedTask current;
     private ChunkTicketGuard currentGuard;
+    private long currentStartedAtNanos;
 
     public TickBudgetExecutor(JavaPlugin plugin, PluginConfig config, Logger logger) {
         this.plugin = plugin;
@@ -152,6 +153,7 @@ public final class TickBudgetExecutor {
             return false;
         }
         current = next;
+        currentStartedAtNanos = System.nanoTime();
         try {
             currentGuard = new ChunkTicketGuard(next.task().world(), next.task().region(), plugin);
         } catch (Throwable t) {
@@ -166,9 +168,12 @@ public final class TickBudgetExecutor {
         QueuedTask qt = current;
         releaseGuard();
         current = null;
-        long elapsedMs = Math.max(0, (System.nanoTime() - qt.submittedAtNanos()) / 1_000_000L);
+        // queuedMs: submit -> task actually starting. elapsedMs: execution time only
+        // (plan.md 2.6 follow-up fix; previously elapsedMs included queue wait).
+        long queuedMs = Math.max(0, (currentStartedAtNanos - qt.submittedAtNanos()) / 1_000_000L);
+        long elapsedMs = Math.max(0, (System.nanoTime() - currentStartedAtNanos) / 1_000_000L);
         qt.task().reportCompletion();
-        qt.future().complete(qt.task().buildResult(elapsedMs));
+        qt.future().complete(qt.task().buildResult(queuedMs, elapsedMs));
     }
 
     private void failCurrent(Throwable cause) {

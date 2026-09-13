@@ -41,6 +41,17 @@ public record Region(int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
         return coords;
     }
 
+    /**
+     * Number of chunks (16x16 columns) this region's x/z footprint overlaps,
+     * computed in {@code long} to avoid overflow for pathological inputs.
+     * Cheaper than {@code chunkCoords().size()} since it needs no set.
+     */
+    public long chunkCount() {
+        long chunksX = (long) (maxX >> 4) - (minX >> 4) + 1;
+        long chunksZ = (long) (maxZ >> 4) - (minZ >> 4) + 1;
+        return chunksX * chunksZ;
+    }
+
     public record ChunkCoord(int cx, int cz) {
     }
 }

@@ -41,6 +41,13 @@ limits:
   # Maximum number of operations that may be queued at once.
   max-queued-operations: 16
 
+  # Maximum number of 16x16 chunk columns a single operation's bounding box
+  # may force-load. Applies to fill_batch, set_blocks, read_region, snapshot,
+  # restore (the snapshot's own region) and heightmap (x/z area, one y layer).
+  # Prevents a thin, wide shape (e.g. a 1x1x500000 fill) from force-loading
+  # thousands of chunks.
+  max-chunks-per-operation: 256
+
 world:
   # Default world name used when a request omits "world".
   default: "world"

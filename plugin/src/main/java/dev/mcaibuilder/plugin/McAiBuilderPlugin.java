@@ -8,11 +8,16 @@ import dev.mcaibuilder.plugin.config.PluginConfig;
 import dev.mcaibuilder.plugin.engine.TickBudgetExecutor;
 import dev.mcaibuilder.plugin.handler.FillBatchHandler;
 import dev.mcaibuilder.plugin.handler.HealthHandler;
+import dev.mcaibuilder.plugin.handler.HeightmapHandler;
+import dev.mcaibuilder.plugin.handler.ReadRegionHandler;
+import dev.mcaibuilder.plugin.handler.RunCommandHandler;
 import dev.mcaibuilder.plugin.handler.SetBlocksHandler;
+import dev.mcaibuilder.plugin.handler.SnapshotHandler;
 import dev.mcaibuilder.plugin.log.OperationLog;
 import dev.mcaibuilder.plugin.net.WsServer;
 import dev.mcaibuilder.plugin.rpc.MainThread;
 import dev.mcaibuilder.plugin.rpc.RpcDispatcher;
+import dev.mcaibuilder.plugin.snapshot.SnapshotStore;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.net.InetSocketAddress;
@@ -22,8 +27,10 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Entry point. Step 1 laid the network/auth/dispatch scaffolding; Step 2
- * adds the world-mutating core: {@code fill_batch}/{@code set_blocks},
- * backed by {@link TickBudgetExecutor}.
+ * added the world-mutating core ({@code fill_batch}/{@code set_blocks});
+ * Step 3 rounds out v1 with the read-only and safety-net methods:
+ * {@code heightmap}, {@code read_region}, {@code snapshot}/{@code restore}/
+ * {@code list_snapshots}, and {@code run_command}.
  */
 public final class McAiBuilderPlugin extends JavaPlugin {
 
@@ -31,6 +38,7 @@ public final class McAiBuilderPlugin extends JavaPlugin {
     private OperationLog operationLog;
     private RpcDispatcher dispatcher;
     private TickBudgetExecutor executor;
+    private SnapshotStore snapshotStore;
 
     @Override
     public void onEnable() {
@@ -58,6 +66,9 @@ public final class McAiBuilderPlugin extends JavaPlugin {
         // fill_batch/set_blocks handlers, and therefore this executor) already built.
         this.executor = new TickBudgetExecutor(this, config, getLogger());
 
+        this.snapshotStore = new SnapshotStore(dataFolder, config.snapshot().maxSnapshots(), getLogger());
+        snapshotStore.loadFromDisk();
+
         this.dispatcher = new RpcDispatcher(operationLog, getLogger());
         // Re-sending "auth" once already authenticated is idempotent (plan.md 1.2).
         dispatcher.register("auth", (session, id, params) -> {
@@ -68,6 +79,13 @@ public final class McAiBuilderPlugin extends JavaPlugin {
         dispatcher.register("health", new HealthHandler(this, startedAt, executor));
         dispatcher.register("fill_batch", new FillBatchHandler(config, executor));
         dispatcher.register("set_blocks", new SetBlocksHandler(config, executor));
+        dispatcher.register("heightmap", new HeightmapHandler(config, executor));
+        dispatcher.register("read_region", new ReadRegionHandler(config, executor));
+        SnapshotHandler snapshotHandler = new SnapshotHandler(config, executor, snapshotStore);
+        dispatcher.register("snapshot", snapshotHandler.snapshot());
+        dispatcher.register("restore", snapshotHandler.restore());
+        dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
+        dispatcher.register("run_command", new RunCommandHandler(config));
 
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());
@@ -92,6 +110,9 @@ public final class McAiBuilderPlugin extends JavaPlugin {
         }
         if (operationLog != null) {
             operationLog.close();
+        }
+        if (snapshotStore != null) {
+            snapshotStore.shutdown();
         }
     }
 

@@ -64,8 +64,16 @@ public abstract class BuildTask {
      */
     public abstract boolean step(long deadlineNanos);
 
-    /** Builds the RPC-protocol-specific result object once {@link #step} has returned {@code true}. */
-    public abstract JsonElement buildResult(long elapsedMs);
+    /**
+     * Builds the RPC-protocol-specific result object once {@link #step} has
+     * returned {@code true}. {@code queuedMs} is the time between submit and
+     * the task actually starting; {@code elapsedMs} is execution time only
+     * (plan.md &sect;2.6 follow-up fix). Not every result JSON surfaces both
+     * (e.g. {@code heightmap}/{@code read_region}/{@code snapshot} report
+     * neither, per spec &sect;3.2); implementations use only what their
+     * protocol response documents.
+     */
+    public abstract JsonElement buildResult(long queuedMs, long elapsedMs);
 
     /** Adds to the running "actually written" counter. Call only for cells that were really written. */
     protected final void addChanged(long n) {

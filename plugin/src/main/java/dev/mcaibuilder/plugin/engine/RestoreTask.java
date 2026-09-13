@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package dev.mcaibuilder.plugin.engine;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.block.data.BlockData;
+
+/**
+ * Executes a {@code restore} request: replays a {@link RegionData}'s runs
+ * back onto the world in the same {@code y,z,x} order they were encoded in
+ * (plan.md &sect;3.1/&sect;3.3). Decoding is purely sequential, so no random
+ * access into the runs is needed.
+ *
+ * <p>{@code paletteBlocks} (one {@link BlockData} per palette entry) must be
+ * parsed by the caller <em>before</em> constructing this task - plan.md
+ * &sect;3.1: "if one palette entry fails to parse, the whole restore is
+ * rejected", which only works if parsing happens up front, not lazily
+ * mid-task. Only cells whose current block differs from the target are
+ * written (same no-op-write-avoidance as {@link FillTask}/{@link SparseTask}).
+ */
+public final class RestoreTask extends BuildTask {
+
+    private static final int DEADLINE_CHECK_INTERVAL = 256;
+
+    private final World world;
+    private final RegionData data;
+    private final BlockData[] paletteBlocks;
+
+    private int runIndexCursor = 0;
+    private int posInRun = 0;
+    private int cursorX;
+    private int cursorY;
+    private int cursorZ;
+    private boolean cursorInitialized = false;
+
+    public RestoreTask(Region region, World world, RegionData data, BlockData[] paletteBlocks) {
+        super(region);
+        this.world = world;
+        this.data = data;
+        this.paletteBlocks = paletteBlocks;
+    }
+
+    @Override
+    public World world() {
+        return world;
+    }
+
+    @Override
+    public long volume() {
+        return data.volume();
+    }
+
+    @Override
+    public boolean step(long deadlineNanos) {
+        Region r = region();
+        if (!cursorInitialized) {
+            cursorX = r.minX();
+            cursorY = r.minY();
+            cursorZ = r.minZ();
+            cursorInitialized = true;
+        }
+        int[] runIndex = data.runIndex();
+        int[] runLength = data.runLength();
+        int sinceCheck = 0;
+        while (runIndexCursor < runIndex.length) {
+            BlockData target = paletteBlocks[runIndex[runIndexCursor]];
+            while (posInRun < runLength[runIndexCursor]) {
+                Block block = world.getBlockAt(cursorX, cursorY, cursorZ);
+                BlockData current = block.getBlockData();
+                if (!current.equals(target)) {
+                    // The only block-writing call allowed anywhere: never triggers physics.
+                    block.setBlockData(target, false);
+                    addChanged(1);
+                }
+                advance(1);
+                posInRun++;
+                advanceCursor(r);
+                sinceCheck++;
+                if (sinceCheck >= DEADLINE_CHECK_INTERVAL) {
+                    sinceCheck = 0;
+                    boolean moreWork = posInRun < runLength[runIndexCursor] || runIndexCursor + 1 < runIndex.length;
+                    if (moreWork && System.nanoTime() >= deadlineNanos) {
+                        return false;
+                    }
+                }
+            }
+            posInRun = 0;
+            runIndexCursor++;
+        }
+        return true;
+    }
+
+    /** Moves (x,y,z) to the next cell in y-outer/z-middle/x-inner order, matching the encoder's traversal. */
+    private void advanceCursor(Region r) {
+        cursorX++;
+        if (cursorX > r.maxX()) {
+            cursorX = r.minX();
+            cursorZ++;
+            if (cursorZ > r.maxZ()) {
+                cursorZ = r.minZ();
+                cursorY++;
+            }
+        }
+    }
+
+    @Override
+    public JsonElement buildResult(long queuedMs, long elapsedMs) {
+        JsonObject result = new JsonObject();
+        result.addProperty("restored", changed());
+        result.addProperty("volume", volume());
+        result.addProperty("queuedMs", queuedMs);
+        result.addProperty("elapsedMs", elapsedMs);
+        return result;
+    }
+}

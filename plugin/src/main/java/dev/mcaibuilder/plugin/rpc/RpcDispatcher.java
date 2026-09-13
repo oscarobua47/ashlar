@@ -122,15 +122,17 @@ public final class RpcDispatcher {
     /**
      * Reads how many blocks a completed operation changed from its result
      * object, if any: {@code fill_batch} reports {@code totalChanged},
-     * {@code set_blocks} reports {@code changed}. Anything else (health,
-     * auth, an error response) has no such field and logs 0.
+     * {@code set_blocks} reports {@code changed}, {@code restore} reports
+     * {@code restored}. Read-only methods (health, auth, heightmap,
+     * read_region, snapshot, list_snapshots, run_command) and error
+     * responses have none of these fields and log 0.
      */
     private static long extractBlocksChanged(JsonObject responseJson) {
         if (!responseJson.has("result") || !responseJson.get("result").isJsonObject()) {
             return 0;
         }
         JsonObject result = responseJson.getAsJsonObject("result");
-        for (String field : new String[]{"totalChanged", "changed"}) {
+        for (String field : new String[]{"totalChanged", "changed", "restored"}) {
             if (result.has(field) && result.get(field).isJsonPrimitive() && result.get(field).getAsJsonPrimitive().isNumber()) {
                 return result.get(field).getAsLong();
             }
