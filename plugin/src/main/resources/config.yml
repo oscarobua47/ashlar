@@ -45,8 +45,9 @@ limits:
   # may force-load. Applies to fill_batch, set_blocks, read_region, snapshot,
   # restore (the snapshot's own region) and heightmap (x/z area, one y layer).
   # Prevents a thin, wide shape (e.g. a 1x1x500000 fill) from force-loading
-  # thousands of chunks.
-  max-chunks-per-operation: 256
+  # thousands of chunks. 1024 chunks = a 512x512 block footprint, enough for
+  # a 300x300 terrain survey; lower it on memory-constrained servers.
+  max-chunks-per-operation: 1024
 
 world:
   # Default world name used when a request omits "world".

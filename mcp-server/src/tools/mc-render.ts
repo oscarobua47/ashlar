@@ -4,15 +4,20 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
 import type { PluginClient } from "../plugin-client.js";
+import { heightmapContourLine, heightmapLegendLine, heightmapSummaryLine, type HeightmapLegendBand } from "../render/heightmap-view.js";
 import { runToolContent } from "./helpers.js";
 
 const MAX_VOLUME = 200_000;
+const MAX_HEIGHTMAP_AREA = 200_000;
 
-const VIEWS = ["top", "north", "south", "east", "west", "slice"] as const;
+const VIEWS = ["top", "north", "south", "east", "west", "slice", "heightmap"] as const;
+const HEIGHTMAP_TYPES = ["SOLID", "SOLID_OR_LIQUID", "SOLID_OR_LIQUID_NO_LEAVES", "ANY"] as const;
 
 const inputSchema = z.object({
     world: z.string().min(1).optional().describe("World name. Omitted uses the plugin's configured default world."),
-    from: z.tuple([z.number().int(), z.number().int(), z.number().int()]).describe("Inclusive [x, y, z] corner of the region to render."),
+    from: z
+        .tuple([z.number().int(), z.number().int(), z.number().int()])
+        .describe("Inclusive [x, y, z] corner of the region to render. For view \"heightmap\" (an x/z-only view), the y is accepted but ignored."),
     to: z
         .tuple([z.number().int(), z.number().int(), z.number().int()])
         .describe("Inclusive [x, y, z] corner opposite `from`. Order does not matter."),
@@ -22,7 +27,8 @@ const inputSchema = z.object({
         .describe(
             '"top" (default): top-down layout, shaded like a vanilla in-game map. "north"/"south"/"east"/"west": ' +
                 'the facade seen from that compass direction, shaded by depth. "slice": an exact-color 2D cross-section ' +
-                '(requires the `slice` parameter).'
+                '(requires the `slice` parameter). "heightmap": a color-banded terrain height map with contour lines - ' +
+                "an x/z area only (y from from/to is ignored), area-priced like mc_survey rather than volume-priced."
         ),
     slice: z
         .object({
@@ -44,30 +50,49 @@ const inputSchema = z.object({
         .min(0)
         .max(64)
         .optional()
-        .describe("Draw a coordinate grid line every N blocks, with coordinate labels along the top/left edges. Default 10; 0 disables the grid entirely.")
+        .describe("Draw a coordinate grid line every N blocks, with coordinate labels along the top/left edges. Default 10; 0 disables the grid entirely."),
+    heightmapType: z
+        .enum(HEIGHTMAP_TYPES)
+        .optional()
+        .describe(
+            'Only used when `view` is "heightmap": which surface to measure (same meaning as mc_survey\'s `type`). ' +
+                "Default SOLID_OR_LIQUID_NO_LEAVES."
+        ),
+    contour: z
+        .number()
+        .int()
+        .min(0)
+        .max(4096)
+        .optional()
+        .describe('Only used when `view` is "heightmap": draw a contour line every N blocks of height, 0 disables. Default 5.')
 });
 
-const DESCRIPTION = `Renders a region as a PNG image from a chosen viewpoint, so an AI can literally see terrain layout and building results instead of only reading block-state text. Calls the plugin's "render" RPC, which reads the region (the same read as mc_inspect) and paints one of six views: a top-down layout with vanilla-map-style shading, a facade from one of the four compass sides with distance shading, or an exact-color 2D cross-section slice at a fixed x/y/z.
+const DESCRIPTION = `Renders a region as a PNG image from a chosen viewpoint, so an AI can literally see terrain layout and building results instead of only reading block-state text. Paints one of seven views: a top-down layout with vanilla-map-style shading, a facade from one of the four compass sides with distance shading, an exact-color 2D cross-section slice, or a color-banded terrain height map ("heightmap", area-priced) with contour lines - the same view mc_survey's default image uses, exposed here for the raw render call.
 
-WHEN TO USE: "top" to check overall terrain shape, a build's footprint, or how a structure sits relative to the land, before or after building. "north"/"south"/"east"/"west" to inspect a facade - window/door placement, wall symmetry, roof lines - as seen from that compass direction. "slice" with an axis and coordinate for a floor plan (axis "y") or a vertical cut through a wall or room (axis "x"/"z"), e.g. to confirm a room is actually hollow.
+WHEN TO USE: "top" to check overall terrain shape, a build's footprint, or how a structure sits relative to the land, before or after building. "north"/"south"/"east"/"west" to inspect a facade - window/door placement, wall symmetry, roof lines. "slice" with an axis and coordinate for a floor plan (axis "y") or a vertical cut through a wall or room, e.g. to confirm a room is hollow. "heightmap" for a terrain relief picture over a large area - prefer mc_survey in most cases, since it also gives the exact numbers as text.
 
-WHEN NOT TO USE: to get exact block-state strings, orientations, or counts - use mc_inspect, which returns real data, not a colored approximation. Map colors are lossy: different blocks (different wood planks, terracotta colors) can render near-identically, so check the legend and fall back to mc_inspect when the exact block matters. To cheaply find ground height over a large area, use mc_survey instead.
+WHEN NOT TO USE: to get exact block-state strings, orientations, or counts - use mc_inspect, which returns real data, not a colored approximation. Map colors are lossy: different blocks can render near-identically, so check the legend. To survey ground height with the numbers included, use mc_survey instead.
 
-PARAMETERS: \`from\`/\`to\` are inclusive [x,y,z] corners in any order, volume <= 200,000 blocks (same cap as mc_inspect). \`view\` (default "top") is one of top/north/south/east/west/slice. \`slice\` is required when \`view\` is "slice": \`{axis: "x"|"y"|"z", at: <coordinate>}\`, \`at\` must lie within the from/to box on that axis. \`scale\` is pixels per block, 0-16 (default 0 = auto, longer side about 1024px). \`grid\` is grid spacing in blocks, 0-64 (default 10; 0 disables grid lines/labels).
+PARAMETERS: \`from\`/\`to\` are inclusive [x,y,z] corners in any order, volume <= 200,000 blocks, except "heightmap" which is area-priced instead (x/z footprint <= 200,000 cells, y ignored). \`view\` (default "top") is one of top/north/south/east/west/slice/heightmap; \`slice\` is required when \`view\` is "slice". \`scale\` is pixels per block, 0-16 (default 0 = auto). \`grid\` is grid spacing, 0-64 (default 10; 0 disables it). \`heightmapType\`/\`contour\` only apply to \`view: "heightmap"\`.
 
-SIDE EFFECTS: none - read-only, like mc_inspect. Returns an image block plus a text block: view/axes/top-left coordinate/grid interval, and a legend of the top rendered blocks as hex color, name, and pixel count. A large region can take a second or two; the plugin caps the PNG at 3MB and halves the scale (down to 1) automatically if needed.`;
+SIDE EFFECTS: none - read-only. Returns an image block plus a text block: view/axes/top-left coordinate/grid interval, and a legend (top rendered blocks as hex color, name, pixel count; for "heightmap", height bands plus a summary line with min/max/median height, surface materials, and the largest flat zone). The plugin caps the PNG at 3MB and halves the scale automatically if needed.`;
 
 interface RenderResult {
     world: string;
     view: string;
-    bounds: { from: [number, number, number]; to: [number, number, number] };
+    bounds: { from: [number, number, number] | [number, number]; to: [number, number, number] | [number, number] };
     width: number;
     height: number;
     scale: number;
     axes: { right: string; down: string };
     topLeft: [number, number];
     grid: number;
-    legend: Array<{ block: string; color: string; pixels: number }>;
+    contour?: number;
+    legend: Array<{ block: string; color: string; pixels: number } | HeightmapLegendBand>;
+    heights?: { min: number; max: number; median: number };
+    surface?: Record<string, number>;
+    flatZone?: { x1: number; z1: number; x2: number; z2: number; y: number; width: number; depth: number } | null;
+    liquidCells?: number;
     png: string;
     bytes: number;
 }
@@ -81,28 +106,41 @@ export function registerMcRender(server: McpServer, client: PluginClient): void 
             inputSchema,
             annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
         },
-        async ({ world, from, to, view, slice, scale, grid }) => {
+        async ({ world, from, to, view, slice, scale, grid, heightmapType, contour }) => {
             return runToolContent(client, "mc_render", async () => {
+                const resolvedView = view ?? "top";
                 const [x1, y1, z1] = [Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.min(from[2], to[2])];
                 const [x2, y2, z2] = [Math.max(from[0], to[0]), Math.max(from[1], to[1]), Math.max(from[2], to[2])];
-                const volume = (x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1);
-                if (volume > MAX_VOLUME) {
-                    throw new Error(
-                        `mc_render region volume ${volume} exceeds the 200,000-block limit. Reduce the from/to range or split it into several calls.`
-                    );
+
+                if (resolvedView === "heightmap") {
+                    const area = (x2 - x1 + 1) * (z2 - z1 + 1);
+                    if (area > MAX_HEIGHTMAP_AREA) {
+                        throw new Error(
+                            `mc_render heightmap area ${area} exceeds the 200,000-cell limit. Reduce the from/to range or split it into several calls.`
+                        );
+                    }
+                } else {
+                    const volume = (x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1);
+                    if (volume > MAX_VOLUME) {
+                        throw new Error(
+                            `mc_render region volume ${volume} exceeds the 200,000-block limit. Reduce the from/to range or split it into several calls.`
+                        );
+                    }
                 }
-                if ((view ?? "top") === "slice" && !slice) {
+                if (resolvedView === "slice" && !slice) {
                     throw new Error('mc_render view "slice" requires the "slice" parameter: {"axis": "x"|"y"|"z", "at": <coordinate>}.');
                 }
 
                 const result = (await client.request("render", {
                     world,
-                    from: [x1, y1, z1],
-                    to: [x2, y2, z2],
+                    from: resolvedView === "heightmap" ? [x1, z1] : [x1, y1, z1],
+                    to: resolvedView === "heightmap" ? [x2, z2] : [x2, y2, z2],
                     view,
                     slice,
                     scale,
-                    grid
+                    grid,
+                    type: resolvedView === "heightmap" ? heightmapType : undefined,
+                    contour: resolvedView === "heightmap" ? contour : undefined
                 })) as RenderResult;
 
                 const lines: string[] = [];
@@ -119,9 +157,26 @@ export function registerMcRender(server: McpServer, client: PluginClient): void 
                         ? `Grid: a line every ${result.grid} blocks (thicker every ${result.grid * 5}), with coordinate labels along the top/left edges.`
                         : "Grid: disabled."
                 );
-                lines.push("Legend (Minecraft map color -> block; similar blocks can share a color, disambiguate here):");
-                for (const entry of result.legend) {
-                    lines.push(`  ${entry.color} ${entry.block} (${entry.pixels} px)`);
+
+                if (result.view === "heightmap" && result.heights && result.surface && result.flatZone !== undefined && result.liquidCells !== undefined) {
+                    lines.push(heightmapContourLine(result.contour ?? 0));
+                    lines.push(
+                        heightmapSummaryLine({
+                            bounds: result.bounds as { from: [number, number]; to: [number, number] },
+                            heights: result.heights,
+                            surface: result.surface,
+                            flatZone: result.flatZone,
+                            legend: result.legend as HeightmapLegendBand[],
+                            liquidCells: result.liquidCells,
+                            contour: result.contour ?? 0
+                        })
+                    );
+                    lines.push(heightmapLegendLine(result.legend as HeightmapLegendBand[]));
+                } else {
+                    lines.push("Legend (Minecraft map color -> block; similar blocks can share a color, disambiguate here):");
+                    for (const entry of result.legend as Array<{ block: string; color: string; pixels: number }>) {
+                        lines.push(`  ${entry.color} ${entry.block} (${entry.pixels} px)`);
+                    }
                 }
 
                 return [

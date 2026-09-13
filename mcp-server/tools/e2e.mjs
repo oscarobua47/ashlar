@@ -222,8 +222,13 @@ async function main() {
     check("mc_build response includes a snapshot id", !!snapshotMatch);
     const snapshotId = snapshotMatch ? snapshotMatch[1] : null;
 
-    // --- mc_survey over the same area ---------------------------------------
-    section("mc_survey (same area)");
+    // Shared output directory for every PNG this script saves (mc_survey's default image, the
+    // heightmap mc_render call, and the top/south/slice mc_render calls further below).
+    const outDir = path.join(__dirname, "out");
+    fs.mkdirSync(outDir, { recursive: true });
+
+    // --- mc_survey over the same area, default format (image + text) --------
+    section("mc_survey (same area, default format: image + text)");
     const surveyResult = await client.callTool({
         name: "mc_survey",
         arguments: { from: [BASE_X, BASE_Z], to: [BASE_X + 59, BASE_Z + 59] }
@@ -233,10 +238,65 @@ async function main() {
     check("mc_survey not an error", !surveyResult.isError);
     check("mc_survey output contains a legend", /Legend:/.test(surveyText));
     check("mc_survey output contains largest flat zone line", /Largest flat zone/.test(surveyText));
+    const surveyImageBlock = surveyResult.content.find(c => c.type === "image");
+    check("mc_survey (default) returned an image content block", !!surveyImageBlock);
+    if (surveyImageBlock) {
+        const surveyPngBytes = Buffer.from(surveyImageBlock.data, "base64");
+        fs.writeFileSync(path.join(outDir, "heightmap.png"), surveyPngBytes);
+        check(
+            "mc_survey PNG starts with the PNG magic bytes",
+            surveyPngBytes.length > 8 &&
+                surveyPngBytes[0] === 0x89 &&
+                surveyPngBytes[1] === 0x50 &&
+                surveyPngBytes[2] === 0x4e &&
+                surveyPngBytes[3] === 0x47
+        );
+    } else {
+        failures++;
+    }
 
-    // --- mc_render: top + south + slice, while the tower still stands -------
-    const outDir = path.join(__dirname, "out");
-    fs.mkdirSync(outDir, { recursive: true });
+    // --- mc_survey format:"text" (original ASCII relief map) ----------------
+    section('mc_survey (format: "text")');
+    const surveyTextFormatResult = await client.callTool({
+        name: "mc_survey",
+        arguments: { from: [BASE_X, BASE_Z], to: [BASE_X + 59, BASE_Z + 59], format: "text" }
+    });
+    const surveyTextFormatText = textOf(surveyTextFormatResult);
+    console.log(surveyTextFormatText);
+    check("mc_survey (format: text) not an error", !surveyTextFormatResult.isError);
+    check("mc_survey (format: text) returned no image content block", !surveyTextFormatResult.content.some(c => c.type === "image"));
+    check("mc_survey (format: text) output contains the ASCII map legend", /Legend:/.test(surveyTextFormatText));
+    check("mc_survey (format: text) output contains largest flat zone line", /Largest flat zone/.test(surveyTextFormatText));
+    check(
+        "mc_survey (format: text) output contains an ASCII relief map (bucket/liquid characters after the ruler)",
+        /[.,:\-=+*#~]{5,}/.test(surveyTextFormatText)
+    );
+
+    // --- mc_render view:"heightmap" on a 200x200 area (area-priced) ---------
+    section('mc_render (view: "heightmap", 200x200 area)');
+    const heightmapRenderStartedAt = Date.now();
+    const heightmapRender = await client.callTool({
+        name: "mc_render",
+        arguments: { from: [BASE_X - 50, 64, BASE_Z - 50], to: [BASE_X + 149, 64, BASE_Z + 149], view: "heightmap" }
+    });
+    const heightmapRenderElapsedMs = Date.now() - heightmapRenderStartedAt;
+    const heightmapRenderText = textOf(heightmapRender);
+    console.log(heightmapRenderText);
+    console.log(`  elapsed: ${heightmapRenderElapsedMs} ms`);
+    check("mc_render heightmap not an error", !heightmapRender.isError);
+    check("mc_render heightmap elapsed reported (>= 0 ms)", heightmapRenderElapsedMs >= 0);
+    const heightmapImageBlock = heightmapRender.content.find(c => c.type === "image");
+    check("mc_render heightmap returned an image content block", !!heightmapImageBlock);
+    if (heightmapImageBlock) {
+        const heightmapBytes = Buffer.from(heightmapImageBlock.data, "base64");
+        fs.writeFileSync(path.join(outDir, "heightmap-render-200x200.png"), heightmapBytes);
+        console.log(`  bytes: ${heightmapBytes.length}`);
+        check(`mc_render heightmap PNG bytes < 3MB, got ${heightmapBytes.length}`, heightmapBytes.length < 3 * 1024 * 1024);
+    } else {
+        failures++;
+    }
+    check("mc_render heightmap text mentions View: heightmap", /View: heightmap/.test(heightmapRenderText));
+    check("mc_render heightmap text contains largest flat zone line", /Largest flat zone/.test(heightmapRenderText));
 
     function checkRenderResult(result, label, pngPath) {
         check(`${label} not an error`, !result.isError);

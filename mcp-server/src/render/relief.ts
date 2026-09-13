@@ -177,7 +177,8 @@ function median(values: number[]): number {
     return sorted[Math.floor(sorted.length / 2)]!;
 }
 
-function shortBlockName(id: string): string {
+/** Exported for reuse by mc_survey's image-format path and mc_render's `view:"heightmap"` text (heightmap-view.ts). */
+export function shortBlockName(id: string): string {
     return id.startsWith("minecraft:") ? id.slice("minecraft:".length) : id;
 }
 
@@ -202,7 +203,8 @@ function renderMapLines(charGrid: string[][], x1: number, z1: number, step: numb
     return lines;
 }
 
-function renderMatrix(heights: number[][], x1: number, z1: number, step: number): string[] {
+/** Exported for reuse by mc_survey's image-format path (`matrix: true` appends this after the image's text block). */
+export function renderMatrix(heights: number[][], x1: number, z1: number, step: number): string[] {
     const header =
         step > 1
             ? `Height matrix (downsampled: 1 cell = ${step}x${step} blocks, median height; z rows top-to-bottom, x columns left-to-right, top-left = x=${x1} z=${z1}):`

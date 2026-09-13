@@ -89,7 +89,7 @@ public record PluginConfig(
         long maxReadVolume = positiveOrDefault(fc, "limits.max-read-volume", 200_000, logger);
         long tickBudgetMs = positiveOrDefault(fc, "limits.tick-budget-ms", 20, logger);
         int maxQueuedOperations = (int) positiveOrDefault(fc, "limits.max-queued-operations", 16, logger);
-        int maxChunksPerOperation = (int) positiveOrDefault(fc, "limits.max-chunks-per-operation", 256, logger);
+        int maxChunksPerOperation = (int) positiveOrDefault(fc, "limits.max-chunks-per-operation", 1024, logger);
 
         String defaultWorld = fc.getString("world.default", "world");
         List<String> allowedWorlds = new ArrayList<>(fc.getStringList("world.allowed-worlds"));

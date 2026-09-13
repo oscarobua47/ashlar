@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.mcaibuilder.plugin.config.PluginConfig;
 import dev.mcaibuilder.plugin.engine.HeightmapTask;
+import dev.mcaibuilder.plugin.engine.HeightmapTypes;
 import dev.mcaibuilder.plugin.engine.Region;
 import dev.mcaibuilder.plugin.engine.RequestValidator;
 import dev.mcaibuilder.plugin.engine.TickBudgetExecutor;
@@ -15,7 +16,6 @@ import dev.mcaibuilder.plugin.rpc.RpcHandler;
 import org.bukkit.HeightMap;
 import org.bukkit.World;
 
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -46,7 +46,7 @@ public final class HeightmapHandler implements RpcHandler {
             RequestValidator validator = new RequestValidator(config);
             World world = validator.resolveWorld(params);
             String typeName = optType(params);
-            HeightMap heightMap = resolveHeightMap(typeName);
+            HeightMap heightMap = HeightmapTypes.resolve(typeName);
             RequestValidator.HeightmapArea area = validator.validateHeightmapArea(params, config.limits().maxReadVolume());
             Region region = new Region(area.x1(), 0, area.z1(), area.x2(), 0, area.z2());
             HeightmapTask task = new HeightmapTask(region, world, area.x1(), area.z1(), area.x2(), area.z2(), heightMap, typeName);
@@ -56,21 +56,9 @@ public final class HeightmapHandler implements RpcHandler {
         }
     }
 
-    /** Spec &sect;3.2 name &rarr; Bukkit {@link HeightMap}; also accepts the Bukkit names directly. Unknown/{@code *_WG} &rarr; BAD_REQUEST. */
-    private static HeightMap resolveHeightMap(String raw) {
-        String key = raw.trim().toUpperCase(Locale.ROOT);
-        return switch (key) {
-            case "SOLID", "OCEAN_FLOOR" -> HeightMap.OCEAN_FLOOR;
-            case "SOLID_OR_LIQUID", "MOTION_BLOCKING" -> HeightMap.MOTION_BLOCKING;
-            case "SOLID_OR_LIQUID_NO_LEAVES", "MOTION_BLOCKING_NO_LEAVES" -> HeightMap.MOTION_BLOCKING_NO_LEAVES;
-            case "ANY", "WORLD_SURFACE" -> HeightMap.WORLD_SURFACE;
-            default -> throw new RpcError(ErrorCode.BAD_REQUEST, "unknown heightmap type: '" + raw + "'");
-        };
-    }
-
     private static String optType(JsonObject params) {
         if (!params.has("type") || params.get("type").isJsonNull()) {
-            return "SOLID_OR_LIQUID_NO_LEAVES"; // spec default
+            return HeightmapTypes.DEFAULT_TYPE;
         }
         JsonElement e = params.get("type");
         if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isString()) {

@@ -90,8 +90,8 @@ public final class ImageRenderer {
         }
 
         if (grid > 0) {
-            drawGridLines(pixels, width, height, base, effScale, grid);
-            drawLabels(pixels, width, height, base, effScale, grid);
+            drawGridLines(pixels, width, height, base.blocksWide(), base.blocksTall(), base.colWorld(), base.rowWorld(), effScale, grid);
+            drawLabels(pixels, width, height, base.blocksWide(), base.blocksTall(), base.colWorld(), base.rowWorld(), effScale, grid);
         }
 
         List<LegendEntry> legend = buildLegend(data.palette(), paletteArgb, base, effScale);
@@ -336,7 +336,8 @@ public final class ImageRenderer {
     // Scale / upscale
     // ------------------------------------------------------------------
 
-    private static int resolveScale(int requested, int blocksWide, int blocksTall) {
+    /** Package-visible: reused by {@link HeightmapImageRenderer}, which shares the same auto-scale/pixel-budget rule. */
+    static int resolveScale(int requested, int blocksWide, int blocksTall) {
         if (requested > 0) {
             return requested;
         }
@@ -348,14 +349,16 @@ public final class ImageRenderer {
         return Math.max(1, auto);
     }
 
-    private static void fillBlock(int[] pixels, int width, int px, int py, int size, int color) {
+    /** Package-visible: reused by {@link HeightmapImageRenderer}. */
+    static void fillBlock(int[] pixels, int width, int px, int py, int size, int color) {
         for (int y = 0; y < size; y++) {
             int rowStart = (py + y) * width + px;
             Arrays.fill(pixels, rowStart, rowStart + size, color);
         }
     }
 
-    private static int applyShade(int argb, int pct) {
+    /** Package-visible: reused by {@link HeightmapImageRenderer} for its own shading and liquid-depth darkening. */
+    static int applyShade(int argb, int pct) {
         int a = (argb >>> 24) & 0xFF;
         int rr = Math.min(255, ((argb >> 16) & 0xFF) * pct / 100);
         int gg = Math.min(255, ((argb >> 8) & 0xFF) * pct / 100);
@@ -367,18 +370,20 @@ public final class ImageRenderer {
     // Grid lines
     // ------------------------------------------------------------------
 
-    private static void drawGridLines(int[] pixels, int width, int height, BaseImage base, int scale, int grid) {
+    /** Package-visible (plain arrays, not the private {@code BaseImage} record): reused by {@link HeightmapImageRenderer}. */
+    static void drawGridLines(int[] pixels, int width, int height, int blocksWide, int blocksTall,
+                               int[] colWorld, int[] rowWorld, int scale, int grid) {
         int major = grid * 5;
-        for (int col = 0; col < base.blocksWide(); col++) {
-            int w = base.colWorld()[col];
+        for (int col = 0; col < blocksWide; col++) {
+            int w = colWorld[col];
             if (Math.floorMod(w, grid) != 0) {
                 continue;
             }
             int thickness = Math.floorMod(w, major) == 0 ? 2 : 1;
             blendVerticalLine(pixels, width, height, col * scale, thickness);
         }
-        for (int row = 0; row < base.blocksTall(); row++) {
-            int w = base.rowWorld()[row];
+        for (int row = 0; row < blocksTall; row++) {
+            int w = rowWorld[row];
             if (Math.floorMod(w, grid) != 0) {
                 continue;
             }
@@ -413,8 +418,12 @@ public final class ImageRenderer {
         }
     }
 
-    /** Blends {@code GRID_ALPHA} opaque black over {@code base}, keeping {@code base}'s alpha channel. */
-    private static int blend(int base) {
+    /**
+     * Blends {@code GRID_ALPHA} opaque black over {@code base}, keeping {@code base}'s alpha channel.
+     * Package-visible: {@link HeightmapImageRenderer} reuses this exact blend for its contour lines too,
+     * so contour and grid lines read as the same visual weight.
+     */
+    static int blend(int base) {
         int a = (base >>> 24) & 0xFF;
         int br = (base >> 16) & 0xFF, bg = (base >> 8) & 0xFF, bb = base & 0xFF;
         int rr = (int) Math.round(br * (1 - GRID_ALPHA));
@@ -445,12 +454,14 @@ public final class ImageRenderer {
         return m;
     }
 
-    private static void drawLabels(int[] pixels, int width, int height, BaseImage base, int scale, int grid) {
+    /** Package-visible (plain arrays, not the private {@code BaseImage} record): reused by {@link HeightmapImageRenderer}. */
+    static void drawLabels(int[] pixels, int width, int height, int blocksWide, int blocksTall,
+                            int[] colWorld, int[] rowWorld, int scale, int grid) {
         int pxSize = scale <= 2 ? 1 : 2;
 
         int lastRight = Integer.MIN_VALUE;
-        for (int col = 0; col < base.blocksWide(); col++) {
-            int w = base.colWorld()[col];
+        for (int col = 0; col < blocksWide; col++) {
+            int w = colWorld[col];
             if (Math.floorMod(w, grid) != 0) {
                 continue;
             }
@@ -466,8 +477,8 @@ public final class ImageRenderer {
         }
 
         int lastBottom = Integer.MIN_VALUE;
-        for (int row = 0; row < base.blocksTall(); row++) {
-            int w = base.rowWorld()[row];
+        for (int row = 0; row < blocksTall; row++) {
+            int w = rowWorld[row];
             if (Math.floorMod(w, grid) != 0) {
                 continue;
             }
@@ -573,7 +584,8 @@ public final class ImageRenderer {
         return list.size() > 12 ? list.subList(0, 12) : list;
     }
 
-    private static String toHex(int argb) {
+    /** Package-visible: reused by {@link HeightmapImageRenderer} for its band/legend hex colors. */
+    static String toHex(int argb) {
         return String.format(Locale.ROOT, "#%06x", argb & 0xFFFFFF);
     }
 }

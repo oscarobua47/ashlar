@@ -240,8 +240,19 @@ public final class RequestValidator {
         return new HeightmapArea(x1, z1, x2, z2);
     }
 
-    private static final List<String> VALID_RENDER_VIEWS = List.of("top", "north", "south", "east", "west", "slice");
+    private static final List<String> VALID_RENDER_VIEWS =
+            List.of("top", "north", "south", "east", "west", "slice", "heightmap");
     private static final List<String> VALID_SLICE_AXES = List.of("x", "y", "z");
+
+    /**
+     * Reads {@code render}'s {@code "view"} field without validating it against {@link #VALID_RENDER_VIEWS}
+     * (docs/prompts/step4f-prompt.md): {@code RenderHandler} needs to know up front whether a request is the
+     * {@code "heightmap"} view - which has an entirely different 2D {@code from}/{@code to} shape and skips the
+     * normal 3D {@link #validateReadRegion} - before it can validate anything else.
+     */
+    public String peekRenderView(JsonObject params) {
+        return optString(params, "view", "top").trim().toLowerCase(Locale.ROOT);
+    }
 
     /** Validated {@code render} request parameters (docs/prompts/step4e-prompt.md), besides the region (see {@link #validateReadRegion}). */
     public record RenderParams(String view, String sliceAxis, int sliceAt, int scale, int grid) {
@@ -296,15 +307,46 @@ public final class RequestValidator {
             }
         }
 
+        return new RenderParams(view, sliceAxis, sliceAt, validateScale(params), validateGrid(params));
+    }
+
+    /** The x/z area (inclusive) plus the image knobs a validated {@code render} {@code view: "heightmap"} request covers. */
+    public record HeightmapRenderParams(int x1, int z1, int x2, int z2, String type, int scale, int grid, int contour) {
+    }
+
+    /**
+     * Validates a {@code render} request's {@code view: "heightmap"} fields (docs/prompts/step4f-prompt.md): the
+     * area is 2D {@code from}/{@code to} (same rule as {@link #validateHeightmapArea}, reusing {@code
+     * limits.max-read-volume} as the area cap), plus {@code type} (defaulted, not resolved to a Bukkit {@code
+     * HeightMap} here - unknown names are rejected by {@code HeightmapTypes.resolve} in the handler, same as the
+     * {@code heightmap} RPC), {@code scale}/{@code grid} (same rules as {@link #validateRenderParams}) and {@code
+     * contour} (blocks per contour line, {@code 0} disables, default 5).
+     */
+    public HeightmapRenderParams validateHeightmapRenderParams(JsonObject params, long maxArea) {
+        HeightmapArea area = validateHeightmapArea(params, maxArea);
+        String type = optString(params, "type", HeightmapTypes.DEFAULT_TYPE);
+        int contour = optInt(params, "contour", 5);
+        if (contour < 0) {
+            throw new RpcError(ErrorCode.BAD_REQUEST, "\"contour\" must be >= 0, got " + contour);
+        }
+        return new HeightmapRenderParams(area.x1(), area.z1(), area.x2(), area.z2(), type,
+                validateScale(params), validateGrid(params), contour);
+    }
+
+    private int validateScale(JsonObject params) {
         int scale = optInt(params, "scale", 0);
         if (scale < 0 || scale > 16) {
             throw new RpcError(ErrorCode.BAD_REQUEST, "\"scale\" must be between 0 and 16, got " + scale);
         }
+        return scale;
+    }
+
+    private int validateGrid(JsonObject params) {
         int grid = optInt(params, "grid", 10);
         if (grid < 0 || grid > 64) {
             throw new RpcError(ErrorCode.BAD_REQUEST, "\"grid\" must be between 0 and 64, got " + grid);
         }
-        return new RenderParams(view, sliceAxis, sliceAt, scale, grid);
+        return grid;
     }
 
     private void checkBuildRegion(int minX, int maxX, int minZ, int maxZ) {

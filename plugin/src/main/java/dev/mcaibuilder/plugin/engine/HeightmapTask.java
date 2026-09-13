@@ -7,9 +7,7 @@ import com.google.gson.JsonObject;
 import org.bukkit.HeightMap;
 import org.bukkit.World;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,7 +32,6 @@ import java.util.Map;
 public final class HeightmapTask extends BuildTask {
 
     private static final int DEADLINE_CHECK_INTERVAL = 256;
-    private static final int MAX_SURFACE_ENTRIES = 16;
 
     private final World world;
     private final int x1;
@@ -141,27 +138,8 @@ public final class HeightmapTask extends BuildTask {
         result.add("heights", heightsJson);
         result.addProperty("min", min);
         result.addProperty("max", max);
-        result.add("surface", buildSurfaceJson());
+        result.add("surface", SurfaceStats.buildSurfaceJson(surfaceCounts));
         return result;
-    }
-
-    /** Surface material counts sorted descending, capped at {@link #MAX_SURFACE_ENTRIES}; the rest merged into "other". */
-    private JsonObject buildSurfaceJson() {
-        JsonObject surface = new JsonObject();
-        List<Map.Entry<String, Long>> sorted = new ArrayList<>(surfaceCounts.entrySet());
-        sorted.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
-        long other = 0;
-        for (int i = 0; i < sorted.size(); i++) {
-            if (i < MAX_SURFACE_ENTRIES) {
-                surface.addProperty(sorted.get(i).getKey(), sorted.get(i).getValue());
-            } else {
-                other += sorted.get(i).getValue();
-            }
-        }
-        if (other > 0) {
-            surface.addProperty("other", other);
-        }
-        return surface;
     }
 
     private static JsonArray intArray(int a, int b) {

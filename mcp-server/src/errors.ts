@@ -27,7 +27,7 @@ export function formatPluginError(error: PluginError, pluginUrl: string): string
     const msg = error.message;
     switch (error.code) {
         case "VOLUME_EXCEEDED":
-            return `${msg} This exceeds the per-call limit. Split the work into several mc_build calls (each <= 500,000 blocks and <= 256 chunks), or reduce the area for mc_survey/mc_inspect/mc_snapshot.`;
+            return `${msg} This exceeds the per-call limit. Split the work into several mc_build calls (each <= 500,000 blocks and <= 1,024 chunks), or reduce the area for mc_survey/mc_inspect/mc_snapshot.`;
         case "INVALID_BLOCK":
             return `${msg} This is not a valid block state. Use the "minecraft:" namespace and check property names, e.g. "minecraft:oak_stairs[facing=north]". Property values must match the block's actual state names.`;
         case "WORLD_NOT_ALLOWED":
