@@ -44,6 +44,12 @@ export function formatPluginError(error: PluginError, pluginUrl: string): string
             return `MCP server cannot reach the plugin at ${pluginUrl}: ${msg} Check MC_PLUGIN_URL / MC_PLUGIN_TOKEN and that the plugin is running and its port is reachable.`;
         case "TIMEOUT":
             return `${msg} The plugin may be overloaded or the operation may be very large; check mc_status, then retry or split the request.`;
+        case "BAD_REQUEST":
+            if (/y range \[/.test(msg)) {
+                // A y far outside the world is almost always a z coordinate in the y slot.
+                return `${msg} Corners are [x, y, z] with y = height (typically 60-100 at the surface); it looks like a z value was placed in the y position. For a facade use from [x1, yBottom, z1] to [x2, yTop, z2]; for top/heightmap views you can pass [x, z] only.`;
+            }
+            return `${error.code}: ${msg}`;
         default:
             return `${error.code}: ${msg}`;
     }
