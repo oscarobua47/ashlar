@@ -223,7 +223,12 @@ public final class RequestValidator {
      * but never against {@code limits.max-read-volume}.
      */
     public Region validateTopRegion(JsonObject params, int worldMinHeight, int worldMaxHeight, long maxArea) {
-        Region region = Region.of(requireCoords(params, "from"), requireCoords(params, "to"));
+        // A top view only needs an x/z footprint: [x,z] corners mean "the whole
+        // world height", so the surface is found automatically. A 3-element
+        // [x,y,z] form clamps the search to that y range (roofs, caves).
+        Region region = Region.of(
+                topCorner(params, "from", worldMinHeight),
+                topCorner(params, "to", worldMaxHeight - 1));
         checkBuildRegion(region.minX(), region.maxX(), region.minZ(), region.maxZ());
         checkYRange(region.minY(), region.maxY(), worldMinHeight, worldMaxHeight);
         long area = (long) (region.maxX() - region.minX() + 1) * (region.maxZ() - region.minZ() + 1);
@@ -440,6 +445,15 @@ public final class RequestValidator {
             result[i] = e.getAsInt();
         }
         return result;
+    }
+
+    /** Accepts [x,z] (y filled with {@code defaultY}) or [x,y,z] for views that only need a footprint. */
+    private static int[] topCorner(JsonObject obj, String field, int defaultY) {
+        if (obj.has(field) && obj.get(field).isJsonArray() && obj.getAsJsonArray(field).size() == 2) {
+            int[] xz = requireCoords2(obj, field);
+            return new int[] {xz[0], defaultY, xz[1]};
+        }
+        return requireCoords(obj, field);
     }
 
     private static int[] requireCoords2(JsonObject obj, String field) {
