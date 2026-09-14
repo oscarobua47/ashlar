@@ -270,9 +270,7 @@ env -u HTTP_PROXY -u HTTPS_PROXY npm run build && env -u HTTP_PROXY -u HTTPS_PRO
 node tools/e2e.mjs        # end-to-end check against a running plugin test server
 ```
 
-Project layout: `plugin/` is an independent Gradle project (Paper plugin, Java 25); `mcp-server/` is an independent npm project (TypeScript, MCP SDK v2). See `CLAUDE.md` for the hard rules both sides follow (thread safety, physics-free block writes, ASCII-only source, etc).
-
-This project was built with Opus planning each step and writing a per-step prompt, and Sonnet subagents implementing against those prompts and verifying on a real Paper test server. The planning documents live in `docs/` (`plan.md`, `mc-ai-builder-spec.md` - in Chinese) and `docs/prompts/` (the per-step implementation prompts, mostly in English).
+Project layout: `plugin/` is an independent Gradle project (Paper plugin, Java 25); `mcp-server/` is an independent npm project (TypeScript, MCP SDK v2). Both sides follow the same hard rules: Bukkit API only on the main thread inside the tick-budgeted executor, block writes only via `setBlockData(data, false)`, requests fully validated on the network thread before being queued, no NMS/reflection, and pure-ASCII sources.
 
 ## Roadmap
 
