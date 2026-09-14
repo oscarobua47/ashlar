@@ -682,6 +682,112 @@ async function main() {
     check("sign build produced no support warnings", !/WARNINGS/.test(textOf(signBuild)));
     // (mc_restore's own no-warnings check runs inline in the "mc_restore" section above.)
 
+    // --- step4i: neighbour support checks after clears -----------------------
+    // Real case (docs/prompts/step4i-prompt.md): an AI placed a ladder against a wall, then carved
+    // a doorway through that wall in a later mc_build. The doorway fill writes air, which needs no
+    // support itself, so the old SupportCheck (only examining blocks the task itself wrote) said
+    // nothing - the ladder was left hanging. This section reproduces exactly that.
+    section("mc_build (wall + ladder run against it, facing away from the wall)");
+    const LADDER_X = 560;
+    const LADDER_Y = 70;
+    const LADDER_Z = 560;
+    const ladderWallBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: [
+                // Generous air pocket first: unmanaged natural terrain may otherwise leave stray
+                // blocks exactly where a later assertion expects air or nothing.
+                { from: [LADDER_X - 2, LADDER_Y - 3, LADDER_Z - 2], to: [LADDER_X + 8, LADDER_Y + 8, LADDER_Z + 3], block: "minecraft:air" },
+                // A floor under the ladder's bottom rung, so the "floating ladder bottom" rule does
+                // not also fire - this test is specifically about the wall-behind-it rule.
+                { from: [LADDER_X - 1, LADDER_Y - 1, LADDER_Z + 1], to: [LADDER_X + 7, LADDER_Y - 1, LADDER_Z + 1], block: "minecraft:stone" },
+                // A 7-wide, 6-tall, 1-thick stone wall at z=LADDER_Z.
+                { from: [LADDER_X, LADDER_Y, LADDER_Z], to: [LADDER_X + 6, LADDER_Y + 5, LADDER_Z], block: "minecraft:stone" }
+            ],
+            blocks: Array.from({ length: 6 }, (_, i) => ({
+                // A 6-tall ladder run one block in front of the wall (z=LADDER_Z+1), facing south -
+                // away from the wall behind it, at z=LADDER_Z.
+                pos: [LADDER_X + 3, LADDER_Y + i, LADDER_Z + 1],
+                block: "minecraft:ladder[facing=south]"
+            }))
+        }
+    });
+    const ladderWallBuildText = textOf(ladderWallBuild);
+    console.log(ladderWallBuildText);
+    check("ladder+wall build not an error", !ladderWallBuild.isError);
+    check("ladder+wall build raises no warnings (fully supported)", !/WARNINGS/.test(ladderWallBuildText));
+
+    section("mc_build (carve a 1x3x1 doorway through the wall, behind the middle of the ladder run)");
+    const doorwayBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: [{ from: [LADDER_X + 3, 72, LADDER_Z], to: [LADDER_X + 3, 74, LADDER_Z], block: "minecraft:air" }]
+        }
+    });
+    const doorwayBuildText = textOf(doorwayBuild);
+    console.log(doorwayBuildText);
+    check("doorway carve not an error", !doorwayBuild.isError);
+    check("doorway carve raises the WARNINGS header", /WARNINGS/.test(doorwayBuildText));
+    check(
+        "doorway carve warns about exactly the 3 ladder blocks that lost their wall, grouped into one range line",
+        new RegExp(
+            `3x minecraft:ladder\\[[^\\]]*facing=south[^\\]]*\\] at x=${LADDER_X + 3} y=72\\.\\.74 z=${LADDER_Z + 1}: ` +
+                "no support behind \\(facing=south needs a solid block at z-1\\)"
+        ).test(doorwayBuildText)
+    );
+    const doorwayWarnLines = doorwayBuildText.split("\n").filter(line => /^\s{2}\d+x /.test(line));
+    check(`doorway carve produced exactly 1 warning line, i.e. nothing else (got ${doorwayWarnLines.length})`, doorwayWarnLines.length === 1);
+
+    section("mc_build (20x10x20 stone volume with a wall_torch mounted on its boundary wall)");
+    const VOL_X = 600;
+    const VOL_Y = 100;
+    const VOL_Z = 600;
+    const volumeBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: [
+                { from: [VOL_X - 2, VOL_Y - 2, VOL_Z - 2], to: [VOL_X + 21, VOL_Y + 11, VOL_Z + 21], block: "minecraft:air" },
+                { from: [VOL_X, VOL_Y, VOL_Z], to: [VOL_X + 19, VOL_Y + 9, VOL_Z + 19], block: "minecraft:stone" }
+            ],
+            // One block west of the volume, attached to the volume's west face (facing=west points
+            // away from that face, back toward the torch's own position - i.e. away from the wall).
+            blocks: [{ pos: [VOL_X - 1, VOL_Y + 5, VOL_Z + 5], block: "minecraft:wall_torch[facing=west]" }]
+        }
+    });
+    const volumeBuildText = textOf(volumeBuild);
+    console.log(volumeBuildText);
+    check("volume+torch build not an error", !volumeBuild.isError);
+    check("volume+torch build raises no warnings (torch correctly attached)", !/WARNINGS/.test(volumeBuildText));
+
+    section("mc_build (clear the 20x10x20 volume next to the wall_torch)");
+    const clearStartedAt = Date.now();
+    const clearBuild = await client.callTool({
+        name: "mc_build",
+        arguments: { fills: [{ from: [VOL_X, VOL_Y, VOL_Z], to: [VOL_X + 19, VOL_Y + 9, VOL_Z + 19], block: "minecraft:air" }] }
+    });
+    const clearElapsedMs = Date.now() - clearStartedAt;
+    const clearBuildText = textOf(clearBuild);
+    console.log(clearBuildText);
+    console.log(`  client-measured round trip: ${clearElapsedMs} ms`);
+    check("volume clear not an error", !clearBuild.isError);
+    check("volume clear raises the WARNINGS header", /WARNINGS/.test(clearBuildText));
+    check(
+        "volume clear warns about the wall_torch that lost its wall",
+        new RegExp(
+            `1x minecraft:wall_torch\\[[^\\]]*facing=west[^\\]]*\\] at ${VOL_X - 1},${VOL_Y + 5},${VOL_Z + 5}: ` +
+                "no support behind \\(facing=west needs a solid block at x\\+1\\)"
+        ).test(clearBuildText)
+    );
+    const clearWarnLines = clearBuildText.split("\n").filter(line => /^\s{2}\d+x /.test(line));
+    check(`volume clear produced exactly 1 warning line, i.e. nothing else (got ${clearWarnLines.length})`, clearWarnLines.length === 1);
+    const clearElapsedMatch = clearBuildText.match(/total: \d+\/\d+ changed in (\d+)ms/);
+    const clearServerElapsedMs = clearElapsedMatch ? Number(clearElapsedMatch[1]) : null;
+    console.log(`  server-reported elapsedMs: ${clearServerElapsedMs}`);
+    check(
+        `volume clear elapsedMs is small (< 5000ms, got ${clearServerElapsedMs})`,
+        clearServerElapsedMs !== null && clearServerElapsedMs < 5000
+    );
+
     // --- mc_command ---------------------------------------------------------
     section("mc_command");
     const cmdResult = await client.callTool({ name: "mc_command", arguments: { command: "time query day" } });

@@ -33,6 +33,7 @@ public final class RestoreTask extends BuildTask {
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
     private final List<int[]> supportPositions = new ArrayList<>();
+    private final NeighbourPositions neighbourPositions = new NeighbourPositions();
     private final SupportCheck supportCheck;
 
     private int runIndexCursor = 0;
@@ -41,6 +42,7 @@ public final class RestoreTask extends BuildTask {
     private int cursorY;
     private int cursorZ;
     private boolean cursorInitialized = false;
+    private boolean neighbourPositionsBuilt = false;
 
     // Note: snapshots do not capture block-entity data (sign text among it),
     // per plan.md/step4d-prompt.md Fix 3 - restoring sign text is v1.1. A
@@ -52,7 +54,7 @@ public final class RestoreTask extends BuildTask {
         this.data = data;
         this.paletteBlocks = paletteBlocks;
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
-        this.supportCheck = new SupportCheck(world, supportPositions, supportWarnings);
+        this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
     }
 
     @Override
@@ -68,6 +70,15 @@ public final class RestoreTask extends BuildTask {
     @Override
     public boolean step(long deadlineNanos) {
         Region r = region();
+        if (!neighbourPositionsBuilt) {
+            // docs/prompts/step4i-prompt.md: unlike FillTask/SparseTask, a restore's runs do not map
+            // to clean per-op rectangles worth checking individually for "is this run's target
+            // non-solid" - a restore can turn any part of the region back to air, so just add the one
+            // shell around the whole snapshot region, unconditionally (purely geometric; cheapest done
+            // once, up front, rather than threaded through the run-decoding cursor below).
+            neighbourPositions.addShell(r, world.getMinHeight(), world.getMaxHeight());
+            neighbourPositionsBuilt = true;
+        }
         if (!cursorInitialized) {
             cursorX = r.minX();
             cursorY = r.minY();
@@ -137,7 +148,7 @@ public final class RestoreTask extends BuildTask {
         result.addProperty("volume", volume());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
-        SupportWarnings.addTo(result, supportCheck);
+        SupportWarnings.addTo(result, supportCheck, neighbourPositions.truncated());
         return result;
     }
 }

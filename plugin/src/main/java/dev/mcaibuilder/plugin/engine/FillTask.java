@@ -36,6 +36,7 @@ public final class FillTask extends BuildTask {
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
     private final List<int[]> supportPositions = new ArrayList<>();
+    private final NeighbourPositions neighbourPositions = new NeighbourPositions();
     private final SupportCheck supportCheck;
 
     private int opIndex = 0;
@@ -43,6 +44,7 @@ public final class FillTask extends BuildTask {
     private int cursorZ;
     private int cursorX;
     private boolean cursorInitialized = false;
+    private boolean neighbourPositionsBuilt = false;
 
     public FillTask(Region region, List<FillOp> ops, World world, boolean connect, boolean supportWarnings) {
         super(region);
@@ -50,7 +52,7 @@ public final class FillTask extends BuildTask {
         this.world = world;
         this.opChanged = new long[ops.size()];
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
-        this.supportCheck = new SupportCheck(world, supportPositions, supportWarnings);
+        this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
     }
 
     @Override
@@ -69,6 +71,19 @@ public final class FillTask extends BuildTask {
 
     @Override
     public boolean step(long deadlineNanos) {
+        if (!neighbourPositionsBuilt) {
+            // Purely geometric (docs/prompts/step4i-prompt.md): does not depend on any write having
+            // happened yet, so it is cheapest to do once, up front, rather than threading it through
+            // the per-op cursor loop below.
+            int worldMinHeight = world.getMinHeight();
+            int worldMaxHeight = world.getMaxHeight();
+            for (FillOp op : ops) {
+                if (!op.block().getMaterial().isSolid()) {
+                    neighbourPositions.addShell(op.region(), worldMinHeight, worldMaxHeight);
+                }
+            }
+            neighbourPositionsBuilt = true;
+        }
         while (opIndex < ops.size()) {
             FillOp op = ops.get(opIndex);
             Region r = op.region();
@@ -177,7 +192,7 @@ public final class FillTask extends BuildTask {
         result.addProperty("totalChanged", changed());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
-        SupportWarnings.addTo(result, supportCheck);
+        SupportWarnings.addTo(result, supportCheck, neighbourPositions.truncated());
         return result;
     }
 }

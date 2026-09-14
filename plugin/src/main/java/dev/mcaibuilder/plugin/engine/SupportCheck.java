@@ -42,6 +42,16 @@ import java.util.Set;
  * (including any later op that overwrote an earlier one) has already landed,
  * so reading each candidate position's current block is authoritative.
  *
+ * <p><b>Neighbour checks (docs/prompts/step4i-prompt.md).</b> A write that
+ * turns a block non-solid (typically air, from carving a doorway or clearing
+ * a volume) can strip the support a block <em>outside</em> the write - never
+ * itself written by this task - was relying on: vanilla's neighbour-update
+ * chain would notice, but {@code physics=false} means nothing does. Callers
+ * (see {@link NeighbourPositions}) build a second list of such candidate
+ * positions and pass it alongside the task's own written positions; both are
+ * checked with the exact same rules below; the {@link #seen} set keeps a
+ * position from being reported twice regardless of which list it came from.
+ *
  * <p><b>Rules verified against {@link Material#isSolid()} on the local Paper
  * test server (docs/prompts/step4h-prompt.md verification step) before being
  * finalized:</b> full opaque blocks (stone, dirt, planks, ...) and most
@@ -78,16 +88,19 @@ final class SupportCheck {
 
     private final World world;
     private final List<int[]> positions;
+    private final List<int[]> neighbourPositions;
     private final boolean enabled;
     private final List<Warning> warnings = new ArrayList<>();
     private final Set<Long> seen = new HashSet<>();
 
     private boolean truncated = false;
-    private int index = 0;
+    private int ownIndex = 0;
+    private int neighbourIndex = 0;
 
-    SupportCheck(World world, List<int[]> positions, boolean enabled) {
+    SupportCheck(World world, List<int[]> positions, List<int[]> neighbourPositions, boolean enabled) {
         this.world = world;
         this.positions = positions;
+        this.neighbourPositions = neighbourPositions;
         this.enabled = enabled;
     }
 
@@ -100,25 +113,62 @@ final class SupportCheck {
         return data instanceof Switch || wallAttachedFacing(data) != null || needsAbove(data) || needsBelow(data);
     }
 
-    /** Does as much work as fits before {@code deadlineNanos}; returns {@code true} once fully done. */
+    /**
+     * Does as much work as fits before {@code deadlineNanos}; returns {@code true} once fully done.
+     * Deliberately has no cached "own phase done" flag: unlike {@link ConnectionPass}, both {@code
+     * positions} and {@code neighbourPositions} are still empty when the constructor runs (callers
+     * build them during their own write loop, before ever calling {@link #step}), so any such flag
+     * computed once at construction would wrongly latch "done" forever. {@link #runOwnPhase} already
+     * degrades to a cheap no-op once {@code ownIndex} reaches the list's (by-then final) size, so
+     * calling it unconditionally on every {@code step} is both correct and cheap.
+     */
     boolean step(long deadlineNanos) {
         if (!enabled) {
             return true;
         }
+        if (!runOwnPhase(deadlineNanos)) {
+            return false;
+        }
+        return runNeighbourPhase(deadlineNanos);
+    }
+
+    private boolean runOwnPhase(long deadlineNanos) {
         int sinceCheck = 0;
-        while (index < positions.size()) {
+        while (ownIndex < positions.size()) {
             if (warnings.size() >= MAX_WARNINGS) {
                 truncated = true;
-                index = positions.size();
-                break;
+                ownIndex = positions.size();
+                return true;
             }
-            int[] pos = positions.get(index);
+            int[] pos = positions.get(ownIndex);
             checkOne(pos[0], pos[1], pos[2]);
-            index++;
+            ownIndex++;
             sinceCheck++;
             if (sinceCheck >= DEADLINE_CHECK_INTERVAL) {
                 sinceCheck = 0;
-                if (index < positions.size() && System.nanoTime() >= deadlineNanos) {
+                if (ownIndex < positions.size() && System.nanoTime() >= deadlineNanos) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean runNeighbourPhase(long deadlineNanos) {
+        int sinceCheck = 0;
+        while (neighbourIndex < neighbourPositions.size()) {
+            if (warnings.size() >= MAX_WARNINGS) {
+                truncated = true;
+                neighbourIndex = neighbourPositions.size();
+                return true;
+            }
+            int[] pos = neighbourPositions.get(neighbourIndex);
+            checkOne(pos[0], pos[1], pos[2]);
+            neighbourIndex++;
+            sinceCheck++;
+            if (sinceCheck >= DEADLINE_CHECK_INTERVAL) {
+                sinceCheck = 0;
+                if (neighbourIndex < neighbourPositions.size() && System.nanoTime() >= deadlineNanos) {
                     return false;
                 }
             }

@@ -36,15 +36,19 @@ public final class SparseTask extends BuildTask {
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
     private final List<int[]> supportPositions = new ArrayList<>();
+    private final NeighbourPositions neighbourPositions = new NeighbourPositions();
     private final SupportCheck supportCheck;
     private int index = 0;
+    private int worldMinHeight;
+    private int worldMaxHeight;
+    private boolean heightsCached = false;
 
     public SparseTask(Region region, List<SparseOp> ops, World world, boolean connect, boolean supportWarnings) {
         super(region);
         this.ops = ops;
         this.world = world;
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
-        this.supportCheck = new SupportCheck(world, supportPositions, supportWarnings);
+        this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
     }
 
     @Override
@@ -59,6 +63,11 @@ public final class SparseTask extends BuildTask {
 
     @Override
     public boolean step(long deadlineNanos) {
+        if (!heightsCached) {
+            worldMinHeight = world.getMinHeight();
+            worldMaxHeight = world.getMaxHeight();
+            heightsCached = true;
+        }
         while (index < ops.size()) {
             SparseOp op = ops.get(index);
             BlockData target = op.block();
@@ -74,6 +83,11 @@ public final class SparseTask extends BuildTask {
                 }
                 if (SupportCheck.needsCheck(target)) {
                     supportPositions.add(new int[]{op.x(), op.y(), op.z()});
+                }
+                if (!target.getMaterial().isSolid()) {
+                    // docs/prompts/step4i-prompt.md: this entry just turned the cell non-solid, so its
+                    // six neighbours may have lost the support they were relying on.
+                    neighbourPositions.addNeighbours(op.x(), op.y(), op.z(), worldMinHeight, worldMaxHeight);
                 }
             }
             if (op.sign() != null) {
@@ -134,7 +148,7 @@ public final class SparseTask extends BuildTask {
         result.addProperty("changed", changed());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
-        SupportWarnings.addTo(result, supportCheck);
+        SupportWarnings.addTo(result, supportCheck, neighbourPositions.truncated());
         return result;
     }
 }

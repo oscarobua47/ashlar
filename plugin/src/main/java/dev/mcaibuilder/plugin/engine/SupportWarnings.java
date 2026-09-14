@@ -14,8 +14,14 @@ final class SupportWarnings {
     private SupportWarnings() {
     }
 
-    /** Adds {@code "warnings": [...]} (always present, possibly empty) and {@code "warningsTruncated"} (only when true). */
-    static void addTo(JsonObject result, SupportCheck check) {
+    /**
+     * Adds {@code "warnings": [...]} (always present, possibly empty), {@code "warningsTruncated"}
+     * (only when true), and {@code "neighbourChecksTruncated"} (only when {@code
+     * neighbourPositionsTruncated} is true - docs/prompts/step4i-prompt.md: the {@link
+     * NeighbourPositions} candidate list hit its own cap before every neighbour of a cleared area
+     * could be queued for checking, independent of whether any warnings were actually found).
+     */
+    static void addTo(JsonObject result, SupportCheck check, boolean neighbourPositionsTruncated) {
         JsonArray warnings = new JsonArray();
         for (SupportCheck.Warning w : check.warnings()) {
             JsonObject wo = new JsonObject();
@@ -31,6 +37,9 @@ final class SupportWarnings {
         result.add("warnings", warnings);
         if (check.truncated()) {
             result.addProperty("warningsTruncated", true);
+        }
+        if (neighbourPositionsTruncated) {
+            result.addProperty("neighbourChecksTruncated", true);
         }
     }
 }

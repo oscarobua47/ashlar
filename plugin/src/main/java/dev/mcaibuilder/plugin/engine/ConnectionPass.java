@@ -86,7 +86,9 @@ final class ConnectionPass {
         this.world = world;
         this.positions = positions;
         this.enabled = enabled;
-        this.selfPhaseDone = positions.isEmpty();
+        // Callers construct this before their write loop fills `positions`, so
+        // the list is always empty here; decide emptiness in step(), not now.
+        this.selfPhaseDone = false;
     }
 
     /** Whether {@code data}'s shape depends on its neighbors and so needs a connection-pass entry. */
