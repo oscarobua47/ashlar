@@ -1,43 +1,83 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// OBS overlay for MC AI Builder tool calls. Tails the JSONL file written by
-// the MCP server when MC_USAGE_LOG is set and serves a transparent web page
-// showing the running token total and the latest calls. Zero dependencies.
+// OBS overlay for MC AI Builder tool calls. Zero dependencies.
 //
-//   MC_USAGE_LOG=~/mc-usage.jsonl   (set on the MCP server, e.g. in claude_desktop_config.json env)
-//   node tools/overlay.mjs --file ~/mc-usage.jsonl [--port 4545] [--reset]
+// It tails a log and serves a transparent web page showing the running token
+// total and the latest calls. Two log formats are understood:
+//   - Claude Desktop's MCP server log (default; the MCP server's stderr lines
+//     "[tool <pid>] <name>: <ms> ms, ... = ~<n> tokens" land there with no
+//     extra configuration), auto-detected per OS:
+//       macOS   ~/Library/Logs/Claude/mcp-server-mc-ai-builder.log
+//       Windows %APPDATA%/Claude/logs/mcp-server-mc-ai-builder.log
+//       Linux   ~/.config/Claude/logs/mcp-server-mc-ai-builder.log
+//   - the JSONL file the MCP server writes when MC_USAGE_LOG is set (use this
+//     with Claude Code or any client that does not keep stderr).
+//
+//   node tools/overlay.mjs [--file <log>] [--port 4545] [--reset]
 //
 // Then add an OBS "Browser Source" with URL http://127.0.0.1:4545/ (width ~520,
 // height ~260, "Shutdown source when not visible" off). The page background is
 // transparent. Open http://127.0.0.1:4545/?reset=1 once to zero the totals
-// for a new take (only entries after that moment are counted).
+// for a new take (only lines appended after that moment are counted).
 
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 const args = process.argv.slice(2);
 function opt(name, fallback) {
     const i = args.indexOf(name);
     return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 }
-const file = opt("--file", process.env.MC_USAGE_LOG ?? `${homedir()}/mc-usage.jsonl`).replace(/^~/, homedir());
+
+function defaultLog() {
+    if (process.env.MC_USAGE_LOG) return process.env.MC_USAGE_LOG;
+    const home = homedir();
+    const candidates =
+        process.platform === "darwin"
+            ? [join(home, "Library", "Logs", "Claude", "mcp-server-mc-ai-builder.log")]
+            : process.platform === "win32"
+              ? [join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude", "logs", "mcp-server-mc-ai-builder.log")]
+              : [join(home, ".config", "Claude", "logs", "mcp-server-mc-ai-builder.log")];
+    return candidates.find(existsSync) ?? candidates[0];
+}
+
+const file = opt("--file", defaultLog()).replace(/^~/, homedir());
 const port = Number(opt("--port", "4545"));
-let sinceTs = args.includes("--reset") ? new Date().toISOString() : "";
+// Byte offset in the log at the last reset; only lines after it count.
+let startOffset = args.includes("--reset") && existsSync(file) ? statSync(file).size : 0;
+
+const STDERR_LINE = /\[tool (\d+)\] (\w+): (\d+) ms, (.*) = ~(\d+) tokens/;
+
+/** Parses one log line in either format into {ts, pid, tool, ms, tokens, detail}, or null. */
+function parseLine(line, index) {
+    const m = STDERR_LINE.exec(line);
+    if (m) {
+        return { ts: String(index).padStart(12, "0"), pid: Number(m[1]), tool: m[2], ms: Number(m[3]), tokens: Number(m[5]), detail: m[4] };
+    }
+    if (line.startsWith("{")) {
+        try {
+            const e = JSON.parse(line);
+            if (e && typeof e.tool === "string") return { ...e, ts: e.ts ?? String(index).padStart(12, "0") };
+        } catch {
+            // partial line
+        }
+    }
+    return null;
+}
 
 function readEntries() {
     if (!existsSync(file)) return [];
-    const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+    const size = statSync(file).size;
+    if (size < startOffset) startOffset = 0; // log rotated or truncated
+    const lines = readFileSync(file).subarray(startOffset).toString("utf8").split("\n");
     const entries = [];
-    for (const line of lines) {
-        try {
-            const e = JSON.parse(line);
-            if (e && typeof e.tool === "string" && (!sinceTs || e.ts > sinceTs)) entries.push(e);
-        } catch {
-            // ignore partial lines
-        }
-    }
+    lines.forEach((line, i) => {
+        const e = parseLine(line, i);
+        if (e) entries.push(e);
+    });
     return entries;
 }
 
@@ -104,8 +144,8 @@ const PAGE = `<!doctype html>
 
 createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (url.searchParams.get("reset") === "1") {
-        sinceTs = new Date().toISOString();
+    if (url.searchParams.get("reset") === "1" && existsSync(file)) {
+        startOffset = statSync(file).size;
     }
     if (url.pathname === "/data") {
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
