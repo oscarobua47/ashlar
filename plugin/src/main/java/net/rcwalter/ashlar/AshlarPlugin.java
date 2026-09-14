@@ -103,7 +103,7 @@ public final class AshlarPlugin extends JavaPlugin {
         dispatcher.register("run_command", new RunCommandHandler(config));
         dispatcher.register("players", new PlayersHandler());
         dispatcher.register("subscribe", new SubscribeHandler());
-        dispatcher.register("send_message", new SendMessageHandler());
+        dispatcher.register("send_message", new SendMessageHandler(config));
         // Dedicated single thread for render's image work (ImageRenderer + PNG
         // encoding, step4e-prompt.md): never the main thread, and kept separate
         // from RpcDispatcher's responseExecutor so a slow render cannot delay

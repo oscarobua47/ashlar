@@ -59,9 +59,11 @@ public record PluginConfig(
      * The in-game AI assistant ({@code /ashlar}, step6a-prompt.md).
      * {@code cooldownSeconds}: minimum gap between two requests from the
      * same player, may be 0. {@code maxMessageLength}: longest request text
-     * accepted, must be at least 1.
+     * accepted, must be at least 1. {@code echoToMonitors}: whether players
+     * with {@code ashlar.monitor} see a compact echo of every request and
+     * final reply (step6d-prompt.md).
      */
-    public record AgentConfig(boolean enabled, int cooldownSeconds, int maxMessageLength) {
+    public record AgentConfig(boolean enabled, int cooldownSeconds, int maxMessageLength, boolean echoToMonitors) {
     }
 
     /** Empty allow-list means "allow all", per spec &sect;3.1. */
@@ -130,6 +132,7 @@ public record PluginConfig(
         boolean agentEnabled = fc.getBoolean("agent.enabled", true);
         int agentCooldownSeconds = (int) nonNegativeOrDefault(fc, "agent.cooldown-seconds", 5, logger);
         int agentMaxMessageLength = (int) positiveOrDefault(fc, "agent.max-message-length", 500, logger);
+        boolean agentEchoToMonitors = fc.getBoolean("agent.echo-to-monitors", true);
 
         return new PluginConfig(
                 new ServerConfig(host, port, token, List.copyOf(allowedIps)),
@@ -140,7 +143,7 @@ public record PluginConfig(
                 new LoggingConfig(logOperations),
                 new RunCommandConfig(runCommandEnabled),
                 new EngineConfig(connectBlocks, supportWarnings),
-                new AgentConfig(agentEnabled, agentCooldownSeconds, agentMaxMessageLength));
+                new AgentConfig(agentEnabled, agentCooldownSeconds, agentMaxMessageLength, agentEchoToMonitors));
     }
 
     private static long positiveOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {

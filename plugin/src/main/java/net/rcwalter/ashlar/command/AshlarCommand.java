@@ -6,6 +6,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.rcwalter.ashlar.config.PluginConfig;
 import net.rcwalter.ashlar.net.WsServer;
+import net.rcwalter.ashlar.player.Monitors;
 import net.rcwalter.ashlar.player.PlayerJson;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -67,6 +68,7 @@ public final class AshlarCommand implements CommandExecutor {
             event.addProperty("event", "chat_cancel");
             event.add("player", playerRef);
             wsServer.broadcastEvent("chat", event);
+            echoToMonitors(player, Component.text(player.getName() + " cancelled their request", NamedTextColor.GRAY));
             reply(player, "Cancel requested.");
             return true;
         }
@@ -92,8 +94,25 @@ public final class AshlarCommand implements CommandExecutor {
         event.add("player", PlayerJson.describe(player));
         event.addProperty("text", text);
         wsServer.broadcastEvent("chat", event);
+        echoToMonitors(player, Component.text(player.getName() + " asked: ", NamedTextColor.GRAY)
+                .append(Component.text(text, NamedTextColor.WHITE)));
         reply(player, "Sent to the AI assistant. Replies will appear here.");
         return true;
+    }
+
+    /**
+     * Sends {@code message} (already excluding the "[Ashlar] " prefix) to every
+     * online player with {@code ashlar.monitor} other than {@code requester}, unless
+     * {@code agent.echo-to-monitors} is off (step6d-prompt.md).
+     */
+    private void echoToMonitors(Player requester, Component message) {
+        if (!config.agent().echoToMonitors()) {
+            return;
+        }
+        Component full = PREFIX.append(message);
+        for (Player monitor : Monitors.onlineExcept(requester)) {
+            monitor.sendMessage(full);
+        }
     }
 
     /** Same "[Ashlar] " gold prefix as the {@code send_message} RPC. */

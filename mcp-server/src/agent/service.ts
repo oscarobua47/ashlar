@@ -47,6 +47,9 @@ export interface AgentService {
  * request count, a per-player serial queue, and a global concurrency cap;
  * sends "Working on it...", throttled progress lines, and the final reply
  * (chunked to <= 1000 characters) back via the plugin's `send_message` RPC.
+ * Every call passes a `kind`: `"final"` only for the finished reply's
+ * chunks, `"progress"` for everything else (step6d-prompt.md) - the plugin
+ * uses this to decide what `ashlar.monitor` players get to see.
  */
 export async function startAgentService(
     pluginClient: PluginClient,
@@ -78,9 +81,9 @@ export async function startAgentService(
         return true;
     }
 
-    async function send(uuid: string, text: string): Promise<void> {
+    async function send(uuid: string, text: string, kind: "progress" | "final" = "progress"): Promise<void> {
         try {
-            await pluginClient.request("send_message", { player: uuid, text });
+            await pluginClient.request("send_message", { player: uuid, text, kind });
         } catch (err) {
             console.error(`[agent-service] send_message to ${uuid} failed: ${(err as Error).message}`);
         }
@@ -158,7 +161,7 @@ export async function startAgentService(
             }
 
             for (const chunk of chunkText(finalText, CHUNK_MAX_LENGTH)) {
-                await send(entry.player.uuid, chunk);
+                await send(entry.player.uuid, chunk, "final");
             }
         } finally {
             if (progressTimer) clearTimeout(progressTimer);

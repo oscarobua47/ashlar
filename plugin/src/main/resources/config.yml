@@ -112,3 +112,9 @@ agent:
 
   # Longest request text accepted, in characters.
   max-message-length: 500
+
+  # Whether players with the ashlar.monitor permission (default op) see a
+  # compact echo of every /ashlar request and every final reply from other
+  # players - "<name> asked: ..." and "[Ashlar -> <name>] ...". Monitors
+  # never see progress lines, and never see an echo of their own requests.
+  echo-to-monitors: true

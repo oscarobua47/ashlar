@@ -9,9 +9,10 @@ In-game AI assistant: players can now ask for a build directly in chat, without 
 ### Plugin (`plugin/`)
 
 - `/ashlar <request>` / `/ashlar cancel` command, gated by the `ashlar.use` permission (default op).
-- `agent:` config section: `enabled`, `cooldown-seconds`, `max-message-length`.
-- New RPCs: `subscribe` (lets an `--agent` process receive `chat`/`chat_cancel` events) and `send_message` (the assistant's replies back to a player, `[Ashlar] `-prefixed).
+- `agent:` config section: `enabled`, `cooldown-seconds`, `max-message-length`, `echo-to-monitors`.
+- New RPCs: `subscribe` (lets an `--agent` process receive `chat`/`chat_cancel` events) and `send_message` (the assistant's replies back to a player, `[Ashlar] `-prefixed; takes an optional `kind: "progress"|"final"`).
 - Chat and cancel requests are broadcast as events to the subscribed connection; per-player cooldown and message-length checks happen before broadcasting.
+- `ashlar.monitor` permission (default op): players with it see a compact echo of every other player's `/ashlar` request and final reply, but none of the progress lines; off switch is `agent.echo-to-monitors`.
 
 ### MCP server (`mcp-server/`)
 
@@ -19,7 +20,8 @@ In-game AI assistant: players can now ask for a build directly in chat, without 
 - `AI_*` environment variables: provider (`AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`), limits (`AI_MAX_TOOL_CALLS`, `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY`, `AI_MAX_CONCURRENT`), `AI_ALLOW_COMMAND` to opt `mc_command` into the assistant's tool list, history (`AI_HISTORY_TURNS`, `AI_HISTORY_TTL_MINUTES`), `AI_IMAGE_DETAIL`, `AI_SYSTEM_PROMPT_FILE`, `AI_REQUEST_TIMEOUT_MS`.
 - Per-player serial request queue, a global concurrency cap, and a per-player daily request counter.
 - Per-player conversation history (bounded turns, idle TTL, old images redacted to keep token cost down).
-- Progress lines (`> mc_build from=... to=...`) and the final reply sent back through `send_message`, chunked to fit chat.
+- Progress lines (`> mc_build from=... to=...`) and the final reply sent back through `send_message`, chunked to fit chat; final chunks are marked `kind: "final"` so the plugin can echo them to monitors.
+- System prompt: interior furniture must stay clear of doors and walkways, verified with an `mc_inspect` floor-level slice before replying.
 - `--help` now documents `--agent` and its environment variables alongside `--stdio`/`--http`.
 - `tools/agent-sim.mjs`: drives one request through the same runner without a player online or a real model call being required to set up, for local testing.
 

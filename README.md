@@ -169,7 +169,7 @@ Everything above needs an AI client on the player's own machine. `ashlar-mcp --a
 /ashlar build a small stone cottage in front of me
 ```
 
-The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). Follow-up requests remember the recent conversation, so "make the roof taller" works without repeating the whole description. Replies come back in whatever language the request was written in.
+The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). Follow-up requests remember the recent conversation, so "make the roof taller" works without repeating the whole description. Replies come back in whatever language the request was written in. Players with the `ashlar.monitor` permission (default op) see a compact echo of every other player's request and final reply - `"<name> asked: ..."` and `[Ashlar -> <name>]`-prefixed replies, but none of the progress lines; turn it off with `agent.echo-to-monitors: false`.
 
 ### Cost and limits
 
@@ -262,6 +262,7 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 | `agent.enabled` | `true` | Whether `/ashlar` is accepted at all; disabled rejects the command outright. |
 | `agent.cooldown-seconds` | `5` | Minimum seconds between two `/ashlar` requests from the same player. |
 | `agent.max-message-length` | `500` | Longest `/ashlar` request text accepted, in characters. |
+| `agent.echo-to-monitors` | `true` | Whether players with `ashlar.monitor` see a compact echo of other players' `/ashlar` requests and final replies (no progress lines). |
 
 ### MCP server (environment variables)
 
