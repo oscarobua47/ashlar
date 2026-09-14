@@ -16,5 +16,6 @@ public enum ErrorCode {
     QUEUE_FULL,
     INVALID_BLOCK,
     DISABLED,
+    CANCELLED,
     INTERNAL
 }

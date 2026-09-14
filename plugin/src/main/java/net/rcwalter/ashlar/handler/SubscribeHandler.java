@@ -7,7 +7,7 @@ import com.google.gson.JsonObject;
 import net.rcwalter.ashlar.net.ClientSession;
 import net.rcwalter.ashlar.rpc.ErrorCode;
 import net.rcwalter.ashlar.rpc.RpcError;
-import net.rcwalter.ashlar.rpc.RpcHandler;
+import net.rcwalter.ashlar.rpc.SessionRpcHandler;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -22,8 +22,13 @@ import java.util.concurrent.CompletableFuture;
  * BAD_REQUEST naming it, and nothing is subscribed. Re-subscribing to an
  * already-subscribed event is idempotent. Runs entirely on the network
  * thread: no Bukkit access.
+ *
+ * <p>Mutates the transport-level {@link ClientSession} itself, so it is one
+ * of the two {@link SessionRpcHandler} exceptions to the {@code
+ * InvocationContext}-based {@code RpcHandler} (plan.md step7); it has no
+ * execution path to share with the in-process tool layer.
  */
-public final class SubscribeHandler implements RpcHandler {
+public final class SubscribeHandler implements SessionRpcHandler {
 
     private static final Set<String> KNOWN_EVENTS = Set.of("chat");
 

@@ -2,11 +2,10 @@
 package net.rcwalter.ashlar.engine;
 
 import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 import net.rcwalter.ashlar.config.PluginConfig;
-import net.rcwalter.ashlar.net.ClientSession;
-import net.rcwalter.ashlar.net.WsServer;
 import net.rcwalter.ashlar.rpc.ErrorCode;
+import net.rcwalter.ashlar.rpc.InvocationContext;
+import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcError;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -32,7 +31,7 @@ import java.util.logging.Logger;
  */
 public final class TickBudgetExecutor {
 
-    private record QueuedTask(BuildTask task, ClientSession session, CompletableFuture<JsonElement> future, long submittedAtNanos) {
+    private record QueuedTask(BuildTask task, InvocationContext ctx, CompletableFuture<JsonElement> future, long submittedAtNanos) {
     }
 
     private final JavaPlugin plugin;
@@ -41,7 +40,6 @@ public final class TickBudgetExecutor {
     private final ArrayDeque<QueuedTask> queue = new ArrayDeque<>();
     private final Object queueLock = new Object();
 
-    private volatile WsServer wsServer;
     private BukkitTask timerTask;
 
     // Main-thread-only state: only ever read/written from tick() and the private
@@ -54,11 +52,6 @@ public final class TickBudgetExecutor {
         this.plugin = plugin;
         this.config = config;
         this.logger = logger;
-    }
-
-    /** Wired in after the {@link WsServer} exists (construction-order workaround), so progress events can be sent. */
-    public void setWsServer(WsServer wsServer) {
-        this.wsServer = wsServer;
     }
 
     public void start() {
@@ -92,30 +85,24 @@ public final class TickBudgetExecutor {
     }
 
     /**
-     * Enqueues a task and wires up its progress events. Throws {@link RpcError}
-     * with {@link ErrorCode#QUEUE_FULL} synchronously if the queue is already
-     * at {@code limits.max-queued-operations}.
+     * Enqueues a task and wires up its progress events to flow through
+     * {@code ctx.progress()}. Throws {@link RpcError} with {@link
+     * ErrorCode#QUEUE_FULL} synchronously if the queue is already at {@code
+     * limits.max-queued-operations}. Must not be called from the main thread
+     * (see {@link MainThread#assertNotPrimary}) - the WebSocket network
+     * thread satisfies this today; an in-JVM caller (the tool layer/agent,
+     * plan.md step7) must too.
      */
-    public CompletableFuture<JsonElement> submit(BuildTask task, ClientSession session, JsonElement requestId) {
+    public CompletableFuture<JsonElement> submit(BuildTask task, InvocationContext ctx) {
+        MainThread.assertNotPrimary("TickBudgetExecutor.submit");
         CompletableFuture<JsonElement> future = new CompletableFuture<>();
-        task.setProgressListener((done, total) -> {
-            WsServer server = wsServer;
-            if (server == null) {
-                return;
-            }
-            JsonObject event = new JsonObject();
-            event.addProperty("event", "progress");
-            event.add("id", requestId);
-            event.addProperty("done", done);
-            event.addProperty("total", total);
-            server.sendEvent(session, event);
-        });
+        task.setProgressListener(ctx.progress()::progress);
         synchronized (queueLock) {
             int max = config.limits().maxQueuedOperations();
             if (queue.size() >= max) {
                 throw new RpcError(ErrorCode.QUEUE_FULL, "operation queue is full (" + max + " operations already queued)");
             }
-            queue.addLast(new QueuedTask(task, session, future, System.nanoTime()));
+            queue.addLast(new QueuedTask(task, ctx, future, System.nanoTime()));
         }
         return future;
     }
@@ -125,6 +112,10 @@ public final class TickBudgetExecutor {
         while (System.nanoTime() < deadline) {
             if (current == null && !startNext()) {
                 return; // queue empty, nothing to do this tick
+            }
+            if (current.ctx().isCancelled()) {
+                cancelCurrent();
+                continue; // executor keeps running; try to pick up the next task within budget
             }
             boolean finished;
             try {
@@ -183,6 +174,20 @@ public final class TickBudgetExecutor {
         if (qt != null) {
             qt.future().completeExceptionally(new RpcError(ErrorCode.INTERNAL, "build task failed: " + cause.getMessage()));
         }
+    }
+
+    /**
+     * Abandons the currently-running task because {@code ctx.isCancelled()}
+     * returned true: releases its chunk tickets and completes its future
+     * exceptionally with {@link ErrorCode#CANCELLED}, same as an internal
+     * failure but without logging it as one. Nothing calls {@code
+     * InvocationContext#cancel()} yet (the in-JVM agent will).
+     */
+    private void cancelCurrent() {
+        QueuedTask qt = current;
+        releaseGuard();
+        current = null;
+        qt.future().completeExceptionally(new RpcError(ErrorCode.CANCELLED, "operation cancelled"));
     }
 
     private void releaseGuard() {

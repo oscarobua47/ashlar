@@ -5,8 +5,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.rcwalter.ashlar.config.PluginConfig;
-import net.rcwalter.ashlar.net.ClientSession;
 import net.rcwalter.ashlar.rpc.ErrorCode;
+import net.rcwalter.ashlar.rpc.InvocationContext;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcError;
 import net.rcwalter.ashlar.rpc.RpcHandler;
@@ -31,6 +31,11 @@ import java.util.concurrent.CompletableFuture;
  * delivered synchronously during {@link Bukkit#dispatchCommand} is captured;
  * asynchronous/late feedback (e.g. from a command that schedules a delayed
  * task) and anything a command writes only to the server log are not.
+ *
+ * <p>Execution ({@link #run}) needs no instance state beyond the command
+ * string itself, so it is a public static method rather than a separate
+ * service class (plan.md step7), reusable by the in-process tool layer;
+ * only the {@code run-command.enabled} gate stays an instance check here.
  */
 public final class RunCommandHandler implements RpcHandler {
 
@@ -44,7 +49,7 @@ public final class RunCommandHandler implements RpcHandler {
     }
 
     @Override
-    public CompletableFuture<JsonElement> handle(ClientSession session, JsonElement id, JsonObject params) {
+    public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
         if (!config.runCommand().enabled()) {
             return CompletableFuture.failedFuture(new RpcError(ErrorCode.DISABLED, "run_command is disabled in config.yml"));
         }
@@ -57,8 +62,11 @@ public final class RunCommandHandler implements RpcHandler {
         if (command.isBlank()) {
             return CompletableFuture.failedFuture(new RpcError(ErrorCode.BAD_REQUEST, "\"command\" must not be empty"));
         }
+        return run(command, ctx);
+    }
 
-        String finalCommand = command;
+    /** Dispatches {@code command} as the console and captures its synchronous feedback. Runs on the main thread. */
+    public static CompletableFuture<JsonElement> run(String command, InvocationContext ctx) {
         return MainThread.call(() -> {
             List<String> output = new ArrayList<>();
             boolean[] truncated = {false};
@@ -77,10 +85,10 @@ public final class RunCommandHandler implements RpcHandler {
                 bytesUsed[0] += lineBytes;
             });
 
-            boolean dispatched = Bukkit.dispatchCommand(sender, finalCommand);
+            boolean dispatched = Bukkit.dispatchCommand(sender, command);
 
             JsonObject result = new JsonObject();
-            result.addProperty("command", finalCommand);
+            result.addProperty("command", command);
             result.addProperty("dispatched", dispatched);
             JsonArray outputArray = new JsonArray();
             for (String line : output) {

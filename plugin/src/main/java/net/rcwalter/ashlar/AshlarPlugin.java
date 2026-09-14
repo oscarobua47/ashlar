@@ -9,6 +9,13 @@ import net.rcwalter.ashlar.command.AshlarTabCompleter;
 import net.rcwalter.ashlar.command.Cooldown;
 import net.rcwalter.ashlar.config.ConfigException;
 import net.rcwalter.ashlar.config.PluginConfig;
+import net.rcwalter.ashlar.engine.FillService;
+import net.rcwalter.ashlar.engine.HealthService;
+import net.rcwalter.ashlar.engine.HeightmapService;
+import net.rcwalter.ashlar.engine.ReadRegionService;
+import net.rcwalter.ashlar.engine.RenderService;
+import net.rcwalter.ashlar.engine.SnapshotService;
+import net.rcwalter.ashlar.engine.SparseService;
 import net.rcwalter.ashlar.engine.TickBudgetExecutor;
 import net.rcwalter.ashlar.handler.FillBatchHandler;
 import net.rcwalter.ashlar.handler.HealthHandler;
@@ -90,35 +97,11 @@ public final class AshlarPlugin extends JavaPlugin {
         Path dataFolder = getDataFolder().toPath();
         this.operationLog = new OperationLog(dataFolder, config.logging().logOperations(), getLogger());
 
-        // Created before the WsServer, which it needs a reference to for progress
-        // events; wired in via setWsServer() once the WsServer exists below, since
-        // the WsServer constructor in turn needs the dispatcher (and therefore the
-        // fill_batch/set_blocks handlers, and therefore this executor) already built.
         this.executor = new TickBudgetExecutor(this, config, getLogger());
 
         this.snapshotStore = new SnapshotStore(dataFolder, config.snapshot().maxSnapshots(), getLogger());
         snapshotStore.loadFromDisk();
 
-        this.dispatcher = new RpcDispatcher(operationLog, getLogger());
-        // Re-sending "auth" once already authenticated is idempotent (plan.md 1.2).
-        dispatcher.register("auth", (session, id, params) -> {
-            JsonObject result = new JsonObject();
-            result.addProperty("authenticated", true);
-            return CompletableFuture.<JsonElement>completedFuture(result);
-        });
-        dispatcher.register("health", new HealthHandler(this, startedAt, executor));
-        dispatcher.register("fill_batch", new FillBatchHandler(config, executor));
-        dispatcher.register("set_blocks", new SetBlocksHandler(config, executor));
-        dispatcher.register("heightmap", new HeightmapHandler(config, executor));
-        dispatcher.register("read_region", new ReadRegionHandler(config, executor));
-        SnapshotHandler snapshotHandler = new SnapshotHandler(config, executor, snapshotStore);
-        dispatcher.register("snapshot", snapshotHandler.snapshot());
-        dispatcher.register("restore", snapshotHandler.restore());
-        dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
-        dispatcher.register("run_command", new RunCommandHandler(config));
-        dispatcher.register("players", new PlayersHandler());
-        dispatcher.register("subscribe", new SubscribeHandler());
-        dispatcher.register("send_message", new SendMessageHandler(config));
         // Dedicated single thread for render's image work (ImageRenderer + PNG
         // encoding, step4e-prompt.md): never the main thread, and kept separate
         // from RpcDispatcher's responseExecutor so a slow render cannot delay
@@ -128,11 +111,47 @@ public final class AshlarPlugin extends JavaPlugin {
             t.setDaemon(true);
             return t;
         });
-        dispatcher.register("render", new RenderHandler(config, executor, renderExecutor));
+
+        // Execution paths (plan.md step7): independent of the transport, so the
+        // in-process tool layer/agent can call them directly in a later step.
+        // Handlers below only parse/validate params and delegate to these.
+        FillService fillService = new FillService(config, executor);
+        SparseService sparseService = new SparseService(config, executor);
+        HeightmapService heightmapService = new HeightmapService(executor);
+        ReadRegionService readRegionService = new ReadRegionService(executor);
+        RenderService renderService = new RenderService(executor, renderExecutor);
+        SnapshotService snapshotService = new SnapshotService(config, executor, snapshotStore);
+        HealthService healthService = new HealthService(this, startedAt, executor);
+
+        this.dispatcher = new RpcDispatcher(operationLog, getLogger());
+        // Re-sending "auth" once already authenticated is idempotent (plan.md 1.2).
+        dispatcher.register("auth", (ctx, params) -> {
+            JsonObject result = new JsonObject();
+            result.addProperty("authenticated", true);
+            return CompletableFuture.<JsonElement>completedFuture(result);
+        });
+        dispatcher.register("health", new HealthHandler(healthService));
+        dispatcher.register("fill_batch", new FillBatchHandler(config, fillService));
+        dispatcher.register("set_blocks", new SetBlocksHandler(config, sparseService));
+        dispatcher.register("heightmap", new HeightmapHandler(config, heightmapService));
+        dispatcher.register("read_region", new ReadRegionHandler(config, readRegionService));
+        SnapshotHandler snapshotHandler = new SnapshotHandler(config, snapshotService, snapshotStore);
+        dispatcher.register("snapshot", snapshotHandler.snapshot());
+        dispatcher.register("restore", snapshotHandler.restore());
+        dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
+        dispatcher.register("run_command", new RunCommandHandler(config));
+        dispatcher.register("players", new PlayersHandler());
+        dispatcher.register("subscribe", new SubscribeHandler());
+        dispatcher.register("send_message", new SendMessageHandler(config));
+        dispatcher.register("render", new RenderHandler(config, renderService));
 
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());
-        this.executor.setWsServer(wsServer);
+        // Wired in after the WsServer exists (construction-order workaround: the
+        // WsServer constructor needs the dispatcher, and therefore every handler,
+        // already built), so InvocationContexts built per-request can send progress
+        // events (net.SessionProgressSink, plan.md step7).
+        this.dispatcher.setWsServer(wsServer);
         this.executor.start();
         this.wsServer.start();
 

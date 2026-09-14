@@ -11,7 +11,7 @@ import net.rcwalter.ashlar.player.Monitors;
 import net.rcwalter.ashlar.rpc.ErrorCode;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcError;
-import net.rcwalter.ashlar.rpc.RpcHandler;
+import net.rcwalter.ashlar.rpc.SessionRpcHandler;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -35,8 +35,13 @@ import java.util.concurrent.CompletableFuture;
  * changing blocks in {@link net.rcwalter.ashlar.log.OperationLog} (nothing
  * to extract there; {@code extractBlocksChanged} already yields 0 for a
  * result with none of its known fields).
+ *
+ * <p>Grouped with {@code subscribe} as the other {@link SessionRpcHandler}
+ * exception to the {@code InvocationContext}-based {@code RpcHandler}
+ * (plan.md step7): a transport/messaging primitive, not world-related, kept
+ * on the old signature even though its body does not touch {@code session}.
  */
-public final class SendMessageHandler implements RpcHandler {
+public final class SendMessageHandler implements SessionRpcHandler {
 
     private static final int MAX_TEXT_LENGTH = 4000;
 

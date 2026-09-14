@@ -3,45 +3,30 @@ package net.rcwalter.ashlar.handler;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import net.rcwalter.ashlar.engine.TickBudgetExecutor;
-import net.rcwalter.ashlar.net.ClientSession;
+import net.rcwalter.ashlar.engine.HealthService;
+import net.rcwalter.ashlar.rpc.InvocationContext;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcHandler;
-import org.bukkit.Bukkit;
-import org.bukkit.plugin.java.JavaPlugin;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * {@code health}: connectivity check. Returns plugin/server version, online
  * player count, queue length and uptime. All values that come from Bukkit
- * are read on the main thread via {@link MainThread#call}.
+ * are read on the main thread via {@link MainThread#call}. Execution lives
+ * in {@link HealthService}, shared with the in-process tool layer (plan.md
+ * step7).
  */
 public final class HealthHandler implements RpcHandler {
 
-    private final JavaPlugin plugin;
-    private final Instant startedAt;
-    private final TickBudgetExecutor executor;
+    private final HealthService healthService;
 
-    public HealthHandler(JavaPlugin plugin, Instant startedAt, TickBudgetExecutor executor) {
-        this.plugin = plugin;
-        this.startedAt = startedAt;
-        this.executor = executor;
+    public HealthHandler(HealthService healthService) {
+        this.healthService = healthService;
     }
 
     @Override
-    public CompletableFuture<JsonElement> handle(ClientSession session, JsonElement id, JsonObject params) {
-        return MainThread.call(() -> {
-            JsonObject result = new JsonObject();
-            result.addProperty("plugin", plugin.getPluginMeta().getVersion());
-            result.addProperty("server", Bukkit.getName() + " " + Bukkit.getVersion());
-            result.addProperty("minecraft", Bukkit.getBukkitVersion());
-            result.addProperty("onlinePlayers", Bukkit.getOnlinePlayers().size());
-            result.addProperty("queuedOperations", executor.queuedCount());
-            result.addProperty("uptimeSeconds", Duration.between(startedAt, Instant.now()).getSeconds());
-            return (JsonElement) result;
-        });
+    public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
+        return healthService.health(ctx);
     }
 }

@@ -4,8 +4,8 @@ package net.rcwalter.ashlar.handler;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import net.rcwalter.ashlar.net.ClientSession;
 import net.rcwalter.ashlar.player.PlayerJson;
+import net.rcwalter.ashlar.rpc.InvocationContext;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcHandler;
 import org.bukkit.Bukkit;
@@ -21,11 +21,19 @@ import java.util.concurrent.CompletableFuture;
  * since it does not touch the world. Per-player JSON is built by
  * {@link PlayerJson#describe}, shared with the {@code chat} event
  * (step6a-prompt.md).
+ *
+ * <p>Fully stateless, so {@link #list} is a public static method (plan.md
+ * step7) rather than a separate service class, reusable by the in-process
+ * tool layer.
  */
 public final class PlayersHandler implements RpcHandler {
 
     @Override
-    public CompletableFuture<JsonElement> handle(ClientSession session, JsonElement id, JsonObject params) {
+    public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
+        return list(ctx);
+    }
+
+    public static CompletableFuture<JsonElement> list(InvocationContext ctx) {
         return MainThread.call(() -> {
             JsonArray players = new JsonArray();
             for (Player player : Bukkit.getOnlinePlayers()) {

@@ -8,9 +8,12 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import net.rcwalter.ashlar.log.OperationLog;
 import net.rcwalter.ashlar.net.ClientSession;
+import net.rcwalter.ashlar.net.SessionProgressSink;
+import net.rcwalter.ashlar.net.WsServer;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,14 +22,24 @@ import java.util.logging.Logger;
 
 /**
  * Parses incoming RPC requests from authenticated connections, dispatches
- * them to a registered {@link RpcHandler}, and writes the response back to
- * the client. Never lets an exception escape and kill the WebSocket thread.
+ * them to a registered {@link RpcHandler} (or {@link SessionRpcHandler}),
+ * and writes the response back to the client. Never lets an exception escape
+ * and kill the WebSocket thread.
+ *
+ * <p>Builds an {@link InvocationContext} for every request routed to an
+ * {@link RpcHandler}: a {@link InvocationContext.Kind#WS_TOKEN} principal
+ * carrying the session's remote IP, the request id as the operation id, and
+ * a {@link SessionProgressSink} wired to {@link #wsServer} so {@code
+ * progress} events reach the client exactly as before this class existed
+ * (plan.md step7).
  */
 public final class RpcDispatcher {
 
     private final Map<String, RpcHandler> handlers = new HashMap<>();
+    private final Map<String, SessionRpcHandler> sessionHandlers = new HashMap<>();
     private final OperationLog operationLog;
     private final Logger logger;
+    private volatile WsServer wsServer;
     // Response sending and operations.log writes happen here instead of on the
     // main thread (which completes fill_batch/set_blocks futures) or a
     // java-websocket network thread (which completed simple futures like
@@ -47,8 +60,18 @@ public final class RpcDispatcher {
         responseExecutor.shutdown();
     }
 
+    /** Wired in after the {@link WsServer} exists (construction-order workaround), so progress events can be sent. */
+    public void setWsServer(WsServer wsServer) {
+        this.wsServer = wsServer;
+    }
+
     public void register(String method, RpcHandler handler) {
         handlers.put(method, handler);
+    }
+
+    /** Registers a transport-level exception handler that needs the raw {@link ClientSession}; see {@link SessionRpcHandler}. */
+    public void register(String method, SessionRpcHandler handler) {
+        sessionHandlers.put(method, handler);
     }
 
     public void dispatch(ClientSession session, String rawMessage) {
@@ -81,13 +104,17 @@ public final class RpcDispatcher {
 
         RpcRequest request = new RpcRequest(id, method, params);
         RpcHandler handler = handlers.get(request.method());
-        if (handler == null) {
+        SessionRpcHandler sessionHandler = (handler == null) ? sessionHandlers.get(request.method()) : null;
+        if (handler == null && sessionHandler == null) {
             sendAndLog(session, RpcResponse.error(id, ErrorCode.UNKNOWN_METHOD, "unknown method: " + method), method);
             return;
         }
 
         try {
-            handler.handle(session, id, request.params()).whenCompleteAsync((result, throwable) -> {
+            CompletableFuture<JsonElement> future = (handler != null)
+                    ? handler.handle(buildContext(session, id), request.params())
+                    : sessionHandler.handle(session, id, request.params());
+            future.whenCompleteAsync((result, throwable) -> {
                 if (throwable != null) {
                     Throwable cause = (throwable instanceof CompletionException && throwable.getCause() != null)
                             ? throwable.getCause()
@@ -106,6 +133,34 @@ public final class RpcDispatcher {
             logger.log(Level.SEVERE, "Handler for method '" + method + "' threw synchronously", e);
             sendAndLog(session, RpcResponse.error(id, ErrorCode.INTERNAL, e.getClass().getName()), method);
         }
+    }
+
+    /**
+     * Builds the {@link InvocationContext} for one WebSocket-originated
+     * request: a {@link InvocationContext.Kind#WS_TOKEN} principal (the
+     * session's remote IP, used as both id and display), the request id as
+     * the operation id, and a {@link SessionProgressSink} that relays {@code
+     * progress} events to this session through {@link #wsServer}. Falls back
+     * to the default NOOP sink if {@link #wsServer} has not been wired in
+     * yet (should not happen once {@code onEnable} finishes).
+     */
+    private InvocationContext buildContext(ClientSession session, JsonElement id) {
+        WsServer server = wsServer;
+        InvocationContext.ProgressSink sink = (server != null) ? new SessionProgressSink(server, session, id) : null;
+        InvocationContext.Principal principal =
+                new InvocationContext.Principal(InvocationContext.Kind.WS_TOKEN, session.getRemoteIp(), session.getRemoteIp());
+        return InvocationContext.of(principal, operationIdOf(id), sink);
+    }
+
+    /** The request id as a string: its own text for a string id, its JSON text otherwise (a number, or {@code "null"}). */
+    private static String operationIdOf(JsonElement id) {
+        if (id == null || id.isJsonNull()) {
+            return "null";
+        }
+        if (id.isJsonPrimitive() && id.getAsJsonPrimitive().isString()) {
+            return id.getAsString();
+        }
+        return id.toString();
     }
 
     private void sendAndLog(ClientSession session, RpcResponse response, String method) {
