@@ -4,7 +4,8 @@
 # SECURITY WARNING: the port opened below is a raw, plaintext WebSocket.
 # Anyone who can reach it and guess/steal the token can control this server.
 #   - Always set a long, random `server.token`.
-#   - Always fill in `server.allowed-ips` with the IP(s) of your MCP Server.
+#   - Fill in `server.allowed-ips` when your MCP Server has a fixed IP (e.g. a
+#     VPS). Leave it empty when it runs on a PC with a dynamic home IP.
 #   - This plugin does NOT provide TLS. Put a reverse proxy (Caddy, Nginx,
 #     Cloudflare Tunnel, ...) in front of it to terminate TLS if the
 #     connection ever crosses an untrusted network. Do not expose this port
@@ -24,8 +25,10 @@ server:
   # (>= 16 characters), e.g. `openssl rand -hex 24`.
   token: ""
 
-  # Optional allow-list of client IP addresses. Empty list = no restriction.
-  # Strongly recommended: set this to the IP of your MCP Server.
+  # Optional allow-list of client IP addresses. Empty list = no restriction
+  # (the token is still required). Recommended when the MCP Server has a
+  # fixed IP; leave empty when it runs on a PC with a dynamic home IP, since
+  # the address would change and lock you out.
   allowed-ips: []
 
 limits:

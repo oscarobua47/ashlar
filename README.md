@@ -12,7 +12,7 @@ MC AI Builder is a Paper plugin plus a Node MCP server. Point an AI client - Cla
 
 ```
 AI client                MCP server              Paper plugin
-(Claude/Cursor/...)      (Node, mcp-server/)      (Java, plugin/)
+(Claude/ChatGPT/...)     (Node, mcp-server/)      (Java, plugin/)
 
    mc_* tool call  --->     WebSocket RPC   --->   main-thread block
    (stdio or HTTP)          (ws:// / wss://)        writes, tick-budgeted
@@ -49,7 +49,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 3. Edit `plugins/McAiBuilder/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
    - `server.port`: an idle TCP port your host/panel exposes.
-   - `server.allowed-ips`: the IP address(es) your MCP server will connect from. Leaving it empty allows any IP - fine for local testing, not for anything reachable from the internet.
+   - `server.allowed-ips`: optional. If the MCP server runs somewhere with a fixed public IP (a VPS), put that IP here. If it runs on your own PC behind a typical home connection, your IP changes and an allow-list would lock you out - leave it empty and rely on the token, which is the real authentication. See [Security](#security) for what an empty list means and how to tighten it anyway.
 4. Restart the server.
 
 ### 2. Install the MCP server
@@ -164,7 +164,7 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 **The plugin's WebSocket port is a remote console with full build and (optionally) command-execution privileges.** Treat the token like a root password.
 
 - Set a long, random `server.token` (>= 16 characters; the plugin enforces this and refuses to start otherwise). `openssl rand -hex 24` is a good source.
-- Set `server.allowed-ips` to the exact IP(s) of your MCP server. An empty list allows any IP to attempt authentication.
+- `server.allowed-ips` is a second layer, not the first: the token is what actually authenticates a client (a failed or missing handshake is closed within 5 seconds). Set the allow-list when the MCP server has a fixed IP (a VPS). When it runs on a home PC with a dynamic IP, leave it empty rather than pinning today's address; if you want to lock it down anyway, use the host's firewall or panel rules, or put both machines on a private overlay network (Tailscale, WireGuard) and allow only that address range.
 - The plugin does **not** provide TLS. Plaintext `ws://` across the open internet exposes the token to anyone on the path - acceptable only for local/LAN testing. For anything crossing an untrusted network, put a reverse proxy (Caddy, Nginx, Cloudflare Tunnel, ...) in front of it to terminate TLS (`wss://`), and do the same for the MCP server's own HTTP mode.
 - Disable `run-command.enabled` if you do not need the `mc_command` escape hatch - it runs arbitrary console commands with full operator privileges.
 - Every executed operation is appended to `plugins/McAiBuilder/operations.log` (IP, method, summary, blocks changed) when `logging.log-operations` is on, as an audit trail.
