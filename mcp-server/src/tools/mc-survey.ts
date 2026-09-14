@@ -67,9 +67,9 @@ const inputSchema = z.object({
         .enum(["image", "text"])
         .optional()
         .describe(
-            'Output format. "image" (default): a color heightmap picture plus the exact numbers (min/max/median height, ' +
-                'surface materials, largest flat zone) as text. "text": the original ASCII relief map, for clients that ' +
-                "cannot display images."
+            'Output format. Leave unset. "image" (default): a color heightmap picture plus the exact numbers (min/max/median ' +
+                'height, surface materials, largest flat zone) as text. "text": an ASCII relief map instead of the picture - ' +
+                "only when the user explicitly asks for a text map; you can see images, so do not pick this on your own."
         ),
     matrix: z
         .boolean()
@@ -82,7 +82,7 @@ const inputSchema = z.object({
         )
 });
 
-const DESCRIPTION = `Surveys terrain by reading surface height over a rectangular x/z area, so an AI can form spatial intuition about the ground before building. By default (\`format: "image"\`) it renders a color heightmap: 8 hypsometric bands from dark green (low) through yellow/tan/brown to light gray (high), blue for water/lava, relief shading, a coordinate grid, and contour lines - plus text with the numbers a picture cannot give: area, min/max/median height, dominant surface materials, and the largest flat buildable zone with its coordinates and y. \`format: "text"\` instead returns the original ASCII relief map (a coordinate ruler, one bucketed character per cell, \`~\` for liquid) for clients that cannot display images. Either format accepts \`matrix: true\` to append the numeric per-block height matrix.
+const DESCRIPTION = `Surveys terrain by reading surface height over a rectangular x/z area, so an AI can form spatial intuition about the ground before building. By default (\`format: "image"\`) it renders a color heightmap: 8 hypsometric bands from dark green (low) through yellow/tan/brown to light gray (high), blue for water/lava, relief shading, a coordinate grid, and contour lines - plus text with the numbers a picture cannot give: area, min/max/median height, dominant surface materials, and the largest flat buildable zone with its coordinates and y. Always use the default image format; \`format: "text"\` (an ASCII relief map) exists only for clients that truly cannot show images or when the user explicitly asks for a text map - it is larger and harder to read than the picture. Either format accepts \`matrix: true\` to append the numeric per-block height matrix.
 
 WHEN TO USE: before any nontrivial build, to find a flat spot, see where water/lava is, and pick a sensible y level, rather than guessing coordinates. Also useful mid-project to check terrain outside the current build area, or to answer "what does the land around x,z look like".
 
