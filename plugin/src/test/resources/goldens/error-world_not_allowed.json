@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "WORLD_NOT_ALLOWED",
+    "message": "World \"creative_backup\" is not in the allowed list.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "World \"creative_backup\" is not in the allowed list. Ask the server owner to add this world to \"world.allowed-worlds\" in the plugin's config.yml, or omit \"world\" to use the plugin's default world."
+}

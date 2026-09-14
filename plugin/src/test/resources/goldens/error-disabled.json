@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "DISABLED",
+    "message": "The snapshot feature is disabled.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "The snapshot feature is disabled. This feature is disabled in the plugin's config.yml on this server; ask the server owner to enable it if you need it."
+}

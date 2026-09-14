@@ -1,0 +1,51 @@
+{
+  "input": {
+    "bounds": {
+      "from": [
+        500,
+        -200
+      ],
+      "to": [
+        539,
+        -161
+      ]
+    },
+    "heights": {
+      "min": 58,
+      "max": 74,
+      "median": 65
+    },
+    "surface": {
+      "minecraft:grass_block": 1000,
+      "minecraft:water": 400,
+      "minecraft:sand": 200
+    },
+    "flatZone": {
+      "x1": 505,
+      "z1": -195,
+      "x2": 520,
+      "z2": -180,
+      "y": 65,
+      "width": 16,
+      "depth": 16
+    },
+    "legend": [
+      {
+        "color": "#3f76e4",
+        "label": "water"
+      },
+      {
+        "color": "#1b4d2e",
+        "label": "y 58-59"
+      },
+      {
+        "color": "#d9d9d9",
+        "label": "y 74"
+      }
+    ],
+    "liquidCells": 42,
+    "treeCells": 0,
+    "contour": 5
+  },
+  "expected": "Area x=[500..539] z=[-200..-161] (40x40). Surface y: min 58, max 74, median 65. Surface: grass_block 63%, water 25%, sand 13%. Largest flat zone (+/-1 block): 16x16 at x=505..520 z=-195..-180, y=65. Liquid cells: 42."
+}

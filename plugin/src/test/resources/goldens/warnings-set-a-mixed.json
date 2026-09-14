@@ -1,0 +1,249 @@
+{
+  "input": {
+    "warnings": [
+      {
+        "pos": [
+          563,
+          66,
+          -425
+        ],
+        "block": "minecraft:torch",
+        "reason": "embedded"
+      },
+      {
+        "pos": [
+          100,
+          70,
+          200
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          101,
+          70,
+          200
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          102,
+          70,
+          200
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          103,
+          70,
+          200
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          104,
+          70,
+          200
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          561,
+          65,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          66,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          67,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          68,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          69,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          70,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          71,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          72,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          73,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          74,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          75,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          76,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          77,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          78,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          79,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          80,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          81,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          561,
+          82,
+          -428
+        ],
+        "block": "minecraft:ladder[facing=east]",
+        "reason": "no support behind (facing=east needs a solid block at x-1)"
+      },
+      {
+        "pos": [
+          10,
+          64,
+          0
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          12,
+          64,
+          0
+        ],
+        "block": "minecraft:oak_carpet",
+        "reason": "nothing solid below"
+      }
+    ],
+    "truncated": false
+  },
+  "expected": [
+    "WARNINGS (blocks that would fall or pop off in vanilla, including ones next to something you just removed; physics is disabled so they stay - fix them):",
+    "  1x minecraft:torch at 563,66,-425: embedded - standing torch surrounded by solid blocks on 3+ horizontal sides; did you mean wall_torch in the air block outside the wall, instead of replacing a wall block with a standing torch?",
+    "  5x minecraft:oak_carpet at x=100..104 y=70 z=200: nothing solid below",
+    "  1x minecraft:oak_carpet at 10,64,0: nothing solid below",
+    "  1x minecraft:oak_carpet at 12,64,0: nothing solid below",
+    "  18x minecraft:ladder[facing=east] at x=561 y=65..82 z=-428: no support behind (facing=east needs a solid block at x-1)"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "BAD_REQUEST",
+    "message": "from and to must both be [x, z] or both be [x, y, z].",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "BAD_REQUEST: from and to must both be [x, z] or both be [x, y, z]."
+}

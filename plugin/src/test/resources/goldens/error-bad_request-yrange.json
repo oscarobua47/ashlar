@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "BAD_REQUEST",
+    "message": "y range [500, -64] is outside world height limits.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "y range [500, -64] is outside world height limits. Corners are [x, y, z] with y = height (typically 60-100 at the surface); it looks like a z value was placed in the y position. For a facade use from [x1, yBottom, z1] to [x2, yTop, z2]; for top/heightmap views you can pass [x, z] only."
+}

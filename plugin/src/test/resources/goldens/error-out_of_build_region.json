@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "OUT_OF_BUILD_REGION",
+    "message": "Coordinates [50000, 64, 0] are outside the configured build region.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "Coordinates [50000, 64, 0] are outside the configured build region. Choose coordinates inside the range given above, or ask the server owner to widen \"world.build-region\" in the plugin's config.yml."
+}

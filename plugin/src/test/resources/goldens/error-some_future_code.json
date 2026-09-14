@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "SOME_FUTURE_CODE",
+    "message": "A code the client does not recognize yet.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "SOME_FUTURE_CODE: A code the client does not recognize yet."
+}

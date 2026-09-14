@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "INVALID_BLOCK",
+    "message": "Unknown block state \"minecraft:not_a_block\".",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "Unknown block state \"minecraft:not_a_block\". This is not a valid block state. Use the \"minecraft:\" namespace and check property names, e.g. \"minecraft:oak_stairs[facing=north]\". Property values must match the block's actual state names."
+}

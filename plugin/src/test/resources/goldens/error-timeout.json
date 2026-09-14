@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "TIMEOUT",
+    "message": "Timed out after 30000ms waiting for a response.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "Timed out after 30000ms waiting for a response. The plugin may be overloaded or the operation may be very large; check mc_status, then retry or split the request."
+}

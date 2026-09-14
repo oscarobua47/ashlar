@@ -1,0 +1,4 @@
+{
+  "input": 5,
+  "expected": "Contour lines: every 5 blocks of height (a darker line where the height crosses a multiple of 5)."
+}

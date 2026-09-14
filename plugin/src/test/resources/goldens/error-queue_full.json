@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "QUEUE_FULL",
+    "message": "The operation queue is full (64/64 queued).",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "The operation queue is full (64/64 queued). The plugin's operation queue is full. Wait a few seconds and retry; call mc_status and check \"queuedOperations\" before retrying."
+}

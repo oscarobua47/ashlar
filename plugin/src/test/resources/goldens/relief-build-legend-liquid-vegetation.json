@@ -1,0 +1,54 @@
+{
+  "input": {
+    "min": 60,
+    "max": 68,
+    "hasLiquid": true,
+    "hasVegetation": true
+  },
+  "expected": [
+    {
+      "char": ".",
+      "label": "60"
+    },
+    {
+      "char": ",",
+      "label": "61"
+    },
+    {
+      "char": ":",
+      "label": "62"
+    },
+    {
+      "char": "-",
+      "label": "63"
+    },
+    {
+      "char": "=",
+      "label": "64"
+    },
+    {
+      "char": "+",
+      "label": "65"
+    },
+    {
+      "char": "*",
+      "label": "66"
+    },
+    {
+      "char": "#",
+      "label": "67"
+    },
+    {
+      "char": "@",
+      "label": "68"
+    },
+    {
+      "char": "~",
+      "label": "liquid surface"
+    },
+    {
+      "char": "T",
+      "label": "trees / vegetation"
+    }
+  ]
+}

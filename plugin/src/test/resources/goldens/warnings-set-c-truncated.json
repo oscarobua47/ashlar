@@ -1,0 +1,49 @@
+{
+  "input": {
+    "warnings": [
+      {
+        "pos": [
+          0,
+          64,
+          0
+        ],
+        "block": "minecraft:torch",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          0,
+          65,
+          0
+        ],
+        "block": "minecraft:torch",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          0,
+          66,
+          0
+        ],
+        "block": "minecraft:torch",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          200,
+          70,
+          -50
+        ],
+        "block": "minecraft:torch",
+        "reason": "embedded"
+      }
+    ],
+    "truncated": true
+  },
+  "expected": [
+    "WARNINGS (blocks that would fall or pop off in vanilla, including ones next to something you just removed; physics is disabled so they stay - fix them):",
+    "  3x minecraft:torch at x=0 y=64..66 z=0: nothing solid below",
+    "  1x minecraft:torch at 200,70,-50: embedded - standing torch surrounded by solid blocks on 3+ horizontal sides; did you mean wall_torch in the air block outside the wall, instead of replacing a wall block with a standing torch?",
+    "  (warnings capped at 50 for this call; more may remain - fix these, then re-run to see the rest)"
+  ]
+}

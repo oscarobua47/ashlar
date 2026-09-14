@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "VOLUME_EXCEEDED",
+    "message": "Requested volume 750000 exceeds the 500000-block limit.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "Requested volume 750000 exceeds the 500000-block limit. This exceeds the per-call limit. Split the work into several mc_build calls (each <= 500,000 blocks and <= 1,024 chunks), or reduce the area for mc_survey/mc_inspect/mc_snapshot. For mc_render, use view \"top\" or \"heightmap\" (area-priced, any y range), or shrink the y range to the surface band from mc_survey (min-2 .. max+2)."
+}

@@ -1,0 +1,39 @@
+{
+  "input": {
+    "warnings": [
+      {
+        "pos": [
+          0,
+          64,
+          0
+        ],
+        "block": "minecraft:sand",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          1,
+          64,
+          0
+        ],
+        "block": "minecraft:sand",
+        "reason": "nothing solid below"
+      },
+      {
+        "pos": [
+          0,
+          64,
+          1
+        ],
+        "block": "minecraft:sand",
+        "reason": "nothing solid below"
+      }
+    ],
+    "truncated": false
+  },
+  "expected": [
+    "WARNINGS (blocks that would fall or pop off in vanilla, including ones next to something you just removed; physics is disabled so they stay - fix them):",
+    "  2x minecraft:sand at x=0..1 y=64 z=0: nothing solid below",
+    "  1x minecraft:sand at 0,64,1: nothing solid below"
+  ]
+}

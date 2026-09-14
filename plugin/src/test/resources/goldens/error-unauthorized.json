@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "UNAUTHORIZED",
+    "message": "invalid token.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "The plugin rejected the MCP server's connection token: invalid token. Check that MC_PLUGIN_TOKEN matches \"server.token\" in the plugin's config.yml."
+}

@@ -1,0 +1,8 @@
+{
+  "input": {
+    "code": "UNAVAILABLE",
+    "message": "connect ECONNREFUSED 127.0.0.1:8765.",
+    "pluginUrl": "ws://127.0.0.1:8765"
+  },
+  "expected": "MCP server cannot reach the plugin at ws://127.0.0.1:8765: connect ECONNREFUSED 127.0.0.1:8765. Check MC_PLUGIN_URL / MC_PLUGIN_TOKEN and that the plugin is running and its port is reachable."
+}
