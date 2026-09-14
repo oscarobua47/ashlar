@@ -67,13 +67,13 @@ const inputSchema = z.object({
         .describe('Only used when `view` is "heightmap": draw a contour line every N blocks of height, 0 disables. Default 5.')
 });
 
-const DESCRIPTION = `Renders a region as a PNG image from a chosen viewpoint, so an AI can literally see terrain layout and building results instead of only reading block-state text. Paints one of seven views: a top-down layout with vanilla-map-style shading, a facade from one of the four compass sides with distance shading, an exact-color 2D cross-section slice, or a color-banded terrain height map ("heightmap", area-priced) with contour lines - the same view mc_survey's default image uses, exposed here for the raw render call.
+const DESCRIPTION = `Renders a region as a PNG image from a chosen viewpoint, so an AI can see terrain layout and building results instead of reading block-state text. Paints one of seven views: a top-down layout with vanilla-map-style shading, a facade from a compass side with distance shading, an exact-color 2D cross-section slice, or a color-banded terrain height map ("heightmap", area-priced) with contour lines - the same view mc_survey's default image uses, exposed here for the raw render call.
 
 WHEN TO USE: "top" to check overall terrain shape, a build's footprint, or how a structure sits relative to the land, before or after building. "north"/"south"/"east"/"west" to inspect a facade - window/door placement, wall symmetry, roof lines. "slice" with an axis and coordinate for a floor plan (axis "y") or a vertical cut through a wall or room, e.g. to confirm a room is hollow. "heightmap" for a terrain relief picture over a large area - prefer mc_survey in most cases, since it also gives the exact numbers as text.
 
 WHEN NOT TO USE: to get exact block-state strings, orientations, or counts - use mc_inspect, which returns real data, not a colored approximation. Map colors are lossy: different blocks can render near-identically, so check the legend. To survey ground height with the numbers included, use mc_survey instead.
 
-PARAMETERS: \`from\`/\`to\` are inclusive [x,y,z] corners in any order, volume <= 200,000 blocks, except "heightmap" which is area-priced instead (x/z footprint <= 200,000 cells, y ignored). \`view\` (default "top") is one of top/north/south/east/west/slice/heightmap; \`slice\` is required when \`view\` is "slice". \`scale\` is pixels per block, 0-16 (default 0 = auto). \`grid\` is grid spacing, 0-64 (default 10; 0 disables it). \`heightmapType\`/\`contour\` only apply to \`view: "heightmap"\`.
+PARAMETERS: \`from\`/\`to\` are inclusive [x,y,z] corners in any order. "top"/"heightmap" are area-priced (x/z footprint <= 200,000 cells, any y range); side views/"slice" are volume-priced (<= 200,000 blocks) - for a facade, limit y to the building's height. \`view\` (default "top") is one of top/north/south/east/west/slice/heightmap; \`slice\` is required for \`view: "slice"\`. \`scale\` is pixels per block, 0-16 (default 0 = auto). \`grid\` is grid spacing, 0-64 (default 10; 0 disables it). \`heightmapType\`/\`contour\` only apply to \`view: "heightmap"\`.
 
 SIDE EFFECTS: none - read-only. Returns an image block plus a text block: view/axes/top-left coordinate/grid interval, and a legend (top rendered blocks as hex color, name, pixel count; for "heightmap", height bands plus a summary line with min/max/median height, surface materials, and the largest flat zone). The plugin caps the PNG at 3MB and halves the scale automatically if needed.`;
 
@@ -93,6 +93,7 @@ interface RenderResult {
     surface?: Record<string, number>;
     flatZone?: { x1: number; z1: number; x2: number; z2: number; y: number; width: number; depth: number } | null;
     liquidCells?: number;
+    treeCells?: number;
     png: string;
     bytes: number;
 }
@@ -112,11 +113,14 @@ export function registerMcRender(server: McpServer, client: PluginClient): void 
                 const [x1, y1, z1] = [Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.min(from[2], to[2])];
                 const [x2, y2, z2] = [Math.max(from[0], to[0]), Math.max(from[1], to[1]), Math.max(from[2], to[2])];
 
-                if (resolvedView === "heightmap") {
+                if (resolvedView === "heightmap" || resolvedView === "top") {
+                    // Bug 2 (docs/prompts/step4g-prompt.md): "top" reads one block per column, so it is
+                    // area-priced (x/z footprint) like "heightmap", not volume-priced like every other view -
+                    // the y range can be anything within world bounds.
                     const area = (x2 - x1 + 1) * (z2 - z1 + 1);
                     if (area > MAX_HEIGHTMAP_AREA) {
                         throw new Error(
-                            `mc_render heightmap area ${area} exceeds the 200,000-cell limit. Reduce the from/to range or split it into several calls.`
+                            `mc_render ${resolvedView} area ${area} exceeds the 200,000-cell limit. Reduce the from/to range or split it into several calls.`
                         );
                     }
                 } else {
@@ -168,6 +172,7 @@ export function registerMcRender(server: McpServer, client: PluginClient): void 
                             flatZone: result.flatZone,
                             legend: result.legend as HeightmapLegendBand[],
                             liquidCells: result.liquidCells,
+                            treeCells: result.treeCells ?? 0,
                             contour: result.contour ?? 0
                         })
                     );

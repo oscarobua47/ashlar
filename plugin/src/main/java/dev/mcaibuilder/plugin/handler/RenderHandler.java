@@ -13,6 +13,7 @@ import dev.mcaibuilder.plugin.engine.RegionData;
 import dev.mcaibuilder.plugin.engine.RenderTask;
 import dev.mcaibuilder.plugin.engine.RequestValidator;
 import dev.mcaibuilder.plugin.engine.TickBudgetExecutor;
+import dev.mcaibuilder.plugin.engine.TopViewTask;
 import dev.mcaibuilder.plugin.net.ClientSession;
 import dev.mcaibuilder.plugin.render.HeightmapImageRenderer;
 import dev.mcaibuilder.plugin.render.ImageRenderer;
@@ -66,8 +67,13 @@ public final class RenderHandler implements RpcHandler {
         try {
             RequestValidator validator = new RequestValidator(config);
             World world = validator.resolveWorld(params);
-            if ("heightmap".equals(validator.peekRenderView(params))) {
+            String view = validator.peekRenderView(params);
+            if ("heightmap".equals(view)) {
                 return startHeightmapRender(validator, world, params, session, id);
+            }
+            if ("top".equals(view)) {
+                return MainThread.call(() -> new int[]{world.getMinHeight(), world.getMaxHeight()})
+                        .thenCompose(heights -> startTopRender(validator, world, params, heights, session, id));
             }
             return MainThread.call(() -> new int[]{world.getMinHeight(), world.getMaxHeight()})
                     .thenCompose(heights -> startRender(validator, world, params, heights, session, id));
@@ -122,6 +128,58 @@ public final class RenderHandler implements RpcHandler {
     }
 
     // ------------------------------------------------------------------
+    // view: "top" (docs/prompts/step4g-prompt.md, Bug 2: area-priced, column-scan read)
+    // ------------------------------------------------------------------
+
+    /**
+     * Unlike every other non-heightmap view, {@code "top"} is priced by x/z area, not volume (a top view reads at
+     * most one block per column), so it validates via {@link RequestValidator#validateTopRegion} instead of
+     * {@link RequestValidator#validateReadRegion} and reads with {@link TopViewTask} instead of {@link RenderTask}.
+     */
+    private CompletableFuture<JsonElement> startTopRender(RequestValidator validator, World world, JsonObject params,
+            int[] worldHeights, ClientSession session, JsonElement id) {
+        try {
+            Region region = validator.validateTopRegion(params, worldHeights[0], worldHeights[1], config.limits().maxReadVolume());
+            RequestValidator.RenderParams renderParams = validator.validateRenderParams(params, region);
+            TopViewTask task = new TopViewTask(region, world);
+            String worldName = world.getName();
+            return executor.submit(task, session, id)
+                    .thenComposeAsync(ignored -> renderTopAsync(task, worldName, region, renderParams), renderExecutor);
+        } catch (RpcError e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    /** Runs on {@link #renderExecutor}: {@link ImageRenderer#renderTop}, PNG encoding, and the halve-on-oversize retry loop. */
+    private CompletableFuture<JsonElement> renderTopAsync(TopViewTask task, String worldName, Region region,
+            RequestValidator.RenderParams rp) {
+        try {
+            int scale = rp.scale();
+            ImageRenderer.Output out;
+            byte[] png;
+            while (true) {
+                out = ImageRenderer.renderTop(task.colorArgb(), task.blockNames(), task.topY(),
+                        task.blocksWide(), task.blocksTall(), region.minX(), region.minZ(), scale, rp.grid());
+                png = encodePng(out.pixels(), out.width(), out.height());
+                if (png.length <= MAX_PNG_BYTES || out.scale() <= 1) {
+                    break;
+                }
+                scale = out.scale() / 2;
+            }
+            if (png.length > MAX_PNG_BYTES) {
+                throw new RpcError(ErrorCode.VOLUME_EXCEEDED,
+                        "rendered PNG is " + png.length + " bytes, exceeding the " + MAX_PNG_BYTES
+                                + "-byte limit even at scale=1; request a smaller area");
+            }
+            return CompletableFuture.completedFuture(buildResultJson(worldName, region, rp, out, png));
+        } catch (RpcError e) {
+            return CompletableFuture.failedFuture(e);
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(new RpcError(ErrorCode.INTERNAL, "render failed: " + e.getMessage()));
+        }
+    }
+
+    // ------------------------------------------------------------------
     // view: "heightmap" (docs/prompts/step4f-prompt.md)
     // ------------------------------------------------------------------
 
@@ -137,10 +195,9 @@ public final class RenderHandler implements RpcHandler {
             RequestValidator.HeightmapRenderParams hp =
                     validator.validateHeightmapRenderParams(params, config.limits().maxReadVolume());
             HeightMap requestedMap = HeightmapTypes.resolve(hp.type());
-            HeightMap solidMap = HeightmapTypes.resolve("SOLID");
             Region region = new Region(hp.x1(), 0, hp.z1(), hp.x2(), 0, hp.z2());
             HeightmapImageTask task =
-                    new HeightmapImageTask(region, world, hp.x1(), hp.z1(), hp.x2(), hp.z2(), requestedMap, solidMap);
+                    new HeightmapImageTask(region, world, hp.x1(), hp.z1(), hp.x2(), hp.z2(), requestedMap);
             String worldName = world.getName();
             return executor.submit(task, session, id)
                     .thenComposeAsync(ignored -> renderHeightmapAsync(task, worldName, hp), renderExecutor);
@@ -149,33 +206,19 @@ public final class RenderHandler implements RpcHandler {
         }
     }
 
-    /** Runs on {@link #renderExecutor}: liquid detection, {@link HeightmapImageRenderer#render}, PNG encoding, stats. */
+    /** Runs on {@link #renderExecutor}: {@link HeightmapImageRenderer#render}, PNG encoding, stats. */
     private CompletableFuture<JsonElement> renderHeightmapAsync(HeightmapImageTask task, String worldName,
             RequestValidator.HeightmapRenderParams hp) {
         try {
             int[][] heights = task.heights();
-            int[][] solidHeights = task.solidHeights();
-            int blocksTall = heights.length;
-            int blocksWide = blocksTall > 0 ? heights[0].length : 0;
-            boolean[][] liquid = new boolean[blocksTall][blocksWide];
-            int[][] liquidDepth = new int[blocksTall][blocksWide];
-            long liquidCells = 0;
-            for (int r = 0; r < blocksTall; r++) {
-                for (int c = 0; c < blocksWide; c++) {
-                    int diff = heights[r][c] - solidHeights[r][c];
-                    if (diff != 0) {
-                        liquid[r][c] = true;
-                        liquidDepth[r][c] = Math.abs(diff);
-                        liquidCells++;
-                    }
-                }
-            }
+            int[][] classes = task.classes();
+            int[][] liquidDepth = task.liquidDepth();
 
             int scale = hp.scale();
             HeightmapImageRenderer.Output out;
             byte[] png;
             while (true) {
-                out = HeightmapImageRenderer.render(heights, liquid, liquidDepth, hp.x1(), hp.z1(), scale, hp.grid(), hp.contour());
+                out = HeightmapImageRenderer.render(heights, classes, liquidDepth, hp.x1(), hp.z1(), scale, hp.grid(), hp.contour());
                 png = encodePng(out.pixels(), out.width(), out.height());
                 if (png.length <= MAX_PNG_BYTES || out.scale() <= 1) {
                     break;
@@ -188,12 +231,13 @@ public final class RenderHandler implements RpcHandler {
                                 + "-byte limit even at scale=1; request a smaller area");
             }
 
-            int median = HeightmapImageRenderer.median(heights);
+            int median = HeightmapImageRenderer.median(heights, classes);
             HeightmapImageRenderer.FlatZone zone =
-                    HeightmapImageRenderer.largestFlatZone(heights, hp.x1(), hp.z1(), median, 1);
+                    HeightmapImageRenderer.largestFlatZone(heights, classes, hp.x1(), hp.z1(), median, 1);
 
             return CompletableFuture.completedFuture(buildHeightmapResultJson(
-                    worldName, hp, out, png, task.min(), task.max(), median, zone, liquidCells, task.surfaceJson()));
+                    worldName, hp, out, png, task.min(), task.max(), median, zone,
+                    task.liquidCells(), task.vegetationCells(), task.surfaceJson()));
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);
         } catch (Exception e) {
@@ -203,7 +247,7 @@ public final class RenderHandler implements RpcHandler {
 
     private static JsonObject buildHeightmapResultJson(String worldName, RequestValidator.HeightmapRenderParams hp,
             HeightmapImageRenderer.Output out, byte[] png, int min, int max, int median,
-            HeightmapImageRenderer.FlatZone zone, long liquidCells, JsonObject surface) {
+            HeightmapImageRenderer.FlatZone zone, long liquidCells, long treeCells, JsonObject surface) {
         JsonObject json = new JsonObject();
         json.addProperty("world", worldName);
         json.addProperty("view", "heightmap");
@@ -258,6 +302,7 @@ public final class RenderHandler implements RpcHandler {
             json.add("flatZone", JsonNull.INSTANCE);
         }
         json.addProperty("liquidCells", liquidCells);
+        json.addProperty("treeCells", treeCells);
 
         json.addProperty("png", Base64.getEncoder().encodeToString(png));
         json.addProperty("bytes", png.length);

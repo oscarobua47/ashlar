@@ -10,13 +10,18 @@
 /** 8-level bucket characters, lowest to highest; the true maximum gets '@' instead of '#'. */
 const BUCKET_CHARS = [".", ",", ":", "-", "=", "+", "*", "#"] as const;
 
+/** {@code classes[zi][xi]} values, matching the plugin's {@code SurfaceClass} codes (spec section 3.2). */
+export const CLASS_GROUND = 0;
+export const CLASS_LIQUID = 1;
+export const CLASS_VEGETATION = 2;
+
 export interface ReliefInput {
     from: [number, number]; // [x1, z1]
     to: [number, number]; // [x2, z2]
-    /** heights[zi][xi], zi from z1..z2, xi from x1..x2 */
+    /** heights[zi][xi], zi from z1..z2, xi from x1..x2 (trunk-top height for vegetation cells) */
     heights: number[][];
-    /** liquid[zi][xi]: true when the requested type and SOLID heights differ at this cell */
-    liquid: boolean[][];
+    /** classes[zi][xi]: 0 ground, 1 liquid, 2 vegetation (Bug 1, docs/prompts/step4g-prompt.md) */
+    classes: number[][];
     /** surface material id -> count, as returned by the plugin's heightmap RPC */
     surface: Record<string, number>;
     /**
@@ -51,52 +56,63 @@ export function computeStep(width: number, depth: number): number {
 }
 
 /**
- * Median-downsamples a heights/liquid grid by `step`. Each output cell takes
- * the median height of its step*step source cells; liquid is true if any
- * source cell in the block is liquid. A no-op (returns new arrays with the
- * same values) when `step` is 1.
+ * Median-downsamples a heights/classes grid by `step`. Each output cell
+ * takes the median height of its step*step source cells (vegetation cells
+ * excluded from that median where any non-vegetation cell exists, so a
+ * handful of trees cannot skew the displayed height - Bug 1,
+ * docs/prompts/step4g-prompt.md); its class is liquid if any source cell is
+ * liquid, else vegetation if any source cell is vegetation, else ground. A
+ * no-op (returns new arrays with the same values) when `step` is 1.
  */
 export function downsample(
     heights: number[][],
-    liquid: boolean[][],
+    classes: number[][],
     step: number
-): { heights: number[][]; liquid: boolean[][] } {
+): { heights: number[][]; classes: number[][] } {
     const zLen = heights.length;
     const xLen = heights[0]?.length ?? 0;
     if (step <= 1) {
-        return { heights: heights.map(row => row.slice()), liquid: liquid.map(row => row.slice()) };
+        return { heights: heights.map(row => row.slice()), classes: classes.map(row => row.slice()) };
     }
     const outRows = Math.ceil(zLen / step);
     const outCols = Math.ceil(xLen / step);
     const outHeights: number[][] = [];
-    const outLiquid: boolean[][] = [];
+    const outClasses: number[][] = [];
     for (let rz = 0; rz < outRows; rz++) {
         const hRow: number[] = [];
-        const lRow: boolean[] = [];
+        const cRow: number[] = [];
         for (let rx = 0; rx < outCols; rx++) {
             const vals: number[] = [];
+            const allVals: number[] = [];
             let anyLiquid = false;
+            let anyVegetation = false;
             const zEnd = Math.min(zLen, (rz + 1) * step);
             const xEnd = Math.min(xLen, (rx + 1) * step);
             for (let z = rz * step; z < zEnd; z++) {
                 for (let x = rx * step; x < xEnd; x++) {
-                    vals.push(heights[z]![x]!);
-                    if (liquid[z]![x]) anyLiquid = true;
+                    const h = heights[z]![x]!;
+                    const cls = classes[z]![x]!;
+                    allVals.push(h);
+                    if (cls === CLASS_LIQUID) anyLiquid = true;
+                    else if (cls === CLASS_VEGETATION) anyVegetation = true;
+                    if (cls !== CLASS_VEGETATION) vals.push(h);
                 }
             }
-            vals.sort((a, b) => a - b);
-            hRow.push(vals[Math.floor(vals.length / 2)]!);
-            lRow.push(anyLiquid);
+            const median = vals.length > 0 ? vals : allVals;
+            median.sort((a, b) => a - b);
+            hRow.push(median[Math.floor(median.length / 2)]!);
+            cRow.push(anyLiquid ? CLASS_LIQUID : anyVegetation ? CLASS_VEGETATION : CLASS_GROUND);
         }
         outHeights.push(hRow);
-        outLiquid.push(lRow);
+        outClasses.push(cRow);
     }
-    return { heights: outHeights, liquid: outLiquid };
+    return { heights: outHeights, classes: outClasses };
 }
 
-/** One cell's relief character: '~' for liquid, '=' for a flat (min==max) area, else an 8-level bucket, '@' at the true max. */
-export function reliefChar(height: number, min: number, max: number, isLiquid: boolean): string {
-    if (isLiquid) return "~";
+/** One cell's relief character: '~' for liquid, 'T' for vegetation (trees etc), '=' for a flat (min==max) area, else an 8-level bucket, '@' at the true max. */
+export function reliefChar(height: number, min: number, max: number, cellClass: number): string {
+    if (cellClass === CLASS_LIQUID) return "~";
+    if (cellClass === CLASS_VEGETATION) return "T";
     if (max === min) return "=";
     if (height >= max) return "@";
     const frac = (height - min) / (max - min);
@@ -104,8 +120,8 @@ export function reliefChar(height: number, min: number, max: number, isLiquid: b
     return BUCKET_CHARS[bucket]!;
 }
 
-/** Builds the y-range legend for the 8 buckets plus '@' (max) and, if any liquid cell exists, '~'. */
-export function buildLegend(min: number, max: number, hasLiquid: boolean): LegendEntry[] {
+/** Builds the y-range legend for the 8 buckets plus '@' (max), '~' if any liquid cell exists, and 'T' if any vegetation cell exists. */
+export function buildLegend(min: number, max: number, hasLiquid: boolean, hasVegetation: boolean): LegendEntry[] {
     const entries: LegendEntry[] = [];
     if (min === max) {
         entries.push({ char: "=", label: `${min}` });
@@ -123,21 +139,28 @@ export function buildLegend(min: number, max: number, hasLiquid: boolean): Legen
     if (hasLiquid) {
         entries.push({ char: "~", label: "liquid surface" });
     }
+    if (hasVegetation) {
+        entries.push({ char: "T", label: "trees / vegetation" });
+    }
     return entries;
 }
 
 /**
  * Largest axis-aligned rectangle of cells within `tolerance` blocks of
  * `median` (plan section 4.3 rule 6), via the standard "largest rectangle in
- * a binary matrix" histogram/stack algorithm, O(rows*cols).
+ * a binary matrix" histogram/stack algorithm, O(rows*cols). Vegetation cells
+ * (per `classes`, may be omitted to consider every cell) are never flat -
+ * Bug 1, docs/prompts/step4g-prompt.md.
  */
-export function largestFlatZone(heights: number[][], median: number, tolerance = 1): FlatZone | null {
+export function largestFlatZone(heights: number[][], median: number, tolerance = 1, classes?: number[][]): FlatZone | null {
     const rows = heights.length;
     if (rows === 0) return null;
     const cols = heights[0]?.length ?? 0;
     if (cols === 0) return null;
 
-    const flat: boolean[][] = heights.map(row => row.map(h => Math.abs(h - median) <= tolerance));
+    const flat: boolean[][] = heights.map((row, r) =>
+        row.map((h, c) => (!classes || classes[r]![c] !== CLASS_VEGETATION) && Math.abs(h - median) <= tolerance)
+    );
     const hist = new Array<number>(cols).fill(0);
     let best: { area: number; row1: number; row2: number; col1: number; col2: number } | null = null;
 
@@ -224,28 +247,45 @@ export function renderRelief(input: ReliefInput): string {
     const depth = z2 - z1 + 1;
     const step = computeStep(width, depth);
 
-    const { heights, liquid } = downsample(input.heights, input.liquid, step);
+    const { heights, classes } = downsample(input.heights, input.classes, step);
 
+    // Bug 1 (docs/prompts/step4g-prompt.md): vegetation cells (trunk-top heights) are excluded from
+    // min/max/median, same as the plugin's own heightmap RPC and heightmap render view, so a few trees do not
+    // skew the height-band scale or the largest-flat-zone search. Falls back to every cell if the whole area
+    // is vegetation.
     let min = Infinity;
     let max = -Infinity;
     const flatVals: number[] = [];
-    for (const row of input.heights) {
-        for (const h of row) {
-            flatVals.push(h);
+    const allVals: number[] = [];
+    for (let zi = 0; zi < input.heights.length; zi++) {
+        for (let xi = 0; xi < input.heights[zi]!.length; xi++) {
+            const h = input.heights[zi]![xi]!;
+            allVals.push(h);
+            if (input.classes[zi]![xi] !== CLASS_VEGETATION) {
+                flatVals.push(h);
+                if (h < min) min = h;
+                if (h > max) max = h;
+            }
+        }
+    }
+    const statVals = flatVals.length > 0 ? flatVals : allVals;
+    if (flatVals.length === 0) {
+        for (const h of allVals) {
             if (h < min) min = h;
             if (h > max) max = h;
         }
     }
-    const med = median(flatVals);
-    const hasLiquid = input.liquid.some(row => row.some(Boolean));
+    const med = median(statVals);
+    const hasLiquid = input.classes.some(row => row.some(c => c === CLASS_LIQUID));
+    const hasVegetation = input.classes.some(row => row.some(c => c === CLASS_VEGETATION));
 
-    const charGrid = heights.map((row, zi) => row.map((h, xi) => reliefChar(h, min, max, liquid[zi]![xi]!)));
+    const charGrid = heights.map((row, zi) => row.map((h, xi) => reliefChar(h, min, max, classes[zi]![xi]!)));
     const mapLines = renderMapLines(charGrid, x1, z1, step);
 
-    const legend = buildLegend(min, max, hasLiquid);
+    const legend = buildLegend(min, max, hasLiquid, hasVegetation);
     const legendLine = legend.map(e => `${e.char} ${e.label}`).join("   ");
 
-    const zone = largestFlatZone(heights, med, 1);
+    const zone = largestFlatZone(heights, med, 1, classes);
     let zoneLine = "Largest flat zone: none found.";
     if (zone) {
         const zx1 = x1 + zone.col1 * step;

@@ -68,9 +68,39 @@ public final class ImageRenderer {
         int minX = r.minX(), minY = r.minY(), minZ = r.minZ();
         int maxX = r.maxX(), maxY = r.maxY(), maxZ = r.maxZ();
         int dx = maxX - minX + 1, dy = maxY - minY + 1, dz = maxZ - minZ + 1;
-        int[] flat = decodeFlat(data);
+        String v = view.toLowerCase(Locale.ROOT);
 
-        BaseImage base = buildBaseImage(flat, paletteArgb, view.toLowerCase(Locale.ROOT), sliceAxis, sliceAt,
+        if (v.equals("top")) {
+            // Decode into the same (colorArgb, blockNames, topY) per-column shape TopViewTask produces from its
+            // budgeted column scan (docs/prompts/step4g-prompt.md, Bug 2), then share the exact same core with it -
+            // this path exists so pre-existing RegionData-based callers/tests keep working unchanged.
+            int[] flat = decodeFlat(data);
+            int blocksWide = dx, blocksTall = dz;
+            int[] colorArgb = new int[blocksWide * blocksTall];
+            String[] blockNames = new String[blocksWide * blocksTall];
+            int[] topY = new int[blocksWide * blocksTall];
+            Arrays.fill(topY, Integer.MIN_VALUE);
+            for (int col = 0; col < blocksWide; col++) {
+                int x = minX + col;
+                for (int row = 0; row < blocksTall; row++) {
+                    int z = minZ + row;
+                    for (int y = maxY; y >= minY; y--) {
+                        int p = flat[flatIndex(minX, minY, minZ, dx, dz, x, y, z)];
+                        if (paletteArgb[p] != 0) {
+                            int cell = row * blocksWide + col;
+                            colorArgb[cell] = paletteArgb[p];
+                            blockNames[cell] = data.palette().get(p);
+                            topY[cell] = y;
+                            break;
+                        }
+                    }
+                }
+            }
+            return renderTop(colorArgb, blockNames, topY, blocksWide, blocksTall, minX, minZ, scale, grid);
+        }
+
+        int[] flat = decodeFlat(data);
+        BaseImage base = buildBaseImage(flat, paletteArgb, v, sliceAxis, sliceAt,
                 minX, minY, minZ, maxX, maxY, maxZ, dx, dy, dz);
 
         int effScale = resolveScale(scale, base.blocksWide(), base.blocksTall());
@@ -131,7 +161,6 @@ public final class ImageRenderer {
                                              int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
                                              int dx, int dy, int dz) {
         return switch (view) {
-            case "top" -> buildTop(flat, paletteArgb, minX, minY, minZ, maxX, maxY, dx, dy, dz);
             case "south" -> scanSide(flat, paletteArgb, minX, minY, minZ, dx, dy, dz, dx, dy,
                     col -> minX + col, true, maxZ, minZ, -1, "+x (east)", "-y (down)", minX);
             case "north" -> scanSide(flat, paletteArgb, minX, minY, minZ, dx, dy, dz, dx, dy,
@@ -146,36 +175,25 @@ public final class ImageRenderer {
         };
     }
 
-    /** Top-down view: highest non-transparent block per (x,z) column, shaded like a vanilla map against the column to the north (z-1). */
-    private static BaseImage buildTop(int[] flat, int[] paletteArgb, int minX, int minY, int minZ, int maxX, int maxY,
-                                       int dx, int dy, int dz) {
-        int blocksWide = dx, blocksTall = dz;
-        int[] cellIndex = new int[blocksWide * blocksTall];
+    /**
+     * Top-down view, shared core: paints one already-resolved color per {@code (x,z)} column, shaded like a
+     * vanilla map against the column to the north (z-1). Used both by {@link #render} (which first decodes a
+     * full {@link RegionData} into these same per-column arrays, docs/prompts/step4e-prompt.md) and directly by
+     * {@link dev.mcaibuilder.plugin.engine.TopViewTask} (which reads only one block per column via a budgeted
+     * scan instead of the whole volume, docs/prompts/step4g-prompt.md Bug 2) - both paths produce byte-identical
+     * images for the same terrain.
+     *
+     * @param colorArgb  [row*blocksWide+col] resolved ARGB per column; {@code 0} means "no block" (transparent/checkered)
+     * @param blockNames [row*blocksWide+col] block-state string per column, for the legend; unused where {@code colorArgb} is {@code 0}
+     * @param topY       [row*blocksWide+col] world y of the recorded block, for north-neighbour shading; unused where {@code colorArgb} is {@code 0}
+     */
+    public static Output renderTop(int[] colorArgb, String[] blockNames, int[] topY, int blocksWide, int blocksTall,
+                                    int minX, int minZ, int scale, int grid) {
         int[] cellShade = new int[blocksWide * blocksTall];
-        int[] topY = new int[blocksWide * blocksTall];
-        Arrays.fill(cellIndex, -1);
-        Arrays.fill(topY, Integer.MIN_VALUE);
-
-        for (int col = 0; col < blocksWide; col++) {
-            int x = minX + col;
-            for (int row = 0; row < blocksTall; row++) {
-                int z = minZ + row;
-                for (int y = maxY; y >= minY; y--) {
-                    int p = flat[flatIndex(minX, minY, minZ, dx, dz, x, y, z)];
-                    if (paletteArgb[p] != 0) {
-                        int cell = row * blocksWide + col;
-                        cellIndex[cell] = p;
-                        topY[cell] = y;
-                        break;
-                    }
-                }
-            }
-        }
-
         for (int col = 0; col < blocksWide; col++) {
             for (int row = 0; row < blocksTall; row++) {
                 int cell = row * blocksWide + col;
-                if (cellIndex[cell] < 0) {
+                if (colorArgb[cell] == 0) {
                     continue;
                 }
                 if (row == 0) {
@@ -183,7 +201,7 @@ public final class ImageRenderer {
                     continue;
                 }
                 int northCell = (row - 1) * blocksWide + col;
-                if (cellIndex[northCell] < 0) {
+                if (colorArgb[northCell] == 0) {
                     cellShade[cell] = 86; // north column empty: no comparison possible, fall back to "equal"
                     continue;
                 }
@@ -192,12 +210,52 @@ public final class ImageRenderer {
             }
         }
 
-        int[] colWorld = new int[blocksWide];
-        for (int c = 0; c < blocksWide; c++) colWorld[c] = minX + c;
-        int[] rowWorld = new int[blocksTall];
-        for (int rr = 0; rr < blocksTall; rr++) rowWorld[rr] = minZ + rr;
-        return new BaseImage(blocksWide, blocksTall, cellIndex, cellShade, colWorld, rowWorld,
-                "+x (east)", "+z (south)", minX, minZ);
+        int effScale = resolveScale(scale, blocksWide, blocksTall);
+        int width = blocksWide * effScale;
+        int height = blocksTall * effScale;
+        int[] pixels = new int[width * height];
+        for (int row = 0; row < blocksTall; row++) {
+            for (int col = 0; col < blocksWide; col++) {
+                int cell = row * blocksWide + col;
+                int color = colorArgb[cell] == 0
+                        ? (((col + row) & 1) == 0 ? CHECKER_A : CHECKER_B)
+                        : applyShade(colorArgb[cell], cellShade[cell]);
+                fillBlock(pixels, width, col * effScale, row * effScale, effScale, color);
+            }
+        }
+
+        if (grid > 0) {
+            int[] colWorld = new int[blocksWide];
+            for (int c = 0; c < blocksWide; c++) colWorld[c] = minX + c;
+            int[] rowWorld = new int[blocksTall];
+            for (int rr = 0; rr < blocksTall; rr++) rowWorld[rr] = minZ + rr;
+            drawGridLines(pixels, width, height, blocksWide, blocksTall, colWorld, rowWorld, effScale, grid);
+            drawLabels(pixels, width, height, blocksWide, blocksTall, colWorld, rowWorld, effScale, grid);
+        }
+
+        List<LegendEntry> legend = buildTopLegend(colorArgb, blockNames, effScale);
+        return new Output(width, height, effScale, "+x (east)", "+z (south)", minX, minZ, grid, legend, pixels);
+    }
+
+    /** Legend for {@link #renderTop}: grouped by block-state string (which maps 1:1 to a color), not a palette index. */
+    private static List<LegendEntry> buildTopLegend(int[] colorArgb, String[] blockNames, int scale) {
+        Map<String, Long> counts = new HashMap<>();
+        Map<String, Integer> colorByName = new HashMap<>();
+        for (int i = 0; i < colorArgb.length; i++) {
+            if (colorArgb[i] == 0) {
+                continue;
+            }
+            String name = blockNames[i];
+            counts.merge(name, 1L, Long::sum);
+            colorByName.putIfAbsent(name, colorArgb[i]);
+        }
+        long perCell = (long) scale * scale;
+        List<LegendEntry> list = new ArrayList<>();
+        for (Map.Entry<String, Long> e : counts.entrySet()) {
+            list.add(new LegendEntry(e.getKey(), toHex(colorByName.get(e.getKey())), e.getValue() * perCell));
+        }
+        list.sort((a, b) -> Long.compare(b.pixels(), a.pixels()));
+        return list.size() > 12 ? list.subList(0, 12) : list;
     }
 
     /**

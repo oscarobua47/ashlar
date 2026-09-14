@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package dev.mcaibuilder.plugin.render;
 
+import dev.mcaibuilder.plugin.engine.SurfaceClass;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -11,17 +13,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for {@link HeightmapImageRenderer} (docs/prompts/step4f-prompt.md
- * &sect;Verify point 1: "bands, liquid, contour positions, flat zone"). Pure
- * Java, no Bukkit, no server - same style as {@link ImageRendererTest}.
+ * &sect;Verify point 1: "bands, liquid, contour positions, flat zone";
+ * updated by docs/prompts/step4g-prompt.md Bug 1 for the {@code classes}
+ * grid and vegetation handling). Pure Java, no Bukkit, no server - same
+ * style as {@link ImageRendererTest}.
  */
 class HeightmapImageRendererTest {
 
+    private static final int GROUND = SurfaceClass.GROUND.code();
+    private static final int LIQUID = SurfaceClass.LIQUID.code();
+    private static final int VEGETATION = SurfaceClass.VEGETATION.code();
+
     private static final int LIQUID_ARGB = 0xFF3F76E4;
+    private static final int VEGETATION_ARGB = 0xFF3B5323;
     // Same 8-stop hypsometric ramp HeightmapImageRenderer uses internally; duplicated here (not exposed) so
     // expected colors can be derived independently of the implementation's own band-selection code.
     private static final int[] BAND_COLORS = {
             0xFF1B4D2E, 0xFF2F7A3D, 0xFF4FA64F, 0xFF8EC63F, 0xFFD9C93F, 0xFFC9A04A, 0xFFA97A4A, 0xFFD9D9D9
     };
+
+    private static int[][] groundClasses(int rows, int cols) {
+        return new int[rows][cols];
+    }
 
     @Test
     void bandsSpanLowToHighAndNorthNeighbourShadingMatchesTheTopView() {
@@ -31,10 +44,10 @@ class HeightmapImageRendererTest {
                 {60, 60},
                 {70, 60}
         };
-        boolean[][] liquid = new boolean[3][2];
+        int[][] classes = groundClasses(3, 2);
         int[][] liquidDepth = new int[3][2];
 
-        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, 1, 0, 0);
+        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, 1, 0, 0);
         assertEquals(2, out.width());
         assertEquals(3, out.height());
 
@@ -47,18 +60,19 @@ class HeightmapImageRendererTest {
         assertEquals(shaded(BAND_COLORS[0], 71), pixel(out, 1, 1), "col1,row1: shorter than north (60<70) -> 71%, band 0 (h=60)");
         assertEquals(shaded(BAND_COLORS[0], 86), pixel(out, 1, 2), "col1,row2: equal to north (60==60) -> 86%");
 
-        assertEquals(8, out.legend().size(), "no liquid: 8 height bands, no water row");
+        assertEquals(8, out.legend().size(), "no liquid/vegetation: 8 height bands, no water or tree row");
         assertTrue(out.legend().stream().noneMatch(b -> b.label().equals("water")), "no liquid cells: no water legend entry");
+        assertTrue(out.legend().stream().noneMatch(b -> b.label().equals("trees / vegetation")), "no vegetation cells: no tree legend entry");
     }
 
     @Test
     void liquidOverridesTheBandColorAndDeepWaterIsDarker() {
         // 2 cols x 1 row: both forced top-row shade (86%). col0 shallow liquid (depth 1), col1 deep liquid (depth 4).
         int[][] heights = {{60, 70}};
-        boolean[][] liquid = {{true, true}};
+        int[][] classes = {{LIQUID, LIQUID}};
         int[][] liquidDepth = {{1, 4}};
 
-        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, 1, 0, 0);
+        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, 1, 0, 0);
 
         assertEquals(shaded(LIQUID_ARGB, 86), pixel(out, 0, 0), "shallow liquid (depth 1 < 3): plain liquid blue");
         int deepBase = shaded(LIQUID_ARGB, 65); // ImageRenderer.applyShade(LIQUID_ARGB, 65), applied before the row shade
@@ -70,6 +84,24 @@ class HeightmapImageRendererTest {
     }
 
     @Test
+    void vegetationRendersAsFlatOliveNotABand() {
+        // 2 cols x 1 row: col0 ground at 60 (band 0), col1 vegetation with a trunk-top height of 90 - if this were
+        // banded like ground it would blow the scale; instead it must render as plain olive at any height.
+        int[][] heights = {{60, 90}};
+        int[][] classes = {{GROUND, VEGETATION}};
+        int[][] liquidDepth = new int[1][2];
+
+        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, 1, 0, 0);
+
+        // min/max for banding must exclude the vegetation cell entirely -> min == max == 60 -> single band.
+        assertEquals(shaded(BAND_COLORS[0], 86), pixel(out, 0, 0), "ground cell: band derived from ground-only min/max (60..60)");
+        assertEquals(shaded(VEGETATION_ARGB, 86), pixel(out, 1, 0), "vegetation cell: flat olive, never banded by its trunk-top height");
+
+        assertTrue(out.legend().stream().anyMatch(b -> b.label().equals("trees / vegetation")));
+        assertFalse(out.legend().stream().anyMatch(b -> b.label().equals("water")));
+    }
+
+    @Test
     void contourLinesAppearOnlyWhereFloorDivByContourDiffers() {
         // 4 cols x 2 rows, contour=5. col0/col1 both height 60 (floor/5=12): no line between them.
         // col1(60)/col2(65) cross a multiple of 5 (floor 12 vs 13): a line. col2/col3 both 65: no line.
@@ -78,12 +110,12 @@ class HeightmapImageRendererTest {
                 {60, 60, 65, 65},
                 {60, 60, 65, 65}
         };
-        boolean[][] liquid = new boolean[2][4];
+        int[][] classes = groundClasses(2, 4);
         int[][] liquidDepth = new int[2][4];
         int scale = 3;
 
-        HeightmapImageRenderer.Output plain = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, scale, 0, 0);
-        HeightmapImageRenderer.Output contoured = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, scale, 0, 5);
+        HeightmapImageRenderer.Output plain = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, scale, 0, 0);
+        HeightmapImageRenderer.Output contoured = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, scale, 0, 5);
         assertEquals(plain.width(), contoured.width());
         assertEquals(plain.height(), contoured.height());
 
@@ -117,10 +149,10 @@ class HeightmapImageRendererTest {
     @Test
     void contourZeroDisablesLines() {
         int[][] heights = {{60, 65}};
-        boolean[][] liquid = new boolean[1][2];
+        int[][] classes = groundClasses(1, 2);
         int[][] liquidDepth = new int[1][2];
-        HeightmapImageRenderer.Output plain = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, 3, 0, 0);
-        HeightmapImageRenderer.Output withContourOff = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, 3, 0, 0);
+        HeightmapImageRenderer.Output plain = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, 3, 0, 0);
+        HeightmapImageRenderer.Output withContourOff = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, 3, 0, 0);
         assertEquals(plain.pixels().length, withContourOff.pixels().length);
         for (int i = 0; i < plain.pixels().length; i++) {
             assertEquals(plain.pixels()[i], withContourOff.pixels()[i]);
@@ -137,10 +169,11 @@ class HeightmapImageRendererTest {
                 {64, 64, 64, 70},
                 {64, 64, 64, 70}
         };
-        int median = HeightmapImageRenderer.median(heights);
+        int[][] classes = groundClasses(4, 4);
+        int median = HeightmapImageRenderer.median(heights, classes);
         assertEquals(64, median);
 
-        HeightmapImageRenderer.FlatZone zone = HeightmapImageRenderer.largestFlatZone(heights, 100, 200, median, 1);
+        HeightmapImageRenderer.FlatZone zone = HeightmapImageRenderer.largestFlatZone(heights, classes, 100, 200, median, 1);
         assertNotNull(zone);
         assertEquals(100, zone.x1());
         assertEquals(102, zone.x2());
@@ -152,16 +185,41 @@ class HeightmapImageRendererTest {
     }
 
     @Test
+    void medianAndLargestFlatZoneExcludeVegetationCells() {
+        // Same grid as above, but one of the 64-cells is reclassified as vegetation with a much taller
+        // trunk-top height (90): it must not count toward the median and must not be part of the flat zone.
+        int[][] heights = {
+                {70, 70, 70, 70},
+                {64, 64, 64, 70},
+                {64, 64, 90, 70},
+                {64, 64, 64, 70}
+        };
+        int[][] classes = {
+                {GROUND, GROUND, GROUND, GROUND},
+                {GROUND, GROUND, GROUND, GROUND},
+                {GROUND, GROUND, VEGETATION, GROUND},
+                {GROUND, GROUND, GROUND, GROUND}
+        };
+        int median = HeightmapImageRenderer.median(heights, classes);
+        assertEquals(64, median, "the vegetation cell's height (90) must not skew the median");
+
+        HeightmapImageRenderer.FlatZone zone = HeightmapImageRenderer.largestFlatZone(heights, classes, 0, 0, median, 1);
+        assertNotNull(zone);
+        boolean coversVegetationCell = zone.x1() <= 2 && 2 <= zone.x2() && zone.z1() <= 2 && 2 <= zone.z2();
+        assertFalse(coversVegetationCell, "the vegetation cell must never be part of the reported flat zone");
+    }
+
+    @Test
     void largestFlatZoneIsNullForAnEmptyGrid() {
-        assertNull(HeightmapImageRenderer.largestFlatZone(new int[0][0], 0, 0, 0, 1));
+        assertNull(HeightmapImageRenderer.largestFlatZone(new int[0][0], new int[0][0], 0, 0, 0, 1));
     }
 
     @Test
     void flatMinEqualsMaxCollapsesToASingleBand() {
         int[][] heights = {{64, 64}, {64, 64}};
-        boolean[][] liquid = new boolean[2][2];
+        int[][] classes = groundClasses(2, 2);
         int[][] liquidDepth = new int[2][2];
-        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, liquid, liquidDepth, 0, 0, 1, 0, 5);
+        HeightmapImageRenderer.Output out = HeightmapImageRenderer.render(heights, classes, liquidDepth, 0, 0, 1, 0, 5);
         assertEquals(1, out.legend().size(), "min==max: a single band, no range split");
         assertTrue(out.legend().get(0).label().equals("y 64"));
     }

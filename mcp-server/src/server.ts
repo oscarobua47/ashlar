@@ -18,8 +18,8 @@ const INSTRUCTIONS = `MC AI Builder: tools for reading and building in a live Mi
 
 mc_status   - server/plugin health and queue length
 mc_players  - online players with position and facing ("here", "in front of me", "at my feet")
-mc_survey   - surface heightmap of an x/z area as an ASCII relief map with numbers
-mc_render   - PNG image of a region: top view, north/south/east/west facades, or a slice
+mc_survey   - terrain survey of an x/z area: heightmap image plus exact numbers (min/max/median height, surface mix, largest flat zone); format:"text" for an ASCII map
+mc_render   - PNG image of a region: top view, north/south/east/west facades, a slice, or a heightmap (top/heightmap are area-priced, any y range)
 mc_build    - place blocks in bulk (cuboid fills with modes replace/keep/outline/hollow/walls, plus individual blocks and sign text); the only tool that builds
 mc_inspect  - exact block contents of a region (statistics, ASCII slice, sign text)
 mc_snapshot - save a region before changing it (or list saved snapshots)

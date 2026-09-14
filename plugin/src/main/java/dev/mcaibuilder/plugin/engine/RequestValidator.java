@@ -215,6 +215,23 @@ public final class RequestValidator {
         return region;
     }
 
+    /**
+     * Validates a {@code render} {@code view: "top"} request (docs/prompts/step4g-prompt.md, Bug 2): the same
+     * 3D {@code from}/{@code to} shape as every other render view, but priced by x/z area only, not volume - a
+     * top view reads at most one block per column, so its cost does not depend on how tall the y range is. Y
+     * range is still validated against world bounds ({@link TopViewTask} uses it as the column-search window)
+     * but never against {@code limits.max-read-volume}.
+     */
+    public Region validateTopRegion(JsonObject params, int worldMinHeight, int worldMaxHeight, long maxArea) {
+        Region region = Region.of(requireCoords(params, "from"), requireCoords(params, "to"));
+        checkBuildRegion(region.minX(), region.maxX(), region.minZ(), region.maxZ());
+        checkYRange(region.minY(), region.maxY(), worldMinHeight, worldMaxHeight);
+        long area = (long) (region.maxX() - region.minX() + 1) * (region.maxZ() - region.minZ() + 1);
+        checkVolumeLimit(area, maxArea, "top view area");
+        checkChunkCount(region);
+        return region;
+    }
+
     /** The x/z area (inclusive) a validated {@code heightmap} request covers. */
     public record HeightmapArea(int x1, int z1, int x2, int z2) {
     }

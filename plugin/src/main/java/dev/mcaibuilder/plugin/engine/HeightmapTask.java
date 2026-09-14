@@ -6,6 +6,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.bukkit.HeightMap;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.Waterlogged;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,6 +44,7 @@ public final class HeightmapTask extends BuildTask {
     private final String typeName;
 
     private final int[][] heights; // [zi][xi]
+    private final int[][] classes; // [zi][xi]: SurfaceClass.code() (0 ground, 1 liquid, 2 vegetation)
     private final Map<String, Long> surfaceCounts = new LinkedHashMap<>();
     private int min = Integer.MAX_VALUE;
     private int max = Integer.MIN_VALUE;
@@ -60,6 +63,7 @@ public final class HeightmapTask extends BuildTask {
         this.heightMap = heightMap;
         this.typeName = typeName;
         this.heights = new int[z2 - z1 + 1][x2 - x1 + 1];
+        this.classes = new int[z2 - z1 + 1][x2 - x1 + 1];
     }
 
     @Override
@@ -101,9 +105,18 @@ public final class HeightmapTask extends BuildTask {
                 y--;
             }
             heights[cursorZ - z1][cursorX - x1] = y;
-            min = Math.min(min, y);
-            max = Math.max(max, y);
-            String materialKey = world.getBlockAt(cursorX, y, cursorZ).getType().getKey().toString();
+
+            BlockData data = world.getBlockAt(cursorX, y, cursorZ).getBlockData();
+            boolean waterlogged = data instanceof Waterlogged w && w.isWaterlogged();
+            SurfaceClass cls = SurfaceClass.classify(data.getMaterial().name(), waterlogged);
+            classes[cursorZ - z1][cursorX - x1] = cls.code();
+            if (cls != SurfaceClass.VEGETATION) {
+                // Bug 1 (docs/prompts/step4g-prompt.md): trunk-top heights under a
+                // tree are noise for min/max, same as they would be for liquid.
+                min = Math.min(min, y);
+                max = Math.max(max, y);
+            }
+            String materialKey = data.getMaterial().getKey().toString();
             surfaceCounts.merge(materialKey, 1L, Long::sum);
 
             advance(1);
@@ -136,10 +149,46 @@ public final class HeightmapTask extends BuildTask {
             heightsJson.add(rowJson);
         }
         result.add("heights", heightsJson);
-        result.addProperty("min", min);
-        result.addProperty("max", max);
+        JsonArray classesJson = new JsonArray();
+        for (int[] row : classes) {
+            JsonArray rowJson = new JsonArray();
+            for (int v : row) {
+                rowJson.add(v);
+            }
+            classesJson.add(rowJson);
+        }
+        result.add("classes", classesJson);
+        // Fallback for the pathological case where every cell is vegetation
+        // (min/max never updated above): report over all heights rather than
+        // the sentinel MAX_VALUE/MIN_VALUE.
+        int reportedMin = min <= max ? min : rawMin();
+        int reportedMax = min <= max ? max : rawMax();
+        result.addProperty("min", reportedMin);
+        result.addProperty("max", reportedMax);
         result.add("surface", SurfaceStats.buildSurfaceJson(surfaceCounts));
         return result;
+    }
+
+    /** Fallback for {@link #buildResult}'s pathological "every cell is vegetation" case. */
+    private int rawMin() {
+        int m = Integer.MAX_VALUE;
+        for (int[] row : heights) {
+            for (int h : row) {
+                m = Math.min(m, h);
+            }
+        }
+        return m;
+    }
+
+    /** Fallback for {@link #buildResult}'s pathological "every cell is vegetation" case. */
+    private int rawMax() {
+        int m = Integer.MIN_VALUE;
+        for (int[] row : heights) {
+            for (int h : row) {
+                m = Math.max(m, h);
+            }
+        }
+        return m;
     }
 
     private static JsonArray intArray(int a, int b) {

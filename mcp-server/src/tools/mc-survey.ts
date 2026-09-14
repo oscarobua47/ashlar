@@ -19,6 +19,7 @@ interface HeightmapResult {
     type: string;
     order: string;
     heights: number[][]; // [zi][xi]
+    classes: number[][]; // [zi][xi]: 0 ground, 1 liquid, 2 vegetation
     min: number;
     max: number;
     surface: Record<string, number>;
@@ -40,6 +41,7 @@ interface HeightmapRenderResult {
     surface: Record<string, number>;
     flatZone: { x1: number; z1: number; x2: number; z2: number; y: number; width: number; depth: number } | null;
     liquidCells: number;
+    treeCells: number;
     png: string;
     bytes: number;
 }
@@ -117,21 +119,21 @@ export function registerMcSurvey(server: McpServer, client: PluginClient): void 
                 const requestedType = type ?? "SOLID_OR_LIQUID_NO_LEAVES";
 
                 if ((format ?? "image") === "text") {
-                    const params = { world, from: [x1, z1], to: [x2, z2] };
-                    const [requested, solid] = (await Promise.all([
-                        client.request("heightmap", { ...params, type: requestedType }),
-                        client.request("heightmap", { ...params, type: "SOLID" })
-                    ])) as [HeightmapResult, HeightmapResult];
-
-                    const liquid: boolean[][] = requested.heights.map((row, zi) =>
-                        row.map((h, xi) => h !== solid.heights[zi]![xi]!)
-                    );
+                    // Bug 1 (docs/prompts/step4g-prompt.md): liquid/vegetation now come from the plugin's own
+                    // per-cell classification (`classes`), so a single heightmap call suffices - no more second
+                    // SOLID call to detect liquid by height difference (which also misfired under tree canopies).
+                    const requested = (await client.request("heightmap", {
+                        world,
+                        from: [x1, z1],
+                        to: [x2, z2],
+                        type: requestedType
+                    })) as HeightmapResult;
 
                     const text = renderRelief({
                         from: [x1, z1],
                         to: [x2, z2],
                         heights: requested.heights,
-                        liquid,
+                        classes: requested.classes,
                         surface: requested.surface,
                         matrix
                     });

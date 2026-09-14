@@ -1,27 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package dev.mcaibuilder.plugin.render;
 
+import dev.mcaibuilder.plugin.engine.SurfaceClass;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 /**
  * Pure-Java (no Bukkit imports, unit-testable without a server) renderer for
- * the {@code render} RPC's {@code view: "heightmap"} (docs/prompts/step4f-prompt.md).
- * Paints a hypsometric-tinted top-down height map: 8 color bands from low to
- * high, blue for liquid cells (darker for deep water/lava), the same
- * north-neighbour relief shading {@link ImageRenderer} uses for its own
- * {@code "top"} view, and optional contour lines. Grid lines, coordinate
- * labels and the auto-scale/pixel-budget rule are the exact same code
- * {@link ImageRenderer} uses for every other view (package-visible methods
- * reused directly, not copied).
+ * the {@code render} RPC's {@code view: "heightmap"} (docs/prompts/step4f-prompt.md,
+ * updated by docs/prompts/step4g-prompt.md Bug 1). Paints a hypsometric-tinted
+ * top-down height map: 8 color bands from low to high, blue for liquid cells
+ * (darker for deep water/lava), a dark olive flat color for vegetation cells
+ * (trees etc, never banded by height - a trunk-top height would otherwise
+ * skew the band scale), the same north-neighbour relief shading {@link
+ * ImageRenderer} uses for its own {@code "top"} view, and optional contour
+ * lines. Grid lines, coordinate labels and the auto-scale/pixel-budget rule
+ * are the exact same code {@link ImageRenderer} uses for every other view
+ * (package-visible methods reused directly, not copied).
  *
  * <p>Callers (the Bukkit-aware side, {@code RenderHandler}) supply the
- * already-read {@code heights}/{@code liquid}/{@code liquidDepth} grids -
- * this class never touches the world. {@link #largestFlatZone} and
- * {@link #median} are exposed here too (rather than duplicated in the
- * handler) so the "largest flat rectangle" rule stays covered by the same
- * pure-Java unit tests as the rendering itself.
+ * already-read {@code heights}/{@code classes}/{@code liquidDepth} grids -
+ * this class never touches the world. {@code classes} holds {@link
+ * SurfaceClass#code()} per cell (0 ground, 1 liquid, 2 vegetation).
+ * {@link #largestFlatZone} and {@link #median} are exposed here too (rather
+ * than duplicated in the handler) so the "largest flat rectangle" rule stays
+ * covered by the same pure-Java unit tests as the rendering itself; both
+ * exclude vegetation cells, same as the height-band min/max computed inside
+ * {@link #render}.
  */
 public final class HeightmapImageRenderer {
 
@@ -43,6 +50,7 @@ public final class HeightmapImageRenderer {
     private static final int LIQUID_ARGB = 0xFF3F76E4;
     private static final int LIQUID_DEEP_SHADE_PCT = 65; // applied via ImageRenderer.applyShade for depth >= 3
     private static final int LIQUID_DEEP_THRESHOLD = 3;
+    private static final int VEGETATION_ARGB = 0xFF3B5323;
 
     /** 8 hypsometric bands, low to high: dark green -> green -> light green -> yellow-green -> yellow -> tan -> brown -> light gray. */
     private static final int[] BAND_COLORS = {
@@ -59,28 +67,39 @@ public final class HeightmapImageRenderer {
     /**
      * Renders one heightmap area as a 2D image.
      *
-     * @param heights     [row=z-minZ][col=x-minX] surface height of the requested heightmap type
-     * @param liquid      same shape: {@code true} where the requested type's height differs from the SOLID height
-     * @param liquidDepth same shape: {@code abs(requested - solid)}, only meaningful where {@code liquid} is true
+     * @param heights     [row=z-minZ][col=x-minX] surface height of the requested heightmap type (trunk top for vegetation cells)
+     * @param classes     same shape: {@link SurfaceClass#code()} per cell (0 ground, 1 liquid, 2 vegetation)
+     * @param liquidDepth same shape: liquid depth, only meaningful where {@code classes} is liquid
      * @param scale       px per block, {@code <= 0} means auto (same rule as {@link ImageRenderer})
      * @param grid        grid line every N blocks, {@code 0} disables grid lines and coordinate labels
      * @param contour     draw a 1px line between adjacent cells whose {@code floor(h/contour)} differs, {@code 0} disables
      */
-    public static Output render(int[][] heights, boolean[][] liquid, int[][] liquidDepth,
+    public static Output render(int[][] heights, int[][] classes, int[][] liquidDepth,
                                  int minX, int minZ, int scale, int grid, int contour) {
         int blocksTall = heights.length;
         int blocksWide = blocksTall > 0 ? heights[0].length : 0;
 
         int min = Integer.MAX_VALUE, max = Integer.MIN_VALUE;
-        for (int[] row : heights) {
-            for (int h : row) {
+        for (int row = 0; row < blocksTall; row++) {
+            for (int col = 0; col < blocksWide; col++) {
+                if (classes[row][col] == SurfaceClass.VEGETATION.code()) {
+                    continue; // Bug 1: trunk-top heights must not skew the band scale
+                }
+                int h = heights[row][col];
                 if (h < min) min = h;
                 if (h > max) max = h;
             }
         }
-        if (blocksWide == 0 || blocksTall == 0) {
+        if (blocksWide == 0 || blocksTall == 0 || min > max) {
+            // Either an empty grid, or (pathological) every cell is vegetation: fall back to the raw range.
             min = 0;
             max = 0;
+            for (int[] row : heights) {
+                for (int h : row) {
+                    if (h < min) min = h;
+                    if (h > max) max = h;
+                }
+            }
         }
 
         int effScale = ImageRenderer.resolveScale(scale, blocksWide, blocksTall);
@@ -89,14 +108,20 @@ public final class HeightmapImageRenderer {
         int[] pixels = new int[width * height];
 
         boolean hasLiquid = false;
+        boolean hasVegetation = false;
         for (int row = 0; row < blocksTall; row++) {
             for (int col = 0; col < blocksWide; col++) {
-                boolean isLiquid = liquid[row][col];
+                int cls = classes[row][col];
+                boolean isLiquid = cls == SurfaceClass.LIQUID.code();
+                boolean isVegetation = cls == SurfaceClass.VEGETATION.code();
                 hasLiquid |= isLiquid;
+                hasVegetation |= isVegetation;
                 int base;
                 if (isLiquid) {
                     int depth = liquidDepth[row][col];
                     base = depth >= LIQUID_DEEP_THRESHOLD ? ImageRenderer.applyShade(LIQUID_ARGB, LIQUID_DEEP_SHADE_PCT) : LIQUID_ARGB;
+                } else if (isVegetation) {
+                    base = VEGETATION_ARGB;
                 } else {
                     base = BAND_COLORS[bandIndex(heights[row][col], min, max)];
                 }
@@ -119,7 +144,7 @@ public final class HeightmapImageRenderer {
             ImageRenderer.drawLabels(pixels, width, height, blocksWide, blocksTall, colWorld, rowWorld, effScale, grid);
         }
 
-        List<Band> legend = buildLegend(min, max, hasLiquid);
+        List<Band> legend = buildLegend(min, max, hasLiquid, hasVegetation);
         return new Output(width, height, effScale, grid, contour, legend, pixels);
     }
 
@@ -182,10 +207,13 @@ public final class HeightmapImageRenderer {
     // Legend
     // ------------------------------------------------------------------
 
-    private static List<Band> buildLegend(int min, int max, boolean hasLiquid) {
+    private static List<Band> buildLegend(int min, int max, boolean hasLiquid, boolean hasVegetation) {
         List<Band> list = new ArrayList<>();
         if (hasLiquid) {
             list.add(new Band(ImageRenderer.toHex(LIQUID_ARGB), "water"));
+        }
+        if (hasVegetation) {
+            list.add(new Band(ImageRenderer.toHex(VEGETATION_ARGB), "trees / vegetation"));
         }
         if (min == max) {
             list.add(new Band(ImageRenderer.toHex(BAND_COLORS[0]), "y " + min));
@@ -207,25 +235,44 @@ public final class HeightmapImageRenderer {
     // ------------------------------------------------------------------
 
     public static int median(int[][] heights) {
+        return median(heights, null);
+    }
+
+    /** Same as {@link #median(int[][])}, but excludes vegetation cells (falls back to all cells if every cell is vegetation). */
+    public static int median(int[][] heights, int[][] classes) {
         int total = 0;
         for (int[] row : heights) total += row.length;
         int[] flat = new int[total];
         int i = 0;
-        for (int[] row : heights) {
-            for (int h : row) {
-                flat[i++] = h;
+        for (int r = 0; r < heights.length; r++) {
+            for (int c = 0; c < heights[r].length; c++) {
+                if (classes != null && classes[r][c] == SurfaceClass.VEGETATION.code()) {
+                    continue;
+                }
+                flat[i++] = heights[r][c];
             }
         }
-        Arrays.sort(flat);
-        return flat.length == 0 ? 0 : flat[flat.length / 2];
+        if (i == 0) {
+            // Every cell was vegetation: fall back to the raw set rather than reporting a bogus 0.
+            i = 0;
+            for (int[] row : heights) {
+                for (int h : row) {
+                    flat[i++] = h;
+                }
+            }
+        }
+        int[] used = i == flat.length ? flat : Arrays.copyOf(flat, i);
+        Arrays.sort(used);
+        return used.length == 0 ? 0 : used[used.length / 2];
     }
 
     /**
      * Largest axis-aligned rectangle of cells within {@code tolerance} blocks of {@code medianValue}
      * (same +/-1 rule as {@code mcp-server/src/render/relief.ts}'s {@code largestFlatZone}), via the
-     * standard "largest rectangle in a binary matrix" histogram/stack algorithm, O(rows*cols).
+     * standard "largest rectangle in a binary matrix" histogram/stack algorithm, O(rows*cols). Vegetation
+     * cells (per {@code classes}, may be {@code null} to consider every cell) are never flat.
      */
-    public static FlatZone largestFlatZone(int[][] heights, int minX, int minZ, int medianValue, int tolerance) {
+    public static FlatZone largestFlatZone(int[][] heights, int[][] classes, int minX, int minZ, int medianValue, int tolerance) {
         int rows = heights.length;
         if (rows == 0) return null;
         int cols = heights[0].length;
@@ -234,7 +281,8 @@ public final class HeightmapImageRenderer {
         boolean[][] flat = new boolean[rows][cols];
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
-                flat[r][c] = Math.abs(heights[r][c] - medianValue) <= tolerance;
+                boolean isVegetation = classes != null && classes[r][c] == SurfaceClass.VEGETATION.code();
+                flat[r][c] = !isVegetation && Math.abs(heights[r][c] - medianValue) <= tolerance;
             }
         }
 

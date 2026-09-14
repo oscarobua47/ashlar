@@ -6,25 +6,27 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import org.bukkit.HeightMap;
 import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.Waterlogged;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * Executes the read side of a {@code render} request with {@code view:
- * "heightmap"} (docs/prompts/step4f-prompt.md): for every {@code (x,z)} in
- * the requested area, reads both the requested heightmap type's height and
- * the {@code SOLID} height in the same main-thread pass - cells where the
- * two differ are liquid, exactly the comparison {@code mc_survey} used to
- * make client-side via two separate {@code heightmap} RPC calls (see
- * {@code mcp-server/src/render/relief.ts}), now done once, server-side, so
- * the render can carry it too.
+ * "heightmap"} (docs/prompts/step4f-prompt.md, updated by
+ * docs/prompts/step4g-prompt.md Bug 1): for every {@code (x,z)} in the
+ * requested area, reads the requested heightmap type's height and
+ * classifies the surface block there via {@link SurfaceClass} - ground,
+ * liquid, or vegetation. Liquid cells get one extra {@code OCEAN_FLOOR}
+ * read (for shading depth); vegetation cells are excluded from min/max so a
+ * tree canopy's trunk-top height cannot skew the band scale.
  *
  * <p>Same read/self-correction logic as {@link HeightmapTask} (see that
  * class's javadoc for the "surface block's own y" contract), duplicated
- * rather than shared because this task reads two heightmaps per cell and
- * tracks a second array; {@link SurfaceStats} factors out the one piece
- * that actually was shared (the surface-material-count JSON).
+ * rather than shared because this task also tracks the classes/liquid-depth
+ * arrays; {@link SurfaceStats} factors out the one piece that actually was
+ * shared (the surface-material-count JSON).
  *
  * <p>{@link #buildResult} intentionally returns a throwaway {@link
  * JsonNull}, same pattern as {@link RenderTask}: {@code RenderHandler}
@@ -41,20 +43,21 @@ public final class HeightmapImageTask extends BuildTask {
     private final int x2;
     private final int z2;
     private final HeightMap requestedMap;
-    private final HeightMap solidMap;
 
     private final int[][] heights;      // [zi][xi] requested type
-    private final int[][] solidHeights; // [zi][xi] SOLID
+    private final int[][] classes;      // [zi][xi] SurfaceClass.code()
+    private final int[][] liquidDepth;  // [zi][xi] only meaningful where classes == LIQUID
     private final Map<String, Long> surfaceCounts = new LinkedHashMap<>();
     private int min = Integer.MAX_VALUE;
     private int max = Integer.MIN_VALUE;
+    private long liquidCells = 0;
+    private long vegetationCells = 0;
 
     private int cursorZ;
     private int cursorX;
     private boolean cursorInitialized = false;
 
-    public HeightmapImageTask(Region region, World world, int x1, int z1, int x2, int z2,
-                               HeightMap requestedMap, HeightMap solidMap) {
+    public HeightmapImageTask(Region region, World world, int x1, int z1, int x2, int z2, HeightMap requestedMap) {
         super(region);
         this.world = world;
         this.x1 = x1;
@@ -62,9 +65,9 @@ public final class HeightmapImageTask extends BuildTask {
         this.x2 = x2;
         this.z2 = z2;
         this.requestedMap = requestedMap;
-        this.solidMap = solidMap;
         this.heights = new int[z2 - z1 + 1][x2 - x1 + 1];
-        this.solidHeights = new int[z2 - z1 + 1][x2 - x1 + 1];
+        this.classes = new int[z2 - z1 + 1][x2 - x1 + 1];
+        this.liquidDepth = new int[z2 - z1 + 1][x2 - x1 + 1];
     }
 
     @Override
@@ -98,17 +101,30 @@ public final class HeightmapImageTask extends BuildTask {
     }
 
     private boolean readRowSegment(long deadlineNanos) {
-        boolean sameMap = requestedMap == solidMap;
         int sinceCheck = 0;
         while (cursorX <= x2) {
             int y = readHeight(cursorX, cursorZ, requestedMap);
-            int sy = sameMap ? y : readHeight(cursorX, cursorZ, solidMap);
             int zi = cursorZ - z1, xi = cursorX - x1;
             heights[zi][xi] = y;
-            solidHeights[zi][xi] = sy;
-            min = Math.min(min, y);
-            max = Math.max(max, y);
-            String materialKey = world.getBlockAt(cursorX, y, cursorZ).getType().getKey().toString();
+
+            BlockData data = world.getBlockAt(cursorX, y, cursorZ).getBlockData();
+            boolean waterlogged = data instanceof Waterlogged w && w.isWaterlogged();
+            SurfaceClass cls = SurfaceClass.classify(data.getMaterial().name(), waterlogged);
+            classes[zi][xi] = cls.code();
+
+            if (cls == SurfaceClass.LIQUID) {
+                int floorY = readHeight(cursorX, cursorZ, HeightMap.OCEAN_FLOOR);
+                liquidDepth[zi][xi] = Math.max(0, y - floorY);
+                liquidCells++;
+            }
+            if (cls == SurfaceClass.VEGETATION) {
+                vegetationCells++;
+            } else {
+                min = Math.min(min, y);
+                max = Math.max(max, y);
+            }
+
+            String materialKey = data.getMaterial().getKey().toString();
             surfaceCounts.merge(materialKey, 1L, Long::sum);
 
             advance(1);
@@ -139,22 +155,49 @@ public final class HeightmapImageTask extends BuildTask {
         return JsonNull.INSTANCE; // real work happens off-thread in RenderHandler once this task's future completes
     }
 
-    /** [zi][xi] height of the requested heightmap type. Only populated once {@link #step} has returned {@code true}. */
+    /** [zi][xi] height of the requested heightmap type (trunk top for vegetation cells). Only populated once {@link #step} has returned {@code true}. */
     public int[][] heights() {
         return heights;
     }
 
-    /** [zi][xi] SOLID height, for liquid detection (differs from {@link #heights()} wherever a liquid surface was read). */
-    public int[][] solidHeights() {
-        return solidHeights;
+    /** [zi][xi] {@link SurfaceClass#code()}: 0 ground, 1 liquid, 2 vegetation. */
+    public int[][] classes() {
+        return classes;
     }
 
+    /** [zi][xi] liquid depth (requested height minus OCEAN_FLOOR height), only meaningful where {@link #classes()} is liquid. */
+    public int[][] liquidDepth() {
+        return liquidDepth;
+    }
+
+    /** Number of cells classified as liquid. */
+    public long liquidCells() {
+        return liquidCells;
+    }
+
+    /** Number of cells classified as vegetation (trees etc). */
+    public long vegetationCells() {
+        return vegetationCells;
+    }
+
+    /** Min surface height, excluding vegetation cells (falls back to the raw min if every cell is vegetation). */
     public int min() {
-        return min;
+        return min <= max ? min : rawExtreme(true);
     }
 
+    /** Max surface height, excluding vegetation cells (falls back to the raw max if every cell is vegetation). */
     public int max() {
-        return max;
+        return min <= max ? max : rawExtreme(false);
+    }
+
+    private int rawExtreme(boolean wantMin) {
+        int m = wantMin ? Integer.MAX_VALUE : Integer.MIN_VALUE;
+        for (int[] row : heights) {
+            for (int h : row) {
+                m = wantMin ? Math.min(m, h) : Math.max(m, h);
+            }
+        }
+        return m;
     }
 
     public JsonObject surfaceJson() {

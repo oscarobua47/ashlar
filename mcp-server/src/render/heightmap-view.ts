@@ -34,6 +34,7 @@ export interface HeightmapRenderFields {
     flatZone: HeightmapFlatZone | null;
     legend: HeightmapLegendBand[];
     liquidCells: number;
+    treeCells: number;
     contour: number;
 }
 
@@ -60,10 +61,11 @@ export function heightmapSummaryLine(result: HeightmapRenderFields): string {
         : "Largest flat zone: none found.";
 
     const liquidText = result.liquidCells > 0 ? ` Liquid cells: ${result.liquidCells}.` : "";
+    const treeText = result.treeCells > 0 ? ` Trees: ${result.treeCells} cells.` : "";
 
     return (
         `Area x=[${x1}..${x2}] z=[${z1}..${z2}] (${width}x${depth}). Surface y: min ${result.heights.min}, ` +
-        `max ${result.heights.max}, median ${result.heights.median}. Surface: ${surfaceText}. ${zoneLine}${liquidText}`
+        `max ${result.heights.max}, median ${result.heights.median}. Surface: ${surfaceText}. ${zoneLine}${liquidText}${treeText}`
     );
 }
 
