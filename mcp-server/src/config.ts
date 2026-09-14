@@ -137,6 +137,16 @@ Environment variables (--agent mode only):
   AI_IMAGE_DETAIL          Image detail passed through on image parts: low/high/auto. Default: high
   AI_SYSTEM_PROMPT_FILE    Optional path to a text file appended to the built-in system prompt.
   AI_REQUEST_TIMEOUT_MS    Per model call timeout, in milliseconds. Default: 120000
+  AI_USAGE_FILE            Where per-player usage, limit overrides and the pause flag are persisted. Default: ./ashlar-usage.json
+  AI_PRICE_INPUT           USD per 1M uncached input tokens, at peak price. Default: 0.30
+  AI_PRICE_CACHED_INPUT    USD per 1M cached input tokens, at peak price. Default: 0.006
+  AI_PRICE_OUTPUT          USD per 1M output tokens, at peak price. Default: 1.20
+  AI_CURRENCY              Label shown next to costs: "$" for USD, "<code> " prefix otherwise. Default: USD
+  AI_MAX_TOKENS_PER_PLAYER_PER_DAY    Per-player daily token cap; 0 = unlimited. Default: 0
+  AI_MAX_COST_PER_PLAYER_PER_DAY      Per-player daily cost cap in AI_CURRENCY; 0 = unlimited. Default: 0
+  AI_PEAK_HOURS            UTC windows AI_PRICE_* apply at full price; "always" disables the off-peak discount.
+                          Default: mon-fri 01:00-04:00,06:00-10:00
+  AI_OFF_PEAK_MULTIPLIER   Price multiplier outside AI_PEAK_HOURS. Default: 0.5
 
 Example (stdio):
   MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme ashlar-mcp --stdio

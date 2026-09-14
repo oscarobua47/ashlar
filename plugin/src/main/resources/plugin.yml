@@ -15,13 +15,14 @@ libraries:
 commands:
   ashlar:
     description: Ask the AI assistant to build or change something near you.
-    usage: /ashlar <what you want> | /ashlar cancel
-    permission: ashlar.use
-    permission-message: You do not have permission to use the AI assistant.
+    usage: /ashlar <what you want> | cancel | usage | help
 permissions:
   ashlar.use:
     description: Allows using /ashlar.
     default: op
   ashlar.monitor:
     description: Echoes every /ashlar request and final reply from other players.
+    default: op
+  ashlar.admin:
+    description: "Manage the AI assistant: limits, pause/resume, cancelling other players' requests."
     default: op

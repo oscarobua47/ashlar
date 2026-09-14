@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { PluginClient } from "../plugin-client.js";
+import { createAdminHandler, type CancelOutcome } from "./admin.js";
 import type { AgentConfig } from "./config.js";
 import { createHistory } from "./history.js";
+import type { CallUsage } from "./provider.js";
 import { runRequest, type PlayerInfo } from "./runner.js";
 import { createToolBridge } from "./tools.js";
+import { fmtCost, fmtTokens, UsageStore, type DayCounters, type LimitValue } from "./usage.js";
 
 const PROGRESS_THROTTLE_MS = 1500;
 const CHUNK_MAX_LENGTH = 1000;
@@ -19,6 +22,25 @@ interface QueueEntry {
 interface PlayerState {
     queue: QueueEntry[];
     running: QueueEntry | null;
+}
+
+/**
+ * The `(this request: ... | today: ...)` footer appended to every final
+ * reply (docs/private/prompts/step6f-prompt.md): `of <limit>` is omitted
+ * when there is no cost limit, and cost is replaced by tokens when every
+ * AI_PRICE_* is 0 (e.g. a free local model).
+ */
+function formatUsageFooter(requestCost: number, requestUsage: CallUsage, today: DayCounters, cfg: AgentConfig, costLimit: LimitValue): string {
+    const requestTokens = requestUsage.inputTokens + requestUsage.cachedInputTokens + requestUsage.outputTokens;
+    const todayTokens = today.inputTokens + today.cachedInputTokens + today.outputTokens;
+    const pricesAreZero = cfg.priceInput === 0 && cfg.priceCachedInput === 0 && cfg.priceOutput === 0;
+
+    if (pricesAreZero) {
+        return `(this request: ${fmtTokens(requestTokens)} tokens | today: ${fmtTokens(todayTokens)} tokens)`;
+    }
+
+    const ofPart = costLimit === "off" ? "" : ` of ${fmtCost(costLimit, cfg.currency)}`;
+    return `(this request: ${fmtTokens(requestTokens)} tokens, ${fmtCost(requestCost, cfg.currency)} | today: ${fmtCost(today.cost, cfg.currency)}${ofPart})`;
 }
 
 /** Splits `text` into chunks of at most `max` characters, preferring to cut on a line break, then a space. */
@@ -42,11 +64,13 @@ export interface AgentService {
 }
 
 /**
- * Wires the plugin's `chat`/`chat_cancel` events (docs/prompts/
- * step6b-prompt.md) to {@link runRequest}: enforces the per-player daily
- * request count, a per-player serial queue, and a global concurrency cap;
- * sends "Working on it...", throttled progress lines, and the final reply
- * (chunked to <= 1000 characters) back via the plugin's `send_message` RPC.
+ * Wires the plugin's `chat`/`chat_cancel`/`admin` events (docs/private/
+ * prompts/step6b-prompt.md, step6f-prompt.md) to {@link runRequest}:
+ * enforces per-player daily request/token/cost limits (with per-player
+ * overrides and a global pause switch, all persisted via {@link UsageStore}),
+ * a per-player serial queue, and a global concurrency cap; sends "Working on
+ * it...", throttled progress lines, and the final reply (chunked to <= 1000
+ * characters, with a usage footer) back via the plugin's `send_message` RPC.
  * Every call passes a `kind`: `"final"` only for the finished reply's
  * chunks, `"progress"` for everything else (step6d-prompt.md) - the plugin
  * uses this to decide what `ashlar.monitor` players get to see.
@@ -57,29 +81,21 @@ export async function startAgentService(
 ): Promise<AgentService & { toolNames: string[] }> {
     const bridge = await createToolBridge(pluginClient, { allowCommand: cfg.allowCommand });
     const history = createHistory({ turns: cfg.historyTurns, ttlMinutes: cfg.historyTtlMinutes });
+    const usageStore = new UsageStore({
+        filePath: cfg.usageFile,
+        priceInput: cfg.priceInput,
+        priceCachedInput: cfg.priceCachedInput,
+        priceOutput: cfg.priceOutput,
+        currency: cfg.currency,
+        envLimits: { cost: cfg.maxCostPerPlayerPerDay, tokens: cfg.maxTokensPerPlayerPerDay, requests: cfg.maxRequestsPerPlayerPerDay },
+        peakSchedule: cfg.peakHours,
+        offPeakMultiplier: cfg.offPeakMultiplier
+    });
 
     const playerStates = new Map<string, PlayerState>();
-    const dailyCounts = new Map<string, { day: string; count: number }>();
     let activeCount = 0;
     const waitQueue: Array<() => void> = [];
     let closed = false;
-
-    function today(): string {
-        return new Date().toISOString().slice(0, 10);
-    }
-
-    function checkAndIncrementDaily(uuid: string): boolean {
-        if (cfg.maxRequestsPerPlayerPerDay === 0) return true;
-        const day = today();
-        let entry = dailyCounts.get(uuid);
-        if (!entry || entry.day !== day) {
-            entry = { day, count: 0 };
-            dailyCounts.set(uuid, entry);
-        }
-        if (entry.count >= cfg.maxRequestsPerPlayerPerDay) return false;
-        entry.count++;
-        return true;
-    }
 
     async function send(uuid: string, text: string, kind: "progress" | "final" = "progress"): Promise<void> {
         try {
@@ -108,6 +124,16 @@ export async function startAgentService(
         await acquireSlot();
         let progressTimer: ReturnType<typeof setTimeout> | null = null;
         try {
+            if (usageStore.isPaused()) {
+                await send(entry.player.uuid, "The assistant is paused by an operator.", "final");
+                return;
+            }
+            const allowed = usageStore.checkAllowed(entry.player.uuid);
+            if (!allowed.ok) {
+                await send(entry.player.uuid, allowed.reason, "final");
+                return;
+            }
+
             await send(entry.player.uuid, "Working on it...");
 
             let lastProgressAt = 0;
@@ -138,7 +164,7 @@ export async function startAgentService(
 
             let finalText: string;
             try {
-                finalText = await runRequest({
+                const result = await runRequest({
                     cfg,
                     bridge,
                     history,
@@ -147,6 +173,10 @@ export async function startAgentService(
                     signal: entry.controller.signal,
                     onProgress
                 });
+                const recorded = usageStore.record(entry.player.uuid, entry.player.name, result.usage);
+                const costLimit = usageStore.effectiveLimits(entry.player.uuid).cost;
+                const footer = formatUsageFooter(recorded.cost, result.usage, recorded.today, cfg, costLimit);
+                finalText = `${result.text}\n${footer}`;
             } catch (err) {
                 console.error(
                     `[agent-service] request ${entry.requestId} for ${entry.player.name} failed: ${(err as Error).stack ?? err}`
@@ -185,11 +215,9 @@ export async function startAgentService(
         const requestId = typeof event.requestId === "string" ? event.requestId : `chat-${Date.now()}`;
         if (!player || typeof player.uuid !== "string" || typeof text !== "string") return;
 
-        if (!checkAndIncrementDaily(player.uuid)) {
-            void send(player.uuid, `Daily request limit reached (${cfg.maxRequestsPerPlayerPerDay}/day). Try again tomorrow.`);
-            return;
-        }
-
+        // Pause/limit checks happen once the request actually starts (in
+        // processEntry), not here: a player's own queue is serial, so an
+        // earlier queued request can change today's counters first.
         let state = playerStates.get(player.uuid);
         if (!state) {
             state = { queue: [], running: null };
@@ -207,36 +235,50 @@ export async function startAgentService(
         startEntry(state, entry);
     }
 
+    /** Cancels `uuid`'s running or queued request, if any. Shared by `/ashlar cancel` (own request) and the `admin cancel` action (another player's). */
+    function cancelPlayerRequest(uuid: string): CancelOutcome {
+        const state = playerStates.get(uuid);
+        if (state?.running) {
+            state.running.controller.abort();
+            return "running";
+        }
+        if (state && state.queue.length > 0) {
+            state.queue = [];
+            return "queued";
+        }
+        return "none";
+    }
+
     function handleChatCancel(event: Record<string, unknown>): void {
         const playerRef = event.player as { uuid?: string } | undefined;
         const uuid = playerRef?.uuid;
         if (typeof uuid !== "string") return;
 
-        const state = playerStates.get(uuid);
-        if (state?.running) {
-            state.running.controller.abort();
-            void send(uuid, "Cancelled.");
-            return;
-        }
-        if (state && state.queue.length > 0) {
-            state.queue = [];
-            void send(uuid, "Cancelled.");
-            return;
-        }
-        void send(uuid, "Nothing to cancel.");
+        const outcome = cancelPlayerRequest(uuid);
+        void send(uuid, outcome === "none" ? "Nothing to cancel." : "Cancelled.");
     }
+
+    const handleAdmin = createAdminHandler({
+        store: usageStore,
+        cancel: cancelPlayerRequest,
+        send,
+        currency: cfg.currency
+    });
 
     pluginClient.onEvent(event => {
         if (event.event === "chat") {
             handleChat(event);
         } else if (event.event === "chat_cancel") {
             handleChatCancel(event);
+        } else if (event.event === "admin") {
+            void handleAdmin(event);
         }
     });
 
     return {
         close: () => {
             closed = true;
+            usageStore.close();
             bridge.close();
         },
         toolNames: bridge.tools.map(t => t.function.name)

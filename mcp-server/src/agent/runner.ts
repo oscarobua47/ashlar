@@ -3,7 +3,7 @@
 import type { AgentConfig } from "./config.js";
 import type { History } from "./history.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { chatCompletion, type ChatMessage, type ContentPart } from "./provider.js";
+import { chatCompletion, type CallUsage, type ChatMessage, type ContentPart } from "./provider.js";
 import type { ToolBridge } from "./tools.js";
 
 /** The subset of the plugin's `chat` event's `player` object the runner needs. */
@@ -27,6 +27,14 @@ export interface RunRequestOptions {
     onProgress: (line: string) => void;
     /** Test seam: defaults to the real {@link chatCompletion}; runner.test.ts injects a scripted fake here. */
     chatFn?: typeof chatCompletion;
+}
+
+export interface RunRequestResult {
+    text: string;
+    /** Sum of every model call's usage made while answering this request. */
+    usage: CallUsage;
+    /** Number of tool calls executed while answering this request. */
+    toolCalls: number;
 }
 
 const SHORT_ARG_KEYS = ["from", "to", "view", "action"] as const;
@@ -63,10 +71,19 @@ function textOfContent(content: ChatMessage["content"]): string {
  * `bridge.callTool`, and stops either on a plain-text reply, on the tool
  * budget being exhausted, or on `signal` being aborted between steps.
  * Records the exchange (the plain-text user message onward) into `history`
- * unless the request was cancelled.
+ * unless the request was cancelled. The returned `usage` is the sum of every
+ * model call's usage made along the way (docs/private/prompts/
+ * step6f-prompt.md), for per-player cost accounting.
  */
-export async function runRequest(opts: RunRequestOptions): Promise<string> {
+export async function runRequest(opts: RunRequestOptions): Promise<RunRequestResult> {
     const { cfg, bridge, history, player, text, signal, onProgress, chatFn = chatCompletion } = opts;
+
+    const usage: CallUsage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+    function addUsage(u: CallUsage): void {
+        usage.inputTokens += u.inputTokens;
+        usage.cachedInputTokens += u.cachedInputTokens;
+        usage.outputTokens += u.outputTokens;
+    }
 
     const contextLine =
         `${text}\n\n[context] player ${player.name} in world ${player.world} at pos ${player.pos.join(",")} ` +
@@ -90,7 +107,7 @@ export async function runRequest(opts: RunRequestOptions): Promise<string> {
 
     for (;;) {
         if (signal.aborted) {
-            return "Cancelled.";
+            return { text: "Cancelled.", usage, toolCalls: toolCallCount };
         }
 
         if (budgetExhausted) {
@@ -99,7 +116,7 @@ export async function runRequest(opts: RunRequestOptions): Promise<string> {
             exchange.push(note);
         }
 
-        const { message } = await chatFn(cfg, {
+        const { message, usage: callUsage } = await chatFn(cfg, {
             // A snapshot, not the live array: chatFn implementations (and tests) must not observe
             // messages appended after this call, since `messages` keeps growing for the rest of the loop.
             messages: [...messages],
@@ -107,6 +124,7 @@ export async function runRequest(opts: RunRequestOptions): Promise<string> {
             toolChoice: budgetExhausted ? "none" : undefined,
             signal
         });
+        addUsage(callUsage);
         messages.push(message);
         exchange.push(message);
 
@@ -115,14 +133,14 @@ export async function runRequest(opts: RunRequestOptions): Promise<string> {
             const replyText = textOfContent(message.content).trim();
             const finalText = replyText.length > 0 ? replyText : "(no reply)";
             history.append(player.uuid, exchange);
-            return finalText;
+            return { text: finalText, usage, toolCalls: toolCallCount };
         }
 
         const imagesForThisTurn: Array<{ toolName: string; toolCallId: string; images: Array<{ data: string; mimeType: string }> }> = [];
 
         for (const call of toolCalls) {
             if (signal.aborted) {
-                return "Cancelled.";
+                return { text: "Cancelled.", usage, toolCalls: toolCallCount };
             }
 
             let args: unknown = {};

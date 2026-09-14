@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import type { AgentConfig } from "./config.js";
 import { HistoryStore } from "./history.js";
+import { parsePeakHours } from "./pricing.js";
 import type { ChatCompletionOptions, ChatCompletionResult, ToolDef } from "./provider.js";
 import { runRequest, type PlayerInfo } from "./runner.js";
 import type { ToolBridge, ToolCallResult } from "./tools.js";
@@ -22,6 +23,15 @@ function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
         historyTtlMinutes: 30,
         imageDetail: "high",
         requestTimeoutMs: 5000,
+        usageFile: "./ashlar-usage.json",
+        priceInput: 0.3,
+        priceCachedInput: 0.006,
+        priceOutput: 1.2,
+        currency: "USD",
+        maxTokensPerPlayerPerDay: 0,
+        maxCostPerPlayerPerDay: 0,
+        peakHours: parsePeakHours("mon-fri 01:00-04:00,06:00-10:00"),
+        offPeakMultiplier: 0.5,
         ...overrides
     };
 }
@@ -50,22 +60,28 @@ function scriptedProvider(replies: ChatCompletionResult[]) {
     return { fn, calls };
 }
 
-function assistantToolCalls(calls: Array<{ id: string; name: string; args: string }>): ChatCompletionResult {
+function assistantToolCalls(
+    calls: Array<{ id: string; name: string; args: string }>,
+    usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } = { inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 }
+): ChatCompletionResult {
     return {
         message: {
             role: "assistant",
             content: null,
             tool_calls: calls.map(c => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.args } }))
         },
-        usage: { promptTokens: 10, completionTokens: 5 },
+        usage,
         finishReason: "tool_calls"
     };
 }
 
-function assistantText(text: string): ChatCompletionResult {
+function assistantText(
+    text: string,
+    usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } = { inputTokens: 10, cachedInputTokens: 0, outputTokens: 5 }
+): ChatCompletionResult {
     return {
         message: { role: "assistant", content: text },
-        usage: { promptTokens: 10, completionTokens: 5 },
+        usage,
         finishReason: "stop"
     };
 }
@@ -116,7 +132,7 @@ test("runRequest: a two-tool-call turn where one tool returns an image - tool me
         chatFn: fn
     });
 
-    assert.equal(result, "Done.");
+    assert.equal(result.text, "Done.");
     assert.equal(calls.length, 2);
 
     const secondCallMessages = calls[1]!.messages;
@@ -161,7 +177,7 @@ test("runRequest: tool budget exhaustion forces tool_choice:none on the next cal
         chatFn: fn
     });
 
-    assert.equal(result, "Summary after budget exhausted.");
+    assert.equal(result.text, "Summary after budget exhausted.");
     assert.equal(calls.length, 2);
     assert.equal(calls[0]!.toolChoice, undefined);
     assert.equal(calls[1]!.toolChoice, "none");
@@ -200,7 +216,7 @@ test("runRequest: cancellation after the first tool call stops before the second
         chatFn: fn
     });
 
-    assert.equal(result, "Cancelled.");
+    assert.equal(result.text, "Cancelled.");
     assert.equal(mcRenderCalled, false);
     assert.equal(calls.length, 1);
 });
@@ -225,7 +241,7 @@ test("runRequest: an unknown tool name is handled as an error result, not a thro
         chatFn: fn
     });
 
-    assert.equal(result, "I could not find that tool.");
+    assert.equal(result.text, "I could not find that tool.");
     assert.equal(calls.length, 2);
     const toolMessage = calls[1]!.messages.find(m => m.role === "tool" && m.tool_call_id === "call-1")!;
     assert.match(String(toolMessage.content), /Unknown tool "totally_unknown_tool"/);
@@ -252,7 +268,7 @@ test("runRequest: progress callback reports the tool name and short args (from/t
         chatFn: fn
     });
 
-    assert.equal(result, "Built it.");
+    assert.equal(result.text, "Built it.");
     assert.equal(progressLines.length, 1);
     assert.equal(progressLines[0], '> mc_build from=[0,0,0] to=[1,1,1]');
 });
@@ -272,7 +288,7 @@ test("runRequest: no tool calls returns the trimmed assistant text directly", as
         chatFn: fn
     });
 
-    assert.equal(result, "Hello there.");
+    assert.equal(result.text, "Hello there.");
 });
 
 test("runRequest: an empty assistant reply becomes '(no reply)'", async () => {
@@ -290,7 +306,7 @@ test("runRequest: an empty assistant reply becomes '(no reply)'", async () => {
         chatFn: fn
     });
 
-    assert.equal(result, "(no reply)");
+    assert.equal(result.text, "(no reply)");
 });
 
 test("runRequest: records the exchange in history for the next request", async () => {
@@ -335,6 +351,41 @@ test("runRequest: a cancelled request is not recorded in history", async () => {
         chatFn: fn
     });
 
-    assert.equal(result, "Cancelled.");
+    assert.equal(result.text, "Cancelled.");
     assert.deepEqual(history.get("p1"), []);
+});
+
+test("runRequest: sums usage and counts tool calls across every model call in the request", async () => {
+    const { fn } = scriptedProvider([
+        assistantToolCalls(
+            [{ id: "call-1", name: "mc_status", args: "{}" }],
+            { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 }
+        ),
+        assistantToolCalls(
+            [
+                { id: "call-2", name: "mc_status", args: "{}" },
+                { id: "call-3", name: "mc_status", args: "{}" }
+            ],
+            { inputTokens: 200, cachedInputTokens: 0, outputTokens: 15 }
+        ),
+        assistantText("Done.", { inputTokens: 50, cachedInputTokens: 5, outputTokens: 8 })
+    ]);
+    const bridge = fakeBridge({
+        mc_status: async () => ({ text: "ok", images: [], isError: false })
+    });
+
+    const result = await runRequest({
+        cfg: baseConfig(),
+        bridge,
+        history: newHistory(),
+        player: player(),
+        text: "check status a few times",
+        signal: new AbortController().signal,
+        onProgress: () => {},
+        chatFn: fn
+    });
+
+    assert.equal(result.text, "Done.");
+    assert.equal(result.toolCalls, 3);
+    assert.deepEqual(result.usage, { inputTokens: 350, cachedInputTokens: 25, outputTokens: 33 });
 });

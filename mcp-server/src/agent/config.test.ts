@@ -21,7 +21,16 @@ const AGENT_ENV_VARS = [
     "AI_HISTORY_TTL_MINUTES",
     "AI_IMAGE_DETAIL",
     "AI_SYSTEM_PROMPT_FILE",
-    "AI_REQUEST_TIMEOUT_MS"
+    "AI_REQUEST_TIMEOUT_MS",
+    "AI_USAGE_FILE",
+    "AI_PRICE_INPUT",
+    "AI_PRICE_CACHED_INPUT",
+    "AI_PRICE_OUTPUT",
+    "AI_CURRENCY",
+    "AI_MAX_TOKENS_PER_PLAYER_PER_DAY",
+    "AI_MAX_COST_PER_PLAYER_PER_DAY",
+    "AI_PEAK_HOURS",
+    "AI_OFF_PEAK_MULTIPLIER"
 ];
 
 /** Runs `body` with only `overrides` set among the AI_* env vars, restoring the previous environment afterwards. */
@@ -57,6 +66,74 @@ test("loadAgentConfig: defaults", () => {
         assert.equal(cfg.imageDetail, "high");
         assert.equal(cfg.systemPromptExtra, undefined);
         assert.equal(cfg.requestTimeoutMs, 120_000);
+        assert.equal(cfg.usageFile, "./ashlar-usage.json");
+        assert.equal(cfg.priceInput, 0.3);
+        assert.equal(cfg.priceCachedInput, 0.006);
+        assert.equal(cfg.priceOutput, 1.2);
+        assert.equal(cfg.currency, "USD");
+        assert.equal(cfg.maxTokensPerPlayerPerDay, 0);
+        assert.equal(cfg.maxCostPerPlayerPerDay, 0);
+        assert.equal(cfg.offPeakMultiplier, 0.5);
+        assert.equal(cfg.peakHours.always, false);
+        assert.equal(cfg.peakHours.days, "mon-fri");
+        assert.deepEqual(cfg.peakHours.windows, [
+            { startMin: 60, endMin: 240 },
+            { startMin: 360, endMin: 600 }
+        ]);
+    });
+});
+
+test("loadAgentConfig: AI_USAGE_FILE, price and limit overrides", () => {
+    withAgentEnv(
+        {
+            AI_API_KEY: "sk-test",
+            AI_USAGE_FILE: "/tmp/custom-usage.json",
+            AI_PRICE_INPUT: "1.5",
+            AI_PRICE_CACHED_INPUT: "0",
+            AI_PRICE_OUTPUT: "3",
+            AI_CURRENCY: "CNY",
+            AI_MAX_TOKENS_PER_PLAYER_PER_DAY: "500000",
+            AI_MAX_COST_PER_PLAYER_PER_DAY: "1.5",
+            AI_OFF_PEAK_MULTIPLIER: "0.25"
+        },
+        () => {
+            const cfg = loadAgentConfig();
+            assert.equal(cfg.usageFile, "/tmp/custom-usage.json");
+            assert.equal(cfg.priceInput, 1.5);
+            assert.equal(cfg.priceCachedInput, 0);
+            assert.equal(cfg.priceOutput, 3);
+            assert.equal(cfg.currency, "CNY");
+            assert.equal(cfg.maxTokensPerPlayerPerDay, 500_000);
+            assert.equal(cfg.maxCostPerPlayerPerDay, 1.5);
+            assert.equal(cfg.offPeakMultiplier, 0.25);
+        }
+    );
+});
+
+test("loadAgentConfig: rejects a negative AI_PRICE_INPUT", () => {
+    withAgentEnv({ AI_API_KEY: "sk-test", AI_PRICE_INPUT: "-1" }, () => {
+        assert.throws(() => loadAgentConfig(), (err: unknown) => {
+            assert.ok(err instanceof ConfigError);
+            assert.match(err.message, /AI_PRICE_INPUT/);
+            return true;
+        });
+    });
+});
+
+test("loadAgentConfig: AI_PEAK_HOURS accepts 'always'", () => {
+    withAgentEnv({ AI_API_KEY: "sk-test", AI_PEAK_HOURS: "always" }, () => {
+        const cfg = loadAgentConfig();
+        assert.equal(cfg.peakHours.always, true);
+    });
+});
+
+test("loadAgentConfig: rejects a malformed AI_PEAK_HOURS", () => {
+    withAgentEnv({ AI_API_KEY: "sk-test", AI_PEAK_HOURS: "mon-fri 1:00-4:00" }, () => {
+        assert.throws(() => loadAgentConfig(), (err: unknown) => {
+            assert.ok(err instanceof ConfigError);
+            assert.match(err.message, /AI_PEAK_HOURS/);
+            return true;
+        });
     });
 });
 

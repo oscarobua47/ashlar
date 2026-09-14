@@ -72,7 +72,7 @@ async function main() {
     const controller = new AbortController();
 
     try {
-        const reply = await runRequest({
+        const result = await runRequest({
             cfg: agentConfig,
             bridge,
             history: noopHistory,
@@ -81,7 +81,12 @@ async function main() {
             signal: controller.signal,
             onProgress: line => console.log(line)
         });
-        console.log(reply);
+        console.log(result.text);
+        const u = result.usage;
+        const totalTokens = u.inputTokens + u.cachedInputTokens + u.outputTokens;
+        console.log(
+            `[usage] ${totalTokens} tokens (input=${u.inputTokens} cached=${u.cachedInputTokens} output=${u.outputTokens}), ${result.toolCalls} tool calls`
+        );
     } finally {
         bridge.close();
         client.close();

@@ -29,9 +29,16 @@ export interface ToolDef {
     function: { name: string; description: string; parameters: unknown };
 }
 
+/** Normalised token usage for one model call. `inputTokens` excludes `cachedInputTokens`. */
+export interface CallUsage {
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+}
+
 export interface ChatCompletionResult {
     message: ChatMessage;
-    usage: { promptTokens: number; completionTokens: number };
+    usage: CallUsage;
     finishReason: string;
 }
 
@@ -121,20 +128,32 @@ export async function chatCompletion(cfg: AgentConfig, opts: ChatCompletionOptio
 
         const json = (await response.json()) as {
             choices?: Array<{ message: ChatMessage; finish_reason?: string }>;
-            usage?: { prompt_tokens?: number; completion_tokens?: number };
+            usage?: {
+                prompt_tokens?: number;
+                completion_tokens?: number;
+                // DeepSeek's fields.
+                prompt_cache_hit_tokens?: number;
+                prompt_cache_miss_tokens?: number;
+                // OpenAI-style equivalent.
+                prompt_tokens_details?: { cached_tokens?: number };
+            };
         };
         const choice = json.choices?.[0];
         if (!choice) {
             throw new ProviderError(response.status, "response had no choices[0]");
         }
-        const usage = {
-            promptTokens: json.usage?.prompt_tokens ?? 0,
-            completionTokens: json.usage?.completion_tokens ?? 0
+        const promptTokens = json.usage?.prompt_tokens ?? 0;
+        const cachedInputTokens = json.usage?.prompt_cache_hit_tokens ?? json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+        const outputTokens = json.usage?.completion_tokens ?? 0;
+        const usage: CallUsage = {
+            inputTokens: Math.max(0, promptTokens - cachedInputTokens),
+            cachedInputTokens,
+            outputTokens
         };
         const elapsedMs = Date.now() - startedAt;
         const hasToolCalls = (choice.message.tool_calls?.length ?? 0) > 0;
         console.error(
-            `[agent-provider] model=${cfg.model} prompt_tokens=${usage.promptTokens} completion_tokens=${usage.completionTokens} elapsed=${elapsedMs}ms tool_calls=${hasToolCalls}`
+            `[agent-provider] model=${cfg.model} prompt_tokens=${promptTokens} cached_tokens=${cachedInputTokens} completion_tokens=${outputTokens} elapsed=${elapsedMs}ms tool_calls=${hasToolCalls}`
         );
 
         return { message: choice.message, usage, finishReason: choice.finish_reason ?? "" };

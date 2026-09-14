@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 
 import { ConfigError } from "../config.js";
+import { parsePeakHours, type PeakSchedule } from "./pricing.js";
 
 /** Environment configuration for `ashlar-mcp --agent`. Read once at startup; see docs/prompts/step6b-prompt.md. */
 export interface AgentConfig {
@@ -25,6 +26,25 @@ export interface AgentConfig {
     /** Extra text appended to the built-in system prompt, if AI_SYSTEM_PROMPT_FILE was set. */
     systemPromptExtra?: string;
     requestTimeoutMs: number;
+
+    /** Path of the JSON file persisting per-player usage, limit overrides and the pause flag. */
+    usageFile: string;
+    /** USD per 1M uncached input tokens, at peak price. */
+    priceInput: number;
+    /** USD per 1M cached input tokens, at peak price. */
+    priceCachedInput: number;
+    /** USD per 1M output tokens, at peak price. */
+    priceOutput: number;
+    /** Label only: "USD" shows as "$", anything else is shown as "<code> " prefix. */
+    currency: string;
+    /** Per-player daily token cap (input + cached + output), env-level default. 0 = unlimited. */
+    maxTokensPerPlayerPerDay: number;
+    /** Per-player daily cost cap in `currency`, env-level default. 0 = unlimited. */
+    maxCostPerPlayerPerDay: number;
+    /** Parsed AI_PEAK_HOURS: the UTC windows in which AI_PRICE_* apply at full price. */
+    peakHours: PeakSchedule;
+    /** Price multiplier applied outside `peakHours`. */
+    offPeakMultiplier: number;
 }
 
 function readRequired(name: string): string {
@@ -51,6 +71,16 @@ function readNonNegativeInt(name: string, def: number): number {
     const parsed = Number(raw);
     if (!Number.isInteger(parsed) || parsed < 0) {
         throw new ConfigError(`${name} must be a non-negative integer (got "${raw}")`);
+    }
+    return parsed;
+}
+
+function readNonNegativeFloat(name: string, def: number): number {
+    const raw = process.env[name];
+    if (raw === undefined || raw.trim() === "") return def;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new ConfigError(`${name} must be a non-negative number (got "${raw}")`);
     }
     return parsed;
 }
@@ -99,6 +129,23 @@ export function loadAgentConfig(): AgentConfig {
 
     const requestTimeoutMs = readPositiveInt("AI_REQUEST_TIMEOUT_MS", 120_000);
 
+    const usageFile = process.env.AI_USAGE_FILE?.trim() || "./ashlar-usage.json";
+    const priceInput = readNonNegativeFloat("AI_PRICE_INPUT", 0.3);
+    const priceCachedInput = readNonNegativeFloat("AI_PRICE_CACHED_INPUT", 0.006);
+    const priceOutput = readNonNegativeFloat("AI_PRICE_OUTPUT", 1.2);
+    const currency = process.env.AI_CURRENCY?.trim() || "USD";
+    const maxTokensPerPlayerPerDay = readNonNegativeInt("AI_MAX_TOKENS_PER_PLAYER_PER_DAY", 0);
+    const maxCostPerPlayerPerDay = readNonNegativeFloat("AI_MAX_COST_PER_PLAYER_PER_DAY", 0);
+    const offPeakMultiplier = readNonNegativeFloat("AI_OFF_PEAK_MULTIPLIER", 0.5);
+
+    const peakHoursRaw = process.env.AI_PEAK_HOURS?.trim() || "mon-fri 01:00-04:00,06:00-10:00";
+    let peakHours: PeakSchedule;
+    try {
+        peakHours = parsePeakHours(peakHoursRaw);
+    } catch (err) {
+        throw new ConfigError(`AI_PEAK_HOURS is invalid: ${(err as Error).message}`);
+    }
+
     return {
         baseUrl,
         apiKey,
@@ -111,6 +158,15 @@ export function loadAgentConfig(): AgentConfig {
         historyTtlMinutes,
         imageDetail: imageDetailRaw,
         systemPromptExtra,
-        requestTimeoutMs
+        requestTimeoutMs,
+        usageFile,
+        priceInput,
+        priceCachedInput,
+        priceOutput,
+        currency,
+        maxTokensPerPlayerPerDay,
+        maxCostPerPlayerPerDay,
+        peakHours,
+        offPeakMultiplier
     };
 }

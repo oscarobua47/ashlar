@@ -61,9 +61,13 @@ public record PluginConfig(
      * same player, may be 0. {@code maxMessageLength}: longest request text
      * accepted, must be at least 1. {@code echoToMonitors}: whether players
      * with {@code ashlar.monitor} see a compact echo of every request and
-     * final reply (step6d-prompt.md).
+     * final reply (step6d-prompt.md). {@code everyoneCanUse}: whether the
+     * {@code ashlar.use} permission's runtime default is set to "everyone"
+     * (true) or left at "op" (false) in {@link net.rcwalter.ashlar.AshlarPlugin#onEnable};
+     * daily limits and the cooldown still apply either way (step6.6).
      */
-    public record AgentConfig(boolean enabled, int cooldownSeconds, int maxMessageLength, boolean echoToMonitors) {
+    public record AgentConfig(boolean enabled, int cooldownSeconds, int maxMessageLength, boolean echoToMonitors,
+            boolean everyoneCanUse) {
     }
 
     /** Empty allow-list means "allow all", per spec &sect;3.1. */
@@ -133,6 +137,7 @@ public record PluginConfig(
         int agentCooldownSeconds = (int) nonNegativeOrDefault(fc, "agent.cooldown-seconds", 5, logger);
         int agentMaxMessageLength = (int) positiveOrDefault(fc, "agent.max-message-length", 500, logger);
         boolean agentEchoToMonitors = fc.getBoolean("agent.echo-to-monitors", true);
+        boolean agentEveryoneCanUse = fc.getBoolean("agent.everyone-can-use", false);
 
         return new PluginConfig(
                 new ServerConfig(host, port, token, List.copyOf(allowedIps)),
@@ -143,7 +148,8 @@ public record PluginConfig(
                 new LoggingConfig(logOperations),
                 new RunCommandConfig(runCommandEnabled),
                 new EngineConfig(connectBlocks, supportWarnings),
-                new AgentConfig(agentEnabled, agentCooldownSeconds, agentMaxMessageLength, agentEchoToMonitors));
+                new AgentConfig(agentEnabled, agentCooldownSeconds, agentMaxMessageLength, agentEchoToMonitors,
+                        agentEveryoneCanUse));
     }
 
     private static long positiveOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {

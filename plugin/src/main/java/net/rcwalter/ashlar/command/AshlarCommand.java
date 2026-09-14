@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package net.rcwalter.ashlar.command;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -8,37 +11,47 @@ import net.rcwalter.ashlar.config.PluginConfig;
 import net.rcwalter.ashlar.net.WsServer;
 import net.rcwalter.ashlar.player.Monitors;
 import net.rcwalter.ashlar.player.PlayerJson;
+import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * {@code /ashlar <request>} / {@code /ashlar cancel}: the in-game entry
- * point into the AI assistant (step6a-prompt.md). Bukkit runs command
- * executors on the main thread, so this may read Bukkit state freely; the
- * only network action it takes is {@link WsServer#broadcastEvent}, which
- * just enqueues bytes on the socket. This step only pushes the request as a
- * {@code chat} (or {@code chat_cancel}) event to a subscribed connection -
- * nothing here talks to an LLM; that is a connected {@code ashlar-mcp
- * --agent} process, built in the next step.
+ * {@code /ashlar}: the in-game entry point into the AI assistant
+ * (step6a-prompt.md) and, from step6e-prompt.md on, its admin surface
+ * (usage/limit/cancel &lt;player&gt;/pause/resume/allow/deny/allowed/help).
+ * Bukkit runs command executors on the main thread, so this may read Bukkit
+ * state freely; the only network action most subcommands take is
+ * {@link WsServer#broadcastEvent}, which just enqueues bytes on the socket -
+ * nothing here talks to an LLM or does any accounting, that is a connected
+ * {@code ashlar-mcp --agent} process. {@code allow}/{@code deny}/{@code
+ * allowed} are the one exception: they only touch the plugin-local
+ * {@link AllowList} and never produce an event.
+ *
+ * <p>Argument parsing lives in the pure, Bukkit-free {@link AshlarArgs} so
+ * the grammar is unit-testable; this class does the permission checks,
+ * Bukkit player lookups, and builds/sends the resulting event.
  */
 public final class AshlarCommand implements CommandExecutor {
 
     private static final Component PREFIX = Component.text("[Ashlar] ", NamedTextColor.GOLD);
-    private static final String USAGE = "Usage: /ashlar <what you want> | /ashlar cancel";
 
     private final PluginConfig config;
     private final WsServer wsServer;
     private final Cooldown cooldown;
+    private final AllowList allowList;
     private final AtomicLong requestCounter = new AtomicLong();
 
-    public AshlarCommand(PluginConfig config, WsServer wsServer, Cooldown cooldown) {
+    public AshlarCommand(PluginConfig config, WsServer wsServer, Cooldown cooldown, AllowList allowList) {
         this.config = config;
         this.wsServer = wsServer;
         this.cooldown = cooldown;
+        this.allowList = allowList;
     }
 
     @Override
@@ -48,43 +61,63 @@ public final class AshlarCommand implements CommandExecutor {
             return true;
         }
         if (args.length == 0) {
-            reply(sender, USAGE);
+            reply(player, AshlarArgs.USAGE_TOP);
+            return true;
+        }
+
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(args);
+
+        if (!hasAccess(player, args)) {
+            reply(player, "You do not have permission to do that.");
+            return true;
+        }
+        if (parsed.kind() == AshlarArgs.Kind.INVALID) {
+            reply(player, parsed.error());
             return true;
         }
         if (!config.agent().enabled()) {
-            reply(sender, "The AI assistant is disabled on this server.");
+            reply(player, "The AI assistant is disabled on this server.");
             return true;
         }
-        if (!wsServer.hasSubscriber("chat")) {
-            reply(sender, "The AI assistant is not connected right now.");
-            return true;
-        }
-
-        if (args.length == 1 && args[0].equalsIgnoreCase("cancel")) {
-            JsonObject playerRef = new JsonObject();
-            playerRef.addProperty("name", player.getName());
-            playerRef.addProperty("uuid", player.getUniqueId().toString());
-            JsonObject event = new JsonObject();
-            event.addProperty("event", "chat_cancel");
-            event.add("player", playerRef);
-            wsServer.broadcastEvent("chat", event);
-            echoToMonitors(player, Component.text(player.getName() + " cancelled their request", NamedTextColor.GRAY));
-            reply(player, "Cancel requested.");
+        if (needsConnection(parsed.kind()) && !wsServer.hasSubscriber("chat")) {
+            reply(player, "The AI assistant is not connected right now.");
             return true;
         }
 
+        switch (parsed.kind()) {
+            case REQUEST -> handleRequest(player, args);
+            case CANCEL_SELF -> handleCancelSelf(player);
+            case CANCEL_OTHER -> handleCancelOther(player, parsed.targetName());
+            case USAGE_SELF -> handleUsageSelf(player);
+            case USAGE_OTHER -> handleUsageOther(player, parsed.targetName());
+            case USAGE_ALL -> handleUsageAll(player);
+            case LIMIT -> handleLimit(player, parsed.targetName(), parsed.args());
+            case PAUSE -> handlePause(player);
+            case RESUME -> handleResume(player);
+            case ALLOW -> handleAllow(player, parsed.targetName());
+            case DENY -> handleDeny(player, parsed.targetName());
+            case ALLOWED -> handleAllowed(player);
+            case HELP -> handleHelp(player);
+            case INVALID -> throw new IllegalStateException("handled above");
+        }
+        return true;
+    }
+
+    // -- request -------------------------------------------------------
+
+    private void handleRequest(Player player, String[] args) {
         String text = String.join(" ", args);
         int maxLength = config.agent().maxMessageLength();
         if (text.length() > maxLength) {
             reply(player, "Request too long (max " + maxLength + " characters).");
-            return true;
+            return;
         }
 
         long remainingMillis = cooldown.remainingMillis(player.getUniqueId());
         if (remainingMillis > 0) {
             long remainingSeconds = (remainingMillis + 999) / 1000;
             reply(player, "Please wait " + remainingSeconds + " s before the next request.");
-            return true;
+            return;
         }
 
         cooldown.record(player.getUniqueId());
@@ -97,13 +130,218 @@ public final class AshlarCommand implements CommandExecutor {
         echoToMonitors(player, Component.text(player.getName() + " asked: ", NamedTextColor.GRAY)
                 .append(Component.text(text, NamedTextColor.WHITE)));
         reply(player, "Sent to the AI assistant. Replies will appear here.");
-        return true;
+    }
+
+    // -- cancel ----------------------------------------------------------
+
+    private void handleCancelSelf(Player player) {
+        JsonObject event = new JsonObject();
+        event.addProperty("event", "chat_cancel");
+        event.add("player", actorJson(player));
+        wsServer.broadcastEvent("chat", event);
+        echoToMonitors(player, Component.text(player.getName() + " cancelled their request", NamedTextColor.GRAY));
+        reply(player, "Cancel requested.");
+    }
+
+    private void handleCancelOther(Player player, String targetName) {
+        broadcastAdmin(player, "cancel", targetJson(targetName), List.of());
+        reply(player, "Cancel requested for " + targetName + ".");
+    }
+
+    // -- usage -------------------------------------------------------------
+
+    private void handleUsageSelf(Player player) {
+        broadcastAdmin(player, "usage", JsonNull.INSTANCE, List.of());
+        reply(player, "Usage request sent.");
+    }
+
+    private void handleUsageOther(Player player, String targetName) {
+        broadcastAdmin(player, "usage", targetJson(targetName), List.of());
+        reply(player, "Usage request sent.");
+    }
+
+    private void handleUsageAll(Player player) {
+        JsonObject target = new JsonObject();
+        target.addProperty("name", "all");
+        target.add("uuid", JsonNull.INSTANCE);
+        broadcastAdmin(player, "usage", target, List.of());
+        reply(player, "Usage request sent.");
+    }
+
+    // -- limit / pause / resume ---------------------------------------------
+
+    private void handleLimit(Player player, String targetName, List<String> limitArgs) {
+        boolean isDefault = targetName.equalsIgnoreCase("default");
+        broadcastAdmin(player, "limit", isDefault ? JsonNull.INSTANCE : targetJson(targetName), limitArgs);
+        reply(player, "Limit change sent.");
+    }
+
+    private void handlePause(Player player) {
+        broadcastAdmin(player, "pause", JsonNull.INSTANCE, List.of());
+        reply(player, "Pause requested.");
+    }
+
+    private void handleResume(Player player) {
+        broadcastAdmin(player, "resume", JsonNull.INSTANCE, List.of());
+        reply(player, "Resume requested.");
+    }
+
+    // -- allow / deny / allowed: plugin-local, no event to Node -------------
+
+    private void handleAllow(Player player, String targetName) {
+        if (allowList.add(targetName)) {
+            reply(player, "Added " + targetName + " to the allow list.");
+        } else {
+            reply(player, targetName + " is already on the allow list.");
+        }
+    }
+
+    private void handleDeny(Player player, String targetName) {
+        if (allowList.remove(targetName)) {
+            reply(player, "Removed " + targetName + ".");
+        } else {
+            reply(player, targetName + " was not on the allow list.");
+        }
+    }
+
+    private void handleAllowed(Player player) {
+        List<String> names = allowList.names();
+        if (names.isEmpty()) {
+            reply(player, "The allow list is empty.");
+        } else {
+            reply(player, "Allow list: " + String.join(", ", names));
+        }
+    }
+
+    // -- help ----------------------------------------------------------------
+
+    private static final List<HelpLine> HELP_LINES = List.of(
+            new HelpLine("ashlar.use", "/ashlar <what you want> - ask the assistant to build or change something"),
+            new HelpLine("ashlar.use", "/ashlar cancel - cancel your own running or queued request"),
+            new HelpLine("ashlar.admin", "/ashlar cancel <player> - cancel another player's request"),
+            new HelpLine("ashlar.use", "/ashlar usage - your own usage today and in total"),
+            new HelpLine("ashlar.monitor", "/ashlar usage <player>|all - another player's usage, or everyone's"),
+            new HelpLine("ashlar.admin", "/ashlar limit <player>|default <cost|tokens|requests> <number>|off - set a daily cap"),
+            new HelpLine("ashlar.admin", "/ashlar limit <player>|default reset - remove the override"),
+            new HelpLine("ashlar.admin", "/ashlar pause - stop the assistant from accepting requests"),
+            new HelpLine("ashlar.admin", "/ashlar resume - let the assistant accept requests again"),
+            new HelpLine("ashlar.admin", "/ashlar allow <player> - let a player use /ashlar without a permission"),
+            new HelpLine("ashlar.admin", "/ashlar deny <player> - remove a player from the allow list"),
+            new HelpLine("ashlar.admin", "/ashlar allowed - list players on the allow list")
+    );
+
+    private record HelpLine(String permission, String text) {
+    }
+
+    private void handleHelp(Player player) {
+        boolean any = false;
+        for (HelpLine line : HELP_LINES) {
+            if (player.hasPermission(line.permission())) {
+                reply(player, line.text());
+                any = true;
+            }
+        }
+        if (!any) {
+            reply(player, "You do not have permission to do that.");
+        }
+    }
+
+    // -- shared helpers -------------------------------------------------------
+
+    /**
+     * Whether {@code player} may run the subcommand {@code args} parses to.
+     * {@code allow}/{@code deny}/{@code allowed}/{@code limit}/{@code
+     * pause}/{@code resume}/{@code cancel <player>}/{@code usage
+     * <player>|all} need {@code ashlar.admin} or {@code ashlar.monitor};
+     * everything else (a plain request, {@code cancel}, {@code usage}) needs
+     * {@code ashlar.use} - or, failing that, a place on the plugin-local
+     * {@link AllowList} (step6e-prompt.md's {@code agent.everyone-can-use}
+     * companion for servers with no permissions plugin). {@code help} needs
+     * nothing here; it filters its own output per line.
+     */
+    private boolean hasAccess(Player player, String[] args) {
+        String required = requiredPermission(args);
+        if (required == null) {
+            return true;
+        }
+        if (required.equals("ashlar.use")) {
+            // An explicit grant or denial from a permissions plugin (or an op /
+            // everyone-can-use default that applies) always wins; the allow
+            // list is only consulted when nobody has said anything about this
+            // player, so "permission set ashlar.use false" cannot be undone by
+            // a stale allow-list entry.
+            if (player.isPermissionSet("ashlar.use")) {
+                return player.hasPermission("ashlar.use");
+            }
+            return allowList.contains(player.getName());
+        }
+        return player.hasPermission(required);
+    }
+
+    private static String requiredPermission(String[] args) {
+        String keyword = args[0].toLowerCase(Locale.ROOT);
+        return switch (keyword) {
+            case "cancel" -> args.length >= 2 ? "ashlar.admin" : "ashlar.use";
+            case "usage" -> args.length >= 2 ? "ashlar.monitor" : "ashlar.use";
+            case "limit", "pause", "resume", "allow", "deny", "allowed" -> "ashlar.admin";
+            case "help" -> null;
+            default -> "ashlar.use";
+        };
+    }
+
+    /** Whether this subcommand talks to a connected Node process at all. */
+    private static boolean needsConnection(AshlarArgs.Kind kind) {
+        return switch (kind) {
+            case HELP, ALLOW, DENY, ALLOWED -> false;
+            default -> true;
+        };
+    }
+
+    private void broadcastAdmin(Player by, String action, JsonElement target, List<String> args) {
+        JsonObject event = new JsonObject();
+        event.addProperty("event", "admin");
+        event.addProperty("action", action);
+        event.add("by", actorJson(by));
+        event.add("target", target);
+        JsonArray argsArray = new JsonArray();
+        args.forEach(argsArray::add);
+        event.add("args", argsArray);
+        wsServer.broadcastEvent("chat", event);
+    }
+
+    /** {@code {"name":..., "uuid":...}} for an online player - the caller of the command. */
+    private static JsonObject actorJson(Player player) {
+        JsonObject json = new JsonObject();
+        json.addProperty("name", player.getName());
+        json.addProperty("uuid", player.getUniqueId().toString());
+        return json;
+    }
+
+    /**
+     * {@code {"name":..., "uuid":...}} for a named target: the real uuid when
+     * that player is online ({@link Bukkit#getPlayerExact}), otherwise {@code
+     * uuid: null} and the name as typed - Node resolves offline players by
+     * the name it last saw (step6e-prompt.md).
+     */
+    private static JsonObject targetJson(String name) {
+        Player online = Bukkit.getPlayerExact(name);
+        JsonObject json = new JsonObject();
+        if (online != null) {
+            json.addProperty("name", online.getName());
+            json.addProperty("uuid", online.getUniqueId().toString());
+        } else {
+            json.addProperty("name", name);
+            json.add("uuid", JsonNull.INSTANCE);
+        }
+        return json;
     }
 
     /**
      * Sends {@code message} (already excluding the "[Ashlar] " prefix) to every
      * online player with {@code ashlar.monitor} other than {@code requester}, unless
-     * {@code agent.echo-to-monitors} is off (step6d-prompt.md).
+     * {@code agent.echo-to-monitors} is off (step6d-prompt.md). Admin actions are
+     * never echoed (step6e-prompt.md): Node replies directly to the caller, and
+     * tells the affected player about a cancellation.
      */
     private void echoToMonitors(Player requester, Component message) {
         if (!config.agent().echoToMonitors()) {

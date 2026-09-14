@@ -14,6 +14,8 @@ In-game AI assistant: players can now ask for a build directly in chat, without 
 - Chat and cancel requests are broadcast as events to the subscribed connection; per-player cooldown and message-length checks happen before broadcasting.
 - `ashlar.monitor` permission (default op): players with it see a compact echo of every other player's `/ashlar` request and final reply, but none of the progress lines; off switch is `agent.echo-to-monitors`.
 
+- Plugin-local allow list (`/ashlar allow|deny|allowed`, `allowed-players.yml`) and `agent.everyone-can-use`; explicit permission-plugin grants/denials take precedence over the list.
+
 ### MCP server (`mcp-server/`)
 
 - `ashlar-mcp --agent`: a new mode with no MCP transport, driving an OpenAI-compatible chat-completions model (DeepSeek by default) through the same nine tools via an in-process tool bridge (no tool code duplication).
@@ -24,6 +26,10 @@ In-game AI assistant: players can now ask for a build directly in chat, without 
 - System prompt: interior furniture must stay clear of doors and walkways, verified with an `mc_inspect` floor-level slice before replying.
 - `--help` now documents `--agent` and its environment variables alongside `--stdio`/`--http`.
 - `tools/agent-sim.mjs`: drives one request through the same runner without a player online or a real model call being required to set up, for local testing.
+- Per-player usage and cost accounting: every model call's normalised token usage (`agent/provider.ts`, cached tokens from DeepSeek's `prompt_cache_hit_tokens`/OpenAI's `prompt_tokens_details.cached_tokens`) is summed per request (`runRequest` now resolves `{text, usage, toolCalls}`) and priced by `agent/pricing.ts`'s peak/off-peak schedule (`AI_PEAK_HOURS`, `AI_OFF_PEAK_MULTIPLIER`, default matching DeepSeek's own mon-fri 01:00-04:00/06:00-10:00 UTC peak windows at half price off-peak).
+- `agent/usage.ts`'s `UsageStore`: persists per-player today/total token and cost counters, per-day limit overrides (cost/tokens/requests, `off` = unlimited) and a global pause flag to `AI_USAGE_FILE` (default `./ashlar-usage.json`), atomically and debounced; `AI_PRICE_INPUT`/`AI_PRICE_CACHED_INPUT`/`AI_PRICE_OUTPUT`/`AI_CURRENCY` price it, `AI_MAX_TOKENS_PER_PLAYER_PER_DAY`/`AI_MAX_COST_PER_PLAYER_PER_DAY` join `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY` as the env-level daily caps.
+- Every final reply gets a usage footer, e.g. `(this request: 21.9k tokens, $0.0061 | today: $0.04 of $1.00)`.
+- New `ashlar.admin` in-game commands (via the plugin's `admin` chat-subscription event, `agent/admin.ts`'s `createAdminHandler`): `/ashlar usage [player|all]`, `/ashlar limit [player] <cost|tokens|requests> <value|off>` / `... reset`, `/ashlar pause`/`resume`, `/ashlar cancel <player>`.
 
 ### Known limitations (tracked for later)
 
@@ -32,7 +38,7 @@ In-game AI assistant: players can now ask for a build directly in chat, without 
 - Blocks that share a Minecraft map color (e.g. stone/stone bricks/cobblestone) can be indistinguishable in `mc_render`/`mc_survey` images.
 - No `/ashlar undo` yet - players have to ask the assistant to restore the snapshot it took.
 - An in-progress build cannot be cancelled mid-fill; `/ashlar cancel` takes effect between tool calls, not inside one.
-- Daily per-player request counters are kept in memory and reset when the `--agent` process restarts.
+- Daily per-player request/token/cost counters and limit overrides are read at `--agent` startup and saved debounced/on close; a hard crash between saves can lose the last few seconds of counters (the file itself, and the pause flag, do survive a clean restart).
 
 ## 0.1.0 - v1
 

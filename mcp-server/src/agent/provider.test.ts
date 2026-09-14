@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { test } from "node:test";
 
 import type { AgentConfig } from "./config.js";
+import { parsePeakHours } from "./pricing.js";
 import { chatCompletion, ProviderError } from "./provider.js";
 
 function baseConfig(baseUrl: string): AgentConfig {
@@ -19,7 +20,16 @@ function baseConfig(baseUrl: string): AgentConfig {
         historyTurns: 6,
         historyTtlMinutes: 30,
         imageDetail: "high",
-        requestTimeoutMs: 5000
+        requestTimeoutMs: 5000,
+        usageFile: "./ashlar-usage.json",
+        priceInput: 0.3,
+        priceCachedInput: 0.006,
+        priceOutput: 1.2,
+        currency: "USD",
+        maxTokensPerPlayerPerDay: 0,
+        maxCostPerPlayerPerDay: 0,
+        peakHours: parsePeakHours("mon-fri 01:00-04:00,06:00-10:00"),
+        offPeakMultiplier: 0.5
     };
 }
 
@@ -89,8 +99,75 @@ test("chatCompletion: a tool_calls reply, then a final text reply", async () => 
         const second = await chatCompletion(cfg, { messages: [{ role: "user", content: "hi" }], tools: [] });
         assert.equal(second.message.content, "Done.");
         assert.equal(second.finishReason, "stop");
-        assert.equal(second.usage.promptTokens, 20);
-        assert.equal(second.usage.completionTokens, 3);
+        assert.equal(second.usage.inputTokens, 20);
+        assert.equal(second.usage.cachedInputTokens, 0);
+        assert.equal(second.usage.outputTokens, 3);
+    } finally {
+        await close();
+    }
+});
+
+test("chatCompletion: normalises DeepSeek's prompt_cache_hit_tokens field", async () => {
+    const { url, close } = await startServer(async (req, res) => {
+        await readBody(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+            JSON.stringify({
+                choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40, completion_tokens: 10 }
+            })
+        );
+    });
+    try {
+        const cfg = baseConfig(url);
+        const result = await chatCompletion(cfg, { messages: [{ role: "user", content: "hi" }], tools: [] });
+        assert.equal(result.usage.cachedInputTokens, 60);
+        assert.equal(result.usage.inputTokens, 40);
+        assert.equal(result.usage.outputTokens, 10);
+    } finally {
+        await close();
+    }
+});
+
+test("chatCompletion: normalises the OpenAI-style prompt_tokens_details.cached_tokens field", async () => {
+    const { url, close } = await startServer(async (req, res) => {
+        await readBody(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+            JSON.stringify({
+                choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 25 }, completion_tokens: 10 }
+            })
+        );
+    });
+    try {
+        const cfg = baseConfig(url);
+        const result = await chatCompletion(cfg, { messages: [{ role: "user", content: "hi" }], tools: [] });
+        assert.equal(result.usage.cachedInputTokens, 25);
+        assert.equal(result.usage.inputTokens, 75);
+        assert.equal(result.usage.outputTokens, 10);
+    } finally {
+        await close();
+    }
+});
+
+test("chatCompletion: missing cache fields are treated as zero cached", async () => {
+    const { url, close } = await startServer(async (req, res) => {
+        await readBody(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+            JSON.stringify({
+                choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 50, completion_tokens: 5 }
+            })
+        );
+    });
+    try {
+        const cfg = baseConfig(url);
+        const result = await chatCompletion(cfg, { messages: [{ role: "user", content: "hi" }], tools: [] });
+        assert.equal(result.usage.cachedInputTokens, 0);
+        assert.equal(result.usage.inputTokens, 50);
+        assert.equal(result.usage.outputTokens, 5);
     } finally {
         await close();
     }

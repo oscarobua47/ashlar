@@ -81,6 +81,11 @@ async function main(): Promise<void> {
         console.error(
             `ashlar-mcp[${process.pid}]: agent mode, model ${agentConfig!.model} via ${agentConfig!.baseUrl}, tools: ${service.toolNames.join(", ")}`
         );
+        console.error(
+            `ashlar-mcp[${process.pid}]: usage file ${agentConfig!.usageFile}, prices (${agentConfig!.currency} per 1M) ` +
+                `input=${agentConfig!.priceInput} cached=${agentConfig!.priceCachedInput} output=${agentConfig!.priceOutput}, ` +
+                `off-peak x${agentConfig!.offPeakMultiplier}`
+        );
         stopTransport = () => {
             service.close();
             return Promise.resolve();

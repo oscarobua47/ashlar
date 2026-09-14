@@ -3,6 +3,7 @@ package net.rcwalter.ashlar;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import net.rcwalter.ashlar.command.AllowList;
 import net.rcwalter.ashlar.command.AshlarCommand;
 import net.rcwalter.ashlar.command.Cooldown;
 import net.rcwalter.ashlar.config.ConfigException;
@@ -24,6 +25,8 @@ import net.rcwalter.ashlar.net.WsServer;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcDispatcher;
 import net.rcwalter.ashlar.snapshot.SnapshotStore;
+import org.bukkit.permissions.Permission;
+import org.bukkit.permissions.PermissionDefault;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.net.InetSocketAddress;
@@ -70,6 +73,17 @@ public final class AshlarPlugin extends JavaPlugin {
             logFatal(e.getMessage());
             getServer().getPluginManager().disablePlugin(this);
             return;
+        }
+
+        // agent.everyone-can-use (step6.6): the plugin.yml default for
+        // ashlar.use is "op"; when the operator opts in, flip the *runtime*
+        // default to "everyone" instead so it works with no permissions
+        // plugin installed. Daily limits and the cooldown still apply
+        // either way - this only controls who may send a request at all.
+        Permission usePermission = getServer().getPluginManager().getPermission("ashlar.use");
+        if (usePermission != null) {
+            usePermission.setDefault(config.agent().everyoneCanUse() ? PermissionDefault.TRUE : PermissionDefault.OP);
+            getServer().getPluginManager().recalculatePermissionDefaults(usePermission);
         }
 
         Path dataFolder = getDataFolder().toPath();
@@ -122,7 +136,9 @@ public final class AshlarPlugin extends JavaPlugin {
         this.wsServer.start();
 
         Cooldown cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
-        getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown));
+        AllowList allowList = new AllowList(dataFolder.resolve("allowed-players.yml"), getLogger());
+        allowList.load();
+        getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown, allowList));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
                 + "WebSocket listening on " + config.server().host() + ":" + config.server().port());

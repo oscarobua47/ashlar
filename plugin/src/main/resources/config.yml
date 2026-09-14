@@ -118,3 +118,8 @@ agent:
   # players - "<name> asked: ..." and "[Ashlar -> <name>] ...". Monitors
   # never see progress lines, and never see an echo of their own requests.
   echo-to-monitors: true
+
+  # true = every player may use /ashlar; false (default) = only operators,
+  # players granted the ashlar.use permission (e.g. via LuckPerms), or
+  # players on the plugin's own allow list (/ashlar allow <player>).
+  everyone-can-use: false
