@@ -26,6 +26,7 @@ export class PluginClient {
     private readonly token: string;
     private readonly defaultTimeoutMs: number;
     private readonly connectWaitMs: number;
+    private readonly subscribeEvents: string[];
 
     // Included in every log line below so the two stdio instances a client
     // like Claude Desktop can start per configured server are distinguishable.
@@ -37,6 +38,7 @@ export class PluginClient {
     private reconnectDelayMs = 1000;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private nextId = 1;
+    private nextSubId = 1;
 
     private readonly pending = new Map<
         string,
@@ -44,12 +46,31 @@ export class PluginClient {
     >();
     private connectWaiters: Array<() => void> = [];
     private readonly lastProgressLogAt = new Map<string, number>();
+    private readonly eventHandlers: Array<(event: Record<string, unknown>) => void> = [];
 
-    constructor(opts: { url: string; token: string; defaultTimeoutMs: number; connectWaitMs?: number }) {
+    constructor(opts: {
+        url: string;
+        token: string;
+        defaultTimeoutMs: number;
+        connectWaitMs?: number;
+        subscribeEvents?: string[];
+    }) {
         this.url = opts.url;
         this.token = opts.token;
         this.defaultTimeoutMs = opts.defaultTimeoutMs;
         this.connectWaitMs = opts.connectWaitMs ?? 10_000;
+        this.subscribeEvents = opts.subscribeEvents ?? [];
+    }
+
+    /**
+     * Registers a handler invoked for every server-initiated event message
+     * (any message with a string `event` field other than `"progress"`),
+     * e.g. the `chat` and `chat_cancel` events the `/ashlar` command pushes.
+     * Handler exceptions are caught and logged; they never affect the
+     * connection or other handlers.
+     */
+    onEvent(handler: (event: Record<string, unknown>) => void): void {
+        this.eventHandlers.push(handler);
     }
 
     /** Starts the connection loop. Call once at process startup. */
@@ -211,12 +232,24 @@ export class PluginClient {
                 this.authenticated = true;
                 this.reconnectDelayMs = 1000;
                 console.error(`${this.logTag} authenticated`);
+                this.sendSubscribe();
                 this.flushConnectWaiters();
             } else {
                 const error = msg.error as { code?: string; message?: string } | undefined;
                 console.error(
                     `${this.logTag} authentication failed: ${error?.code ?? "UNKNOWN"} ${error?.message ?? ""}`
                 );
+            }
+            return;
+        }
+
+        if (typeof msg.event === "string") {
+            for (const handler of this.eventHandlers) {
+                try {
+                    handler(msg);
+                } catch (err) {
+                    console.error(`${this.logTag} event handler threw: ${(err as Error).message}`);
+                }
             }
             return;
         }
@@ -233,6 +266,26 @@ export class PluginClient {
             const error = msg.error as { code?: string; message?: string } | undefined;
             entry.reject(new PluginError(error?.code ?? "INTERNAL", error?.message ?? "unknown plugin error"));
         }
+    }
+
+    /** Sends the `subscribe` RPC after a successful auth, if `subscribeEvents` was configured. Never tears the connection down on failure. */
+    private sendSubscribe(): void {
+        if (this.subscribeEvents.length === 0) return;
+        const id = `sub-${this.nextSubId++}`;
+        this.sendRaw({ id, method: "subscribe", params: { events: this.subscribeEvents } });
+        const timeoutHandle = setTimeout(() => {
+            this.pending.delete(id);
+            console.error(`${this.logTag} subscribe timed out`);
+        }, this.defaultTimeoutMs);
+        this.pending.set(id, {
+            resolve: result => {
+                console.error(`${this.logTag} subscribe ok: ${JSON.stringify(result)}`);
+            },
+            reject: err => {
+                console.error(`${this.logTag} subscribe failed: ${err.message}`);
+            },
+            timeoutHandle
+        });
     }
 
     private handleProgress(msg: Record<string, unknown>): void {

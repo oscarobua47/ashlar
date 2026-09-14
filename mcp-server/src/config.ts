@@ -105,6 +105,8 @@ export function usageText(): string {
 Usage:
   ashlar-mcp --stdio     Serve MCP over stdio (default; for Claude Code/Desktop, Cursor, etc.)
   ashlar-mcp --http      Serve MCP over Streamable HTTP on MCP_HTTP_HOST:MCP_HTTP_PORT
+  ashlar-mcp --agent     Run the in-game AI building assistant (answers /ashlar chat requests); no MCP transport
+  ashlar-mcp --help      Print this text and exit 0
 
 Environment variables (always required):
   MC_PLUGIN_URL          WebSocket URL of the Paper plugin, e.g. ws://127.0.0.1:8765
@@ -122,11 +124,29 @@ Environment variables (--http mode only):
   MCP_ALLOWED_HOSTS       Comma-separated hostnames accepted in Host/Origin headers.
                           Required when MCP_HTTP_HOST is not localhost/127.0.0.1/::1.
 
+Environment variables (--agent mode only):
+  AI_BASE_URL             OpenAI-compatible base URL; "/chat/completions" is appended. Default: https://api.deepseek.com
+  AI_API_KEY               Bearer token for the model API. Required.
+  AI_MODEL                 Model name. Default: deepseek-flash
+  AI_MAX_TOOL_CALLS        Max tool calls per player request before forcing a final answer. Default: 25
+  AI_MAX_REQUESTS_PER_PLAYER_PER_DAY  Per-player daily request cap, reset at UTC midnight; 0 = unlimited. Default: 40
+  AI_ALLOW_COMMAND         Set to 1 to include mc_command in the agent's tool list. Default: 0
+  AI_MAX_CONCURRENT        Requests running at once across all players. Default: 2
+  AI_HISTORY_TURNS         User/assistant exchanges remembered per player. Default: 6
+  AI_HISTORY_TTL_MINUTES   Idle minutes after which a player's history is dropped. Default: 30
+  AI_IMAGE_DETAIL          Image detail passed through on image parts: low/high/auto. Default: high
+  AI_SYSTEM_PROMPT_FILE    Optional path to a text file appended to the built-in system prompt.
+  AI_REQUEST_TIMEOUT_MS    Per model call timeout, in milliseconds. Default: 120000
+
 Example (stdio):
   MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme ashlar-mcp --stdio
 
 Example (http):
   MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme \\
   MCP_HTTP_TOKEN=a-long-random-token-value ashlar-mcp --http
+
+Example (agent):
+  MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme \\
+  AI_API_KEY=sk-... ashlar-mcp --agent
 `;
 }
