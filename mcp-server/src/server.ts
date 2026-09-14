@@ -6,7 +6,7 @@ import type { PluginClient } from "./plugin-client.js";
 import { registerAllTools } from "./tools/index.js";
 
 const SERVER_NAME = "ashlar-mcp";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.2.0";
 
 /**
  * Server-level instructions. Clients show these to the model as soon as the

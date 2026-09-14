@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.2.0
+
+In-game AI assistant: players can now ask for a build directly in chat, without any MCP client on their own machine.
+
+### Plugin (`plugin/`)
+
+- `/ashlar <request>` / `/ashlar cancel` command, gated by the `ashlar.use` permission (default op).
+- `agent:` config section: `enabled`, `cooldown-seconds`, `max-message-length`.
+- New RPCs: `subscribe` (lets an `--agent` process receive `chat`/`chat_cancel` events) and `send_message` (the assistant's replies back to a player, `[Ashlar] `-prefixed).
+- Chat and cancel requests are broadcast as events to the subscribed connection; per-player cooldown and message-length checks happen before broadcasting.
+
+### MCP server (`mcp-server/`)
+
+- `ashlar-mcp --agent`: a new mode with no MCP transport, driving an OpenAI-compatible chat-completions model (DeepSeek by default) through the same nine tools via an in-process tool bridge (no tool code duplication).
+- `AI_*` environment variables: provider (`AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`), limits (`AI_MAX_TOOL_CALLS`, `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY`, `AI_MAX_CONCURRENT`), `AI_ALLOW_COMMAND` to opt `mc_command` into the assistant's tool list, history (`AI_HISTORY_TURNS`, `AI_HISTORY_TTL_MINUTES`), `AI_IMAGE_DETAIL`, `AI_SYSTEM_PROMPT_FILE`, `AI_REQUEST_TIMEOUT_MS`.
+- Per-player serial request queue, a global concurrency cap, and a per-player daily request counter.
+- Per-player conversation history (bounded turns, idle TTL, old images redacted to keep token cost down).
+- Progress lines (`> mc_build from=... to=...`) and the final reply sent back through `send_message`, chunked to fit chat.
+- `--help` now documents `--agent` and its environment variables alongside `--stdio`/`--http`.
+- `tools/agent-sim.mjs`: drives one request through the same runner without a player online or a real model call being required to set up, for local testing.
+
+### Known limitations (tracked for later)
+
+- Snapshots do not capture block entity contents (sign text, container items); `restore` loses them.
+- `mc_inspect` slices merge by block type, not full state, once a slice has more than 47 distinct types.
+- Blocks that share a Minecraft map color (e.g. stone/stone bricks/cobblestone) can be indistinguishable in `mc_render`/`mc_survey` images.
+- No `/ashlar undo` yet - players have to ask the assistant to restore the snapshot it took.
+- An in-progress build cannot be cancelled mid-fill; `/ashlar cancel` takes effect between tool calls, not inside one.
+- Daily per-player request counters are kept in memory and reset when the `--agent` process restarts.
+
 ## 0.1.0 - v1
 
 First release. A Paper plugin plus a Node MCP server that give an AI client nine tools to survey, render, build, inspect, snapshot/restore and run commands on a live Minecraft server.

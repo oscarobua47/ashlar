@@ -8,7 +8,7 @@ AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar pl
 
 *Built by Claude through this MCP.*
 
-Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket.
+Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket. Players who have no MCP client at all can instead just type `/ashlar <request>` in chat - see [In-game assistant](#in-game-assistant-no-ai-client-needed) below.
 
 ## How it works
 
@@ -19,6 +19,8 @@ AI client                MCP server              Paper plugin
    mc_* tool call  --->     WebSocket RPC   --->   main-thread block
    (stdio or HTTP)          (ws:// / wss://)        writes, tick-budgeted
         <---  text/image result  <---  JSON result / progress events
+
+player's /ashlar  --->  plugin chat event  --->  ashlar-mcp --agent  --->  model API  --->  same tools above
 ```
 
 - Coarse-grained tools: one `mc_build` call places up to 500,000 blocks, instead of the AI placing blocks one at a time.
@@ -46,7 +48,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.1.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.2.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
@@ -142,6 +144,71 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 
 ![Stone cottage built by Claude through this MCP](docs/images/showcase-cottage.jpg)
 
+## In-game assistant (no AI client needed)
+
+Everything above needs an AI client on the player's own machine. `ashlar-mcp --agent` is a second, independent entry point: players type `/ashlar <request>` in chat, and a running `--agent` process answers it through the same nine tools, without anyone needing Claude Desktop, Claude Code, Cursor or any other MCP client installed. This is for the players and friends on your server who do not run an AI client at all - the server owner runs one `--agent` process and pays for the model API; everyone else just types in chat.
+
+### Setup
+
+1. **Plugin.** `agent.enabled` in `plugins/Ashlar/config.yml` is on by default. Players need the `ashlar.use` permission to run `/ashlar`; it defaults to operators only. Grant it to others with your permissions plugin, e.g. `/lp user <name> permission set ashlar.use true` with LuckPerms, or just make them an op.
+2. **Run `ashlar-mcp --agent`** somewhere that can reach the plugin - the same machine as the Paper server is simplest, since then `MC_PLUGIN_URL` can point at `127.0.0.1`:
+
+   ```sh
+   MC_PLUGIN_URL=ws://127.0.0.1:8765 \
+   MC_PLUGIN_TOKEN=<the token from config.yml> \
+   AI_API_KEY=<your model API key> \
+   npx -y ashlar-mcp --agent
+   ```
+
+   This can run alongside a `--stdio` or `--http` instance for your own AI client - they are independent processes, and only one `--agent` process should be subscribed at a time.
+3. **Model provider.** The defaults (`AI_BASE_URL`, `AI_MODEL`) already point at DeepSeek's `deepseek-flash`, which accepts the images the tools return - get `AI_API_KEY` from [platform.deepseek.com](https://platform.deepseek.com). Any OpenAI-compatible chat-completions endpoint works by setting `AI_BASE_URL` and `AI_MODEL` instead (OpenAI, OpenRouter, a local Ollama), as long as the model supports tool calling. Vision is optional but recommended: without it the assistant cannot look at the images `mc_render`/`mc_survey` return, only their text.
+
+### Using it
+
+```
+/ashlar build a small stone cottage in front of me
+```
+
+The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). Follow-up requests remember the recent conversation, so "make the roof taller" works without repeating the whole description. Replies come back in whatever language the request was written in.
+
+### Cost and limits
+
+`AI_*` environment variables (`--agent` mode only):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AI_BASE_URL` | `https://api.deepseek.com` | OpenAI-compatible base URL; `/chat/completions` is appended. |
+| `AI_API_KEY` | - (required) | Bearer token for the model API. |
+| `AI_MODEL` | `deepseek-flash` | Model name. |
+| `AI_MAX_TOOL_CALLS` | `25` | Max tool calls per player request before forcing a final answer. |
+| `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY` | `40` | Per-player daily request cap, reset at UTC midnight; `0` = unlimited. |
+| `AI_ALLOW_COMMAND` | `0` | Set to `1` to include `mc_command` in the assistant's tool list. |
+| `AI_MAX_CONCURRENT` | `2` | Requests running at once across all players. |
+| `AI_HISTORY_TURNS` | `6` | User/assistant exchanges remembered per player. |
+| `AI_HISTORY_TTL_MINUTES` | `30` | Idle minutes after which a player's history is dropped. |
+| `AI_IMAGE_DETAIL` | `high` | Image detail passed through on image parts: `low`/`high`/`auto`. |
+| `AI_SYSTEM_PROMPT_FILE` | - (none) | Optional path to a text file appended to the built-in system prompt. |
+| `AI_REQUEST_TIMEOUT_MS` | `120000` | Per model call timeout, in milliseconds. |
+
+A cottage-sized request (survey, snapshot, build, two renders, a final reply - about 6 model calls) ran roughly 130k prompt tokens, dominated by the tool descriptions and the images sent back on each call; budget accordingly. DeepSeek pricing makes this cents per request.
+
+### Safety
+
+- `mc_command` is never offered to the model unless the operator sets `AI_ALLOW_COMMAND=1`.
+- `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY` caps how many requests one player can send per day.
+- The plugin's `agent.cooldown-seconds` and `agent.max-message-length` throttle and bound individual `/ashlar` requests before they even reach the assistant.
+- Use `world.build-region` (see [Configuration reference](#configuration-reference)) to fence off where the assistant is allowed to build, the same way you would for a human builder.
+- The assistant snapshots the region before building, so a bad result can be rolled back with `mc_restore` - ask it to restore, or use `mc_restore` yourself.
+- `AI_SYSTEM_PROMPT_FILE` adds house rules to the built-in system prompt, e.g. a file containing a line like `Never build within 50 blocks of spawn.`
+
+### Testing without a player
+
+Drive one request through the same code path without a player online or `/ashlar` itself, from a checkout (after `npm run build`):
+
+```sh
+node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facing south
+```
+
 ## Compatibility
 
 | Component | Status |
@@ -164,6 +231,7 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 - Disable `run-command.enabled` if you do not need the `mc_command` escape hatch - it runs arbitrary console commands with full operator privileges.
 - Every executed operation is appended to `plugins/Ashlar/operations.log` (IP, method, summary, blocks changed) when `logging.log-operations` is on, as an audit trail.
 - `limits.*` bound how much a single call can touch (blocks, chunks, read volume); `world.allowed-worlds` and the optional `world.build-region` bound where it can happen. Configure these to match what you actually want an AI to be able to do.
+- Running `ashlar-mcp --agent` turns in-game chat into a control channel: anyone with the `ashlar.use` permission can make it call every tool the assistant has, including `mc_command` if `AI_ALLOW_COMMAND=1`. Grant `ashlar.use` deliberately, the same way you would grant an operator permission.
 
 ## Configuration reference
 
@@ -191,6 +259,9 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 | `run-command.enabled` | `true` | Whether the `run_command`/`mc_command` escape hatch is available at all. |
 | `engine.connect-blocks` | `true` | Whether writes get a shape-only connection pass (panes/fences/walls/bars/stairs connect to neighbours). Overridable per-request via `mc_build`'s `connect` field. |
 | `engine.support-warnings` | `true` | Whether writes are checked afterward for unsupported attached blocks (reported as warnings, nothing is fixed automatically). No per-request override. |
+| `agent.enabled` | `true` | Whether `/ashlar` is accepted at all; disabled rejects the command outright. |
+| `agent.cooldown-seconds` | `5` | Minimum seconds between two `/ashlar` requests from the same player. |
+| `agent.max-message-length` | `500` | Longest `/ashlar` request text accepted, in characters. |
 
 ### MCP server (environment variables)
 
@@ -205,6 +276,18 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 | `MCP_HTTP_PORT` | `--http` only | `3000` | Port to bind. |
 | `MCP_HTTP_TOKEN` | `--http` only | - | Bearer token MCP clients must present. Required, >= 16 characters. |
 | `MCP_ALLOWED_HOSTS` | `--http` only, when not bound to localhost | - | Comma-separated hostnames accepted in Host/Origin headers. Required once `MCP_HTTP_HOST` is not `localhost`/`127.0.0.1`/`::1`. |
+| `AI_BASE_URL` | `--agent` only | `https://api.deepseek.com` | OpenAI-compatible base URL; `/chat/completions` is appended. |
+| `AI_API_KEY` | `--agent` only | - | Bearer token for the model API. Required in `--agent` mode. |
+| `AI_MODEL` | `--agent` only | `deepseek-flash` | Model name. |
+| `AI_MAX_TOOL_CALLS` | `--agent` only | `25` | Max tool calls per player request before forcing a final answer. |
+| `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY` | `--agent` only | `40` | Per-player daily request cap, reset at UTC midnight; `0` = unlimited. |
+| `AI_ALLOW_COMMAND` | `--agent` only | `0` | Set to `1` to include `mc_command` in the assistant's tool list. |
+| `AI_MAX_CONCURRENT` | `--agent` only | `2` | Requests running at once across all players. |
+| `AI_HISTORY_TURNS` | `--agent` only | `6` | User/assistant exchanges remembered per player. |
+| `AI_HISTORY_TTL_MINUTES` | `--agent` only | `30` | Idle minutes after which a player's history is dropped. |
+| `AI_IMAGE_DETAIL` | `--agent` only | `high` | Image detail passed through on image parts: `low`/`high`/`auto`. |
+| `AI_SYSTEM_PROMPT_FILE` | `--agent` only | - | Optional path to a text file appended to the built-in system prompt. |
+| `AI_REQUEST_TIMEOUT_MS` | `--agent` only | `120000` | Per model call timeout, in milliseconds. |
 
 ## Troubleshooting
 
@@ -227,6 +310,14 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 **Symptom:** sand, torches, ladders, signs or carpets end up floating or missing after a build.
 **Cause:** physics is off by design (so intentional overhangs and floating platforms are possible); unsupported blocks are not auto-corrected.
 **Fix:** read the `WARNINGS` block in `mc_build`'s response - it lists exactly which blocks lack support and why.
+
+**Symptom:** `/ashlar` says the assistant is not connected right now.
+**Cause:** no `ashlar-mcp --agent` process is currently subscribed to the plugin (not started, crashed, or lost its connection).
+**Fix:** start/restart `--agent` and check its stderr for `subscribe ok`; if it is not there, check `MC_PLUGIN_URL`/`MC_PLUGIN_TOKEN` the same way you would for `--stdio`/`--http`.
+
+**Symptom:** the model's reply says it cannot see the image, or answers as if it never looked at the survey/render.
+**Cause:** `AI_MODEL` does not support vision, so the images sent alongside `mc_render`/`mc_survey` results are effectively invisible to it.
+**Fix:** switch to a vision-capable model, or accept that the assistant is working from the text-only numbers in `mc_survey`'s response.
 
 **Symptom:** need to see the MCP server's logs for any of the above.
 **Fix:** Claude Desktop's MCP server logs live at:
@@ -269,12 +360,16 @@ Project layout: `plugin/` is an independent Gradle project (Paper plugin, Java 2
 
 ## Roadmap
 
+**v0.3:**
+- `/ashlar undo` - a dedicated command instead of asking the assistant to restore its snapshot.
+- Mid-build cancellation: today `/ashlar cancel` only takes effect between tool calls, not inside a single `mc_build` fill.
+- A native Anthropic-format provider for `--agent`, alongside the current OpenAI-compatible chat-completions one.
+
 **v1.1:**
 - Deterministic color tinting so blocks sharing a Minecraft map color (e.g. stone/stone bricks/cobblestone) are distinguishable in `mc_render`/`mc_survey` images.
 - `mc_inspect` slice: merge block types beyond the current 47-distinct-type limit, plus an optional `focus` parameter to highlight one block type.
 - Snapshots capture block entity contents (sign text, container items) so `mc_restore` does not lose them.
 - CIDR ranges in `server.allowed-ips` (exact IPs only today).
-- Cancelling an in-progress build operation.
 
 **v2 (candidates, not committed):**
 - Block entity content in `set_blocks`/`read_region`: container contents (chest/hopper/dispenser/furnace), command block text.
