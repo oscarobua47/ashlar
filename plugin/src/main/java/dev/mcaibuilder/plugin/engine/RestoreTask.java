@@ -32,6 +32,8 @@ public final class RestoreTask extends BuildTask {
     private final BlockData[] paletteBlocks;
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
+    private final List<int[]> supportPositions = new ArrayList<>();
+    private final SupportCheck supportCheck;
 
     private int runIndexCursor = 0;
     private int posInRun = 0;
@@ -43,12 +45,14 @@ public final class RestoreTask extends BuildTask {
     // Note: snapshots do not capture block-entity data (sign text among it),
     // per plan.md/step4d-prompt.md Fix 3 - restoring sign text is v1.1. A
     // restored sign block therefore comes back blank, same as before Fix 3.
-    public RestoreTask(Region region, World world, RegionData data, BlockData[] paletteBlocks, boolean connect) {
+    public RestoreTask(Region region, World world, RegionData data, BlockData[] paletteBlocks, boolean connect,
+            boolean supportWarnings) {
         super(region);
         this.world = world;
         this.data = data;
         this.paletteBlocks = paletteBlocks;
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
+        this.supportCheck = new SupportCheck(world, supportPositions, supportWarnings);
     }
 
     @Override
@@ -85,6 +89,9 @@ public final class RestoreTask extends BuildTask {
                     if (ConnectionPass.isConnectable(target)) {
                         connectablePositions.add(new int[]{cursorX, cursorY, cursorZ});
                     }
+                    if (SupportCheck.needsCheck(target)) {
+                        supportPositions.add(new int[]{cursorX, cursorY, cursorZ});
+                    }
                 }
                 advance(1);
                 posInRun++;
@@ -102,8 +109,12 @@ public final class RestoreTask extends BuildTask {
             runIndexCursor++;
         }
         // Main cursor is done; spend any remaining tick budget on the connection
-        // pass (Fix 2), resumable across ticks exactly like the loop above.
-        return connectionPass.step(deadlineNanos);
+        // pass (Fix 2) and then the support check (step4h-prompt.md), each
+        // resumable across ticks exactly like the loop above.
+        if (!connectionPass.step(deadlineNanos)) {
+            return false;
+        }
+        return supportCheck.step(deadlineNanos);
     }
 
     /** Moves (x,y,z) to the next cell in y-outer/z-middle/x-inner order, matching the encoder's traversal. */
@@ -126,6 +137,7 @@ public final class RestoreTask extends BuildTask {
         result.addProperty("volume", volume());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
+        SupportWarnings.addTo(result, supportCheck);
         return result;
     }
 }

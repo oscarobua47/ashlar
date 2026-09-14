@@ -88,3 +88,11 @@ engine:
   # their neighbours like hand-placed blocks. Overridable per-request via
   # "connect": false in a fill_batch/set_blocks call.
   connect-blocks: true
+
+  # Whether fill_batch/set_blocks/restore run a post-build support check:
+  # since blocks are written without physics, a ladder with nothing behind
+  # it or a torch buried in a wall would silently stay put instead of
+  # popping off as it would in vanilla. The check reports such blocks as
+  # "warnings" in the RPC result instead of fixing or rejecting anything.
+  # No per-request override (unlike connect-blocks).
+  support-warnings: true

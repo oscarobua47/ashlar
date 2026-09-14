@@ -138,7 +138,8 @@ public final class SnapshotHandler {
                 paletteBlocks[i] = BlockDataParser.parse(data.palette().get(i));
             }
 
-            RestoreTask task = new RestoreTask(snapshot.region(), world, data, paletteBlocks, config.engine().connectBlocks());
+            RestoreTask task = new RestoreTask(snapshot.region(), world, data, paletteBlocks,
+                    config.engine().connectBlocks(), config.engine().supportWarnings());
             return executor.submit(task, session, id).thenApply(resultJson -> {
                 JsonObject o = resultJson.getAsJsonObject();
                 o.addProperty("id", snapshot.id());

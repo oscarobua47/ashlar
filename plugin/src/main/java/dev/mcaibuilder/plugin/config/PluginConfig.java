@@ -46,8 +46,12 @@ public record PluginConfig(
     public record RunCommandConfig(boolean enabled) {
     }
 
-    /** {@code connect-blocks}: whether the Fix 2 connection pass runs by default (step4d-prompt.md). */
-    public record EngineConfig(boolean connectBlocks) {
+    /**
+     * {@code connect-blocks}: whether the Fix 2 connection pass runs by default (step4d-prompt.md).
+     * {@code supportWarnings}: whether the post-build support check (step4h-prompt.md) runs at all;
+     * unlike {@code connect-blocks} this has no per-request override.
+     */
+    public record EngineConfig(boolean connectBlocks, boolean supportWarnings) {
     }
 
     /** Empty allow-list means "allow all", per spec &sect;3.1. */
@@ -111,6 +115,7 @@ public record PluginConfig(
         boolean logOperations = fc.getBoolean("logging.log-operations", true);
         boolean runCommandEnabled = fc.getBoolean("run-command.enabled", true);
         boolean connectBlocks = fc.getBoolean("engine.connect-blocks", true);
+        boolean supportWarnings = fc.getBoolean("engine.support-warnings", true);
 
         return new PluginConfig(
                 new ServerConfig(host, port, token, List.copyOf(allowedIps)),
@@ -120,7 +125,7 @@ public record PluginConfig(
                 new SnapshotConfig(snapshotEnabled, maxSnapshots, maxVolume),
                 new LoggingConfig(logOperations),
                 new RunCommandConfig(runCommandEnabled),
-                new EngineConfig(connectBlocks));
+                new EngineConfig(connectBlocks, supportWarnings));
     }
 
     private static long positiveOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {

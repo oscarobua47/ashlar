@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 
 import type { PluginClient } from "../plugin-client.js";
 import { runTool } from "./helpers.js";
+import { formatWarnings, type SupportWarning } from "./warnings.js";
 
 const inputSchema = z.object({
     id: z.string().min(1).describe('Snapshot id, e.g. "snap-20260913-220102-a3f9", as returned by mc_snapshot or mc_build with snapshot:true.')
@@ -26,6 +27,8 @@ interface RestoreResult {
     volume: number;
     queuedMs: number;
     elapsedMs: number;
+    warnings: SupportWarning[];
+    warningsTruncated?: boolean;
 }
 
 export function registerMcRestore(server: McpServer, client: PluginClient): void {
@@ -40,7 +43,9 @@ export function registerMcRestore(server: McpServer, client: PluginClient): void
         async ({ id }) => {
             return runTool(client, "mc_restore", async () => {
                 const result = (await client.request("restore", { id })) as RestoreResult;
-                return `Restored snapshot ${result.id}: ${result.restored}/${result.volume} blocks changed in ${result.elapsedMs}ms.`;
+                const lines = [`Restored snapshot ${result.id}: ${result.restored}/${result.volume} blocks changed in ${result.elapsedMs}ms.`];
+                lines.push(...formatWarnings(result.warnings, result.warningsTruncated === true));
+                return lines.join("\n");
             });
         }
     );

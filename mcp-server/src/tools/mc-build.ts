@@ -6,6 +6,7 @@ import * as z from "zod/v4";
 import { PluginError } from "../errors.js";
 import type { PluginClient } from "../plugin-client.js";
 import { runTool } from "./helpers.js";
+import { formatWarnings, type SupportWarning } from "./warnings.js";
 
 const fillModeEnum = z.enum(["replace", "keep", "outline", "hollow", "walls"]);
 
@@ -22,7 +23,9 @@ const ORIENTATION_RULES =
     "with the outside uses facing=north; place half=lower at y and half=upper at y+1 with identical other properties; " +
     "hinge=left/right chooses the swing side. Stairs: the tall half is on the `facing` side (you walk up toward `facing`); " +
     "half=top for upside-down stairs. Beds: part=foot at pos, part=head one block toward `facing`. Chests/furnaces: " +
-    "`facing` is the side the front is on. Slabs: type=bottom|top|double.";
+    "`facing` is the side the front is on. Slabs: type=bottom|top|double. Torches: `torch` stands on a solid block " +
+    "below; a torch on a wall is `wall_torch[facing=<away from the wall>]` placed in the air block beside the wall - " +
+    "never replace a wall block with a torch. Same for `soul_torch`/`redstone_torch`.";
 
 const fillOpSchema = z.object({
     from: z.tuple([z.number().int(), z.number().int(), z.number().int()]).describe("Inclusive [x, y, z] corner."),
@@ -130,9 +133,9 @@ const DESCRIPTION = `Places blocks in the Minecraft world in bulk: cuboid fill o
 WHEN TO USE: any task that places more than a handful of blocks - buildings, terrain shaping, clearing space, roads, walls. Prefer few large \`fills\`. Use \`blocks\` for details that need a specific orientation or state (stairs, doors, torches, signs): pass the full block state string, e.g. \`minecraft:oak_stairs[facing=north,half=bottom]\`.
 WHEN NOT TO USE: to read the world (use \`mc_survey\` before building and \`mc_inspect\` after); to run a server command (use \`mc_command\`).
 
-COORDINATES: X grows east, Z grows south, Y grows up. \`from\` and \`to\` are inclusive corners in any order. Volume = (x2-x1+1)*(y2-y1+1)*(z2-z1+1). Operations run in array order - put clearing (\`minecraft:air\`) before filling. \`mode\`: "replace" (default) overwrites everything; "keep" only fills air; "outline" places only the 1-block shell on all six faces; "hollow" places that shell and clears the inside; "walls" places only the four vertical sides (no floor or ceiling) and leaves the inside untouched - use "walls" for rooms and buildings, then add a floor and a roof with separate fills. \`filter\` restricts a fill to blocks matching that state (e.g. \`filter: "minecraft:air"\` builds only into empty space). Blocks are placed without physics updates (sand/gravel do not fall, water does not flow); connectable blocks such as glass panes, fences, walls, iron bars and stairs get a shape-only update afterwards so they connect to their neighbours like hand-placed blocks. To write a sign, pass a \`sign\` object on a \`blocks\` entry whose block is a sign (e.g. \`minecraft:oak_wall_sign[facing=south]\` for a sign on a wall, \`minecraft:oak_sign[rotation=8]\` for a standing sign). A wall sign goes in the air block in front of the wall (\`facing\` away from the wall); never replace the wall block itself.
+COORDINATES: X grows east, Z grows south, Y grows up. \`from\` and \`to\` are inclusive corners in any order. Volume = (x2-x1+1)*(y2-y1+1)*(z2-z1+1). Operations run in array order - put clearing (\`minecraft:air\`) before filling. \`mode\`: "replace" (default) overwrites everything; "keep" fills only air; "outline"/"hollow" place a 1-block shell (hollow also clears the inside); "walls" places only the four vertical sides - use it for rooms, then add a floor and roof separately. \`filter\` restricts a fill to blocks matching that state (e.g. \`filter: "minecraft:air"\` builds only into empty space). Blocks are placed without physics (sand/gravel do not fall, water does not flow); connectable blocks (panes, fences, walls, bars, stairs) get a shape-only update afterwards so they connect like hand-placed blocks. To write a sign, pass a \`sign\` object on a \`blocks\` entry whose block is a sign, e.g. \`minecraft:oak_wall_sign[facing=south]\` in the air block in front of the wall - never replace the wall block itself.
 
-SIDE EFFECTS: permanently modifies the world. Set \`snapshot: true\` (recommended for anything you might want to undo) to save the affected region first; the response then includes a snapshot id for \`mc_restore\`. Limits per call: 500,000 blocks total, 1,024 chunks footprint, one world. Requests that exceed a limit are rejected before anything changes. Typical time: 50,000 blocks in about 1-3 seconds.`;
+SIDE EFFECTS: permanently modifies the world. Set \`snapshot: true\` (recommended for anything you might want to undo) to save the affected region first; the response then includes a snapshot id for \`mc_restore\`. Limits per call: 500,000 blocks total, 1,024 chunks footprint, one world. Requests that exceed a limit are rejected before anything changes. Typical time: 50,000 blocks in about 1-3 seconds. The response lists WARNINGS for unsupported blocks (ladders, torches, signs, doors, carpets...); fix those before reporting the build done.`;
 
 interface FillBatchResult {
     world: string;
@@ -141,6 +144,8 @@ interface FillBatchResult {
     totalChanged: number;
     queuedMs: number;
     elapsedMs: number;
+    warnings: SupportWarning[];
+    warningsTruncated?: boolean;
 }
 
 interface SetBlocksResult {
@@ -149,6 +154,8 @@ interface SetBlocksResult {
     changed: number;
     queuedMs: number;
     elapsedMs: number;
+    warnings: SupportWarning[];
+    warningsTruncated?: boolean;
 }
 
 interface SnapshotResult {
@@ -174,6 +181,8 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
                 const fillList = fills ?? [];
                 const blockList = blocks ?? [];
                 const lines: string[] = [];
+                const allWarnings: SupportWarning[] = [];
+                let warningsTruncated = false;
 
                 if (snapshot) {
                     const box = boundingBox(fillList, blockList);
@@ -211,6 +220,8 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
                         );
                     }
                     lines.push(`  total: ${result.totalChanged}/${result.totalVolume} changed in ${result.elapsedMs}ms`);
+                    allWarnings.push(...result.warnings);
+                    warningsTruncated = warningsTruncated || result.warningsTruncated === true;
                 }
 
                 if (blockList.length > 0) {
@@ -220,7 +231,11 @@ export function registerMcBuild(server: McpServer, client: PluginClient): void {
                         connect
                     })) as SetBlocksResult;
                     lines.push(`Blocks: ${result.changed}/${result.requested} changed in ${result.elapsedMs}ms`);
+                    allWarnings.push(...result.warnings);
+                    warningsTruncated = warningsTruncated || result.warningsTruncated === true;
                 }
+
+                lines.push(...formatWarnings(allWarnings, warningsTruncated));
 
                 return lines.join("\n");
             });

@@ -382,6 +382,7 @@ async function main() {
         console.log(restoreText);
         check("mc_restore not an error", !restoreResult.isError);
         check("mc_restore restored > 0 blocks", /Restored snapshot .*: [1-9]/.test(restoreText));
+        check("mc_restore produced no support warnings", !/WARNINGS/.test(restoreText));
 
         section("mc_inspect (after restore, no slice)");
         const afterRestore = await client.callTool({
@@ -617,6 +618,69 @@ async function main() {
     const sandBelowOriginalText = textOf(sandBelowOriginal);
     console.log(sandBelowOriginalText);
     check("no sand fell to the block below", !/minecraft:sand/.test(sandBelowOriginalText));
+
+    // --- step4h: post-build support warnings ---------------------------------
+    section("mc_build (support warnings: unsupported ladder, embedded torch, correct wall torch, floating door)");
+    const WARN_X = 500;
+    const WARN_Y = 95;
+    const WARN_Z = 500;
+    const warnBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: [
+                // Clear a generous air pocket first: unmanaged natural terrain may otherwise leave a
+                // stray block exactly where a test expects air (behind the unsupported ladder) or solid
+                // ground where a test expects nothing (below the floating door).
+                { from: [WARN_X - 1, WARN_Y - 2, WARN_Z - 1], to: [WARN_X + 11, WARN_Y + 4, WARN_Z + 11], block: "minecraft:air" },
+                // A solid 3x3x3 stone cube: the torch placed dead center (below) will have a solid
+                // block below it AND on all four horizontal sides - the "embedded" case.
+                { from: [WARN_X + 2, WARN_Y, WARN_Z + 2], to: [WARN_X + 4, WARN_Y + 2, WARN_Z + 4], block: "minecraft:stone" },
+                // A thin stone wall (1 block thick along x): the wall_torch placed beside it (below) is
+                // correctly attached and should raise no warning.
+                { from: [WARN_X + 6, WARN_Y, WARN_Z + 6], to: [WARN_X + 6, WARN_Y + 2, WARN_Z + 8], block: "minecraft:stone" }
+            ],
+            blocks: [
+                // Ladder facing east with nothing at x-1 (cleared to air above): unsupported.
+                { pos: [WARN_X, WARN_Y, WARN_Z], block: "minecraft:ladder[facing=east]" },
+                // Overwrites the stone cube's center block: standing torch surrounded by solid stone.
+                { pos: [WARN_X + 3, WARN_Y + 1, WARN_Z + 3], block: "minecraft:torch" },
+                // In the air block beside the wall, facing away from it (wall is one block west): correct.
+                { pos: [WARN_X + 7, WARN_Y + 1, WARN_Z + 7], block: "minecraft:wall_torch[facing=east]" },
+                // Door lower half floating in the cleared air pocket, nothing below it: unsupported.
+                { pos: [WARN_X + 9, WARN_Y, WARN_Z + 9], block: "minecraft:oak_door[half=lower,facing=north,hinge=left]" }
+            ]
+        }
+    });
+    const warnBuildText = textOf(warnBuild);
+    console.log(warnBuildText);
+    check("mc_build (support warnings) not an error", !warnBuild.isError);
+    check("WARNINGS header present", /WARNINGS \(blocks that would fall or pop off/.test(warnBuildText));
+    check(
+        "unsupported ladder warning present (facing=east, no support behind)",
+        /minecraft:ladder\[[^\]]*facing=east[^\]]*\][^\n]*no support behind \(facing=east needs a solid block at x-1\)/.test(
+            warnBuildText
+        )
+    );
+    check("embedded torch warning present", /minecraft:torch[^\n]*embedded/.test(warnBuildText));
+    check("floating door warning present", /minecraft:oak_door\[[^\]]*\][^\n]*nothing solid below/.test(warnBuildText));
+    check(
+        "correctly placed wall_torch raises no warning of its own (only mentioned inside the embedded torch's advice text)",
+        !/\dx minecraft:wall_torch/.test(warnBuildText)
+    );
+    const warnLines = warnBuildText
+        .split("\n")
+        .filter(line => /^\s{2}\d+x /.test(line));
+    check(`exactly 3 warning lines (got ${warnLines.length})`, warnLines.length === 3);
+
+    section("regression: step4.7/4.8 scene (platform/tower, walls, panes, sign) has no false support warnings");
+    // Reuses this same script's earlier builds (platform + hollow tower + stairs, "walls" mode,
+    // connected pane row, oak_wall_sign) rather than rebuilding the scene - their text output was
+    // already captured above, so this just asserts none of them carry a WARNINGS section.
+    check("platform/tower build produced no support warnings", !/WARNINGS/.test(buildText));
+    check("walls build produced no support warnings", !/WARNINGS/.test(wallsBuildText));
+    check("pane row build produced no support warnings", !/WARNINGS/.test(textOf(paneBuild)));
+    check("sign build produced no support warnings", !/WARNINGS/.test(textOf(signBuild)));
+    // (mc_restore's own no-warnings check runs inline in the "mc_restore" section above.)
 
     // --- mc_command ---------------------------------------------------------
     section("mc_command");

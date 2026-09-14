@@ -35,6 +35,8 @@ public final class FillTask extends BuildTask {
     private final long[] opChanged;
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
+    private final List<int[]> supportPositions = new ArrayList<>();
+    private final SupportCheck supportCheck;
 
     private int opIndex = 0;
     private int cursorY;
@@ -42,12 +44,13 @@ public final class FillTask extends BuildTask {
     private int cursorX;
     private boolean cursorInitialized = false;
 
-    public FillTask(Region region, List<FillOp> ops, World world, boolean connect) {
+    public FillTask(Region region, List<FillOp> ops, World world, boolean connect, boolean supportWarnings) {
         super(region);
         this.ops = ops;
         this.world = world;
         this.opChanged = new long[ops.size()];
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
+        this.supportCheck = new SupportCheck(world, supportPositions, supportWarnings);
     }
 
     @Override
@@ -93,9 +96,13 @@ public final class FillTask extends BuildTask {
             cursorInitialized = false;
         }
         // Main cursor is done; spend any remaining tick budget on the connection
-        // pass (Fix 2, docs/prompts/step4d-prompt.md), resumable across ticks
-        // exactly like the main cursor above.
-        return connectionPass.step(deadlineNanos);
+        // pass (Fix 2, docs/prompts/step4d-prompt.md) and then the support check
+        // (step4h-prompt.md), each resumable across ticks exactly like the main
+        // cursor above.
+        if (!connectionPass.step(deadlineNanos)) {
+            return false;
+        }
+        return supportCheck.step(deadlineNanos);
     }
 
     /**
@@ -129,6 +136,9 @@ public final class FillTask extends BuildTask {
                     addChanged(1);
                     if (ConnectionPass.isConnectable(target)) {
                         connectablePositions.add(new int[]{x, y, z});
+                    }
+                    if (SupportCheck.needsCheck(target)) {
+                        supportPositions.add(new int[]{x, y, z});
                     }
                 }
             }
@@ -167,6 +177,7 @@ public final class FillTask extends BuildTask {
         result.addProperty("totalChanged", changed());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
+        SupportWarnings.addTo(result, supportCheck);
         return result;
     }
 }

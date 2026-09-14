@@ -55,7 +55,7 @@ public final class SetBlocksHandler implements RpcHandler {
             List<SparseOp> ops = validator.validateSparseOps(blocksArray, heights[0], heights[1]);
             Region region = boundingRegion(ops);
             boolean connect = validator.resolveConnect(params);
-            SparseTask task = new SparseTask(region, ops, world, connect);
+            SparseTask task = new SparseTask(region, ops, world, connect, config.engine().supportWarnings());
             return executor.submit(task, session, id);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);

@@ -35,13 +35,16 @@ public final class SparseTask extends BuildTask {
     private final World world;
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
+    private final List<int[]> supportPositions = new ArrayList<>();
+    private final SupportCheck supportCheck;
     private int index = 0;
 
-    public SparseTask(Region region, List<SparseOp> ops, World world, boolean connect) {
+    public SparseTask(Region region, List<SparseOp> ops, World world, boolean connect, boolean supportWarnings) {
         super(region);
         this.ops = ops;
         this.world = world;
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
+        this.supportCheck = new SupportCheck(world, supportPositions, supportWarnings);
     }
 
     @Override
@@ -69,6 +72,9 @@ public final class SparseTask extends BuildTask {
                 if (ConnectionPass.isConnectable(target)) {
                     connectablePositions.add(new int[]{op.x(), op.y(), op.z()});
                 }
+                if (SupportCheck.needsCheck(target)) {
+                    supportPositions.add(new int[]{op.x(), op.y(), op.z()});
+                }
             }
             if (op.sign() != null) {
                 applySign(block, op.sign());
@@ -84,8 +90,12 @@ public final class SparseTask extends BuildTask {
             }
         }
         // Main loop is done; spend any remaining tick budget on the connection
-        // pass (Fix 2), resumable across ticks exactly like the loop above.
-        return connectionPass.step(deadlineNanos);
+        // pass (Fix 2) and then the support check (step4h-prompt.md), each
+        // resumable across ticks exactly like the loop above.
+        if (!connectionPass.step(deadlineNanos)) {
+            return false;
+        }
+        return supportCheck.step(deadlineNanos);
     }
 
     /** Writes {@code sign}'s text/appearance onto {@code block}'s sign block state (Fix 3). */
@@ -124,6 +134,7 @@ public final class SparseTask extends BuildTask {
         result.addProperty("changed", changed());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
+        SupportWarnings.addTo(result, supportCheck);
         return result;
     }
 }
