@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/icon.png" width="160" alt="Ashlar icon"></p>
+
 # Ashlar
 
 AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar plus one URL.
