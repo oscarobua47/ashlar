@@ -192,6 +192,13 @@ final class SupportCheck {
         int ny = y - facing.getModY();
         int nz = z - facing.getModZ();
         if (isSolid(nx, ny, nz)) {
+            // Vanilla-legal, but a ladder run whose lowest rung hangs above the
+            // floor is almost always an off-by-one: players cannot step onto it.
+            if (data instanceof Ladder && !isSolid(x, y - 1, z)
+                    && !(world.getBlockAt(x, y - 1, z).getBlockData() instanceof Ladder)) {
+                return new Warning(x, y, z, data.getAsString(),
+                        "ladder bottom is floating (air below); extend the ladder down to the floor");
+            }
             return null;
         }
         String reason = "no support behind (facing=" + facing.name().toLowerCase(Locale.ROOT)
