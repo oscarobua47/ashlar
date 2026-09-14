@@ -16,3 +16,6 @@ mcp-server/tools/out/
 .idea/
 *.iml
 .vscode/
+
+# private planning notes (business/hosted-service plans), never published
+docs/private/
