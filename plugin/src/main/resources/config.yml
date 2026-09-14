@@ -99,3 +99,16 @@ engine:
   # "warnings" in the RPC result instead of fixing or rejecting anything.
   # No per-request override (unlike connect-blocks).
   support-warnings: true
+
+agent:
+  # The in-game assistant: players with the ashlar.use permission can type
+  # "/ashlar <request>" and a connected `ashlar-mcp --agent` process answers
+  # through the model configured there. Disable to reject the command
+  # entirely.
+  enabled: true
+
+  # Minimum seconds between two requests from the same player.
+  cooldown-seconds: 5
+
+  # Longest request text accepted, in characters.
+  max-message-length: 500

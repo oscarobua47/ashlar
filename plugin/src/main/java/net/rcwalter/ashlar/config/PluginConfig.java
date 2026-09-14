@@ -22,7 +22,8 @@ public record PluginConfig(
         SnapshotConfig snapshot,
         LoggingConfig logging,
         RunCommandConfig runCommand,
-        EngineConfig engine
+        EngineConfig engine,
+        AgentConfig agent
 ) {
 
     public record ServerConfig(String host, int port, String token, List<String> allowedIps) {
@@ -52,6 +53,15 @@ public record PluginConfig(
      * unlike {@code connect-blocks} this has no per-request override.
      */
     public record EngineConfig(boolean connectBlocks, boolean supportWarnings) {
+    }
+
+    /**
+     * The in-game AI assistant ({@code /ashlar}, step6a-prompt.md).
+     * {@code cooldownSeconds}: minimum gap between two requests from the
+     * same player, may be 0. {@code maxMessageLength}: longest request text
+     * accepted, must be at least 1.
+     */
+    public record AgentConfig(boolean enabled, int cooldownSeconds, int maxMessageLength) {
     }
 
     /** Empty allow-list means "allow all", per spec &sect;3.1. */
@@ -117,6 +127,10 @@ public record PluginConfig(
         boolean connectBlocks = fc.getBoolean("engine.connect-blocks", true);
         boolean supportWarnings = fc.getBoolean("engine.support-warnings", true);
 
+        boolean agentEnabled = fc.getBoolean("agent.enabled", true);
+        int agentCooldownSeconds = (int) nonNegativeOrDefault(fc, "agent.cooldown-seconds", 5, logger);
+        int agentMaxMessageLength = (int) positiveOrDefault(fc, "agent.max-message-length", 500, logger);
+
         return new PluginConfig(
                 new ServerConfig(host, port, token, List.copyOf(allowedIps)),
                 new LimitsConfig(maxBlocksPerOperation, maxReadVolume, tickBudgetMs, maxQueuedOperations, maxChunksPerOperation),
@@ -125,13 +139,24 @@ public record PluginConfig(
                 new SnapshotConfig(snapshotEnabled, maxSnapshots, maxVolume),
                 new LoggingConfig(logOperations),
                 new RunCommandConfig(runCommandEnabled),
-                new EngineConfig(connectBlocks, supportWarnings));
+                new EngineConfig(connectBlocks, supportWarnings),
+                new AgentConfig(agentEnabled, agentCooldownSeconds, agentMaxMessageLength));
     }
 
     private static long positiveOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {
         long value = fc.getLong(path, fallback);
         if (value <= 0) {
             logger.warning("Config value '" + path + "' must be a positive integer; falling back to default: " + fallback);
+            return fallback;
+        }
+        return value;
+    }
+
+    /** Like {@link #positiveOrDefault}, but 0 is a valid value (e.g. "no cooldown"); only negatives fall back. */
+    private static long nonNegativeOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {
+        long value = fc.getLong(path, fallback);
+        if (value < 0) {
+            logger.warning("Config value '" + path + "' must not be negative; falling back to default: " + fallback);
             return fallback;
         }
         return value;

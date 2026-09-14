@@ -11,3 +11,14 @@ description: Lets AI assistants (via MCP) survey, render, build, inspect and sna
 # the plugin jar - keeps the jar small and avoids classloader conflicts.
 libraries:
   - org.java-websocket:Java-WebSocket:1.6.0
+
+commands:
+  ashlar:
+    description: Ask the AI assistant to build or change something near you.
+    usage: /ashlar <what you want> | /ashlar cancel
+    permission: ashlar.use
+    permission-message: You do not have permission to use the AI assistant.
+permissions:
+  ashlar.use:
+    description: Allows using /ashlar.
+    default: op

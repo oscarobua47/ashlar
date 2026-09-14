@@ -3,6 +3,8 @@ package net.rcwalter.ashlar;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import net.rcwalter.ashlar.command.AshlarCommand;
+import net.rcwalter.ashlar.command.Cooldown;
 import net.rcwalter.ashlar.config.ConfigException;
 import net.rcwalter.ashlar.config.PluginConfig;
 import net.rcwalter.ashlar.engine.TickBudgetExecutor;
@@ -13,8 +15,10 @@ import net.rcwalter.ashlar.handler.PlayersHandler;
 import net.rcwalter.ashlar.handler.ReadRegionHandler;
 import net.rcwalter.ashlar.handler.RenderHandler;
 import net.rcwalter.ashlar.handler.RunCommandHandler;
+import net.rcwalter.ashlar.handler.SendMessageHandler;
 import net.rcwalter.ashlar.handler.SetBlocksHandler;
 import net.rcwalter.ashlar.handler.SnapshotHandler;
+import net.rcwalter.ashlar.handler.SubscribeHandler;
 import net.rcwalter.ashlar.log.OperationLog;
 import net.rcwalter.ashlar.net.WsServer;
 import net.rcwalter.ashlar.rpc.MainThread;
@@ -98,6 +102,8 @@ public final class AshlarPlugin extends JavaPlugin {
         dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
         dispatcher.register("run_command", new RunCommandHandler(config));
         dispatcher.register("players", new PlayersHandler());
+        dispatcher.register("subscribe", new SubscribeHandler());
+        dispatcher.register("send_message", new SendMessageHandler());
         // Dedicated single thread for render's image work (ImageRenderer + PNG
         // encoding, step4e-prompt.md): never the main thread, and kept separate
         // from RpcDispatcher's responseExecutor so a slow render cannot delay
@@ -114,6 +120,9 @@ public final class AshlarPlugin extends JavaPlugin {
         this.executor.setWsServer(wsServer);
         this.executor.start();
         this.wsServer.start();
+
+        Cooldown cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
+        getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
                 + "WebSocket listening on " + config.server().host() + ":" + config.server().port());

@@ -126,6 +126,40 @@ public final class WsServer extends WebSocketServer {
         }
     }
 
+    /**
+     * Sends {@code event} to every authenticated session subscribed to
+     * {@code eventName} (step6a-prompt.md: {@code /ashlar} pushing a
+     * {@code chat}/{@code chat_cancel} event to a connected agent process).
+     * Never throws; a failed send to one session is logged and does not stop
+     * delivery to the others. Returns how many sessions it sent to.
+     */
+    public int broadcastEvent(String eventName, JsonObject event) {
+        String payload = event.toString();
+        int sent = 0;
+        for (ClientSession session : sessions.values()) {
+            if (!session.isAuthenticated() || !session.isSubscribed(eventName)) {
+                continue;
+            }
+            try {
+                session.getConnection().send(payload);
+                sent++;
+            } catch (Exception e) {
+                logger.warning("Failed to broadcast event '" + eventName + "' to " + session.getRemoteIp() + ": " + e.getMessage());
+            }
+        }
+        return sent;
+    }
+
+    /** Whether any authenticated session is currently subscribed to {@code eventName}. */
+    public boolean hasSubscriber(String eventName) {
+        for (ClientSession session : sessions.values()) {
+            if (session.isAuthenticated() && session.isSubscribed(eventName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Stops the server with a 1s timeout and shuts down the auth-timer executor. */
     public void shutdown() {
         try {
