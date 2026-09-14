@@ -49,7 +49,8 @@ public final class AshlarArgs {
     public record Parsed(Kind kind, String targetName, List<String> args, String error) {
     }
 
-    public static final String USAGE_TOP = "Usage: /ashlar <what you want> | cancel | usage | help";
+    public static final String USAGE_TOP = "Usage: /ashlar <what you want> | ask <what you want> | cancel | usage | help";
+    static final String USAGE_ASK = "Usage: /ashlar ask <what you want>";
     static final String USAGE_CANCEL = "Usage: /ashlar cancel | /ashlar cancel <player>";
     static final String USAGE_USAGE = "Usage: /ashlar usage | /ashlar usage <player>|all";
     static final String USAGE_LIMIT =
@@ -69,6 +70,9 @@ public final class AshlarArgs {
         }
         String keyword = args[0].toLowerCase(Locale.ROOT);
         return switch (keyword) {
+            case "ask" -> args.length >= 2
+                    ? new Parsed(Kind.REQUEST, null, List.of(args).subList(1, args.length), null)
+                    : invalid(USAGE_ASK);
             case "cancel" -> parseCancel(args);
             case "usage" -> parseUsage(args);
             case "limit" -> parseLimit(args);

@@ -85,7 +85,7 @@ public final class AshlarCommand implements CommandExecutor {
         }
 
         switch (parsed.kind()) {
-            case REQUEST -> handleRequest(player, args);
+            case REQUEST -> handleRequest(player, parsed.args());
             case CANCEL_SELF -> handleCancelSelf(player);
             case CANCEL_OTHER -> handleCancelOther(player, parsed.targetName());
             case USAGE_SELF -> handleUsageSelf(player);
@@ -105,8 +105,8 @@ public final class AshlarCommand implements CommandExecutor {
 
     // -- request -------------------------------------------------------
 
-    private void handleRequest(Player player, String[] args) {
-        String text = String.join(" ", args);
+    private void handleRequest(Player player, List<String> words) {
+        String text = String.join(" ", words);
         int maxLength = config.agent().maxMessageLength();
         if (text.length() > maxLength) {
             reply(player, "Request too long (max " + maxLength + " characters).");
@@ -217,6 +217,8 @@ public final class AshlarCommand implements CommandExecutor {
 
     private static final List<HelpLine> HELP_LINES = List.of(
             new HelpLine("ashlar.use", "/ashlar <what you want> - ask the assistant to build or change something"),
+
+            new HelpLine("ashlar.use", "/ashlar ask <what you want> - same, for requests that start with a command word"),
             new HelpLine("ashlar.use", "/ashlar cancel - cancel your own running or queued request"),
             new HelpLine("ashlar.admin", "/ashlar cancel <player> - cancel another player's request"),
             new HelpLine("ashlar.use", "/ashlar usage - your own usage today and in total"),
@@ -264,16 +266,8 @@ public final class AshlarCommand implements CommandExecutor {
         if (required == null) {
             return true;
         }
-        if (required.equals("ashlar.use")) {
-            // An explicit grant or denial from a permissions plugin (or an op /
-            // everyone-can-use default that applies) always wins; the allow
-            // list is only consulted when nobody has said anything about this
-            // player, so "permission set ashlar.use false" cannot be undone by
-            // a stale allow-list entry.
-            if (player.isPermissionSet("ashlar.use")) {
-                return player.hasPermission("ashlar.use");
-            }
-            return allowList.contains(player.getName());
+        if (required.equals(Access.USE)) {
+            return Access.canUse(player, allowList);
         }
         return player.hasPermission(required);
     }

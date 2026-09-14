@@ -224,4 +224,18 @@ class AshlarArgsTest {
         AshlarArgs.Parsed parsed = AshlarArgs.parse(words("help"));
         assertEquals(AshlarArgs.Kind.HELP, parsed.kind());
     }
+
+    @Test
+    void askPrefixIsARequestWithoutTheKeyword() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(new String[]{"ask", "usage", "of", "stone"});
+        assertEquals(AshlarArgs.Kind.REQUEST, p.kind());
+        assertEquals(List.of("usage", "of", "stone"), p.args());
+    }
+
+    @Test
+    void askWithoutTextIsInvalid() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(new String[]{"ask"});
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+        assertEquals(AshlarArgs.USAGE_ASK, p.error());
+    }
 }

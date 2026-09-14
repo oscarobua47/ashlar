@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.rcwalter.ashlar.command.AllowList;
 import net.rcwalter.ashlar.command.AshlarCommand;
+import net.rcwalter.ashlar.command.AshlarTabCompleter;
 import net.rcwalter.ashlar.command.Cooldown;
 import net.rcwalter.ashlar.config.ConfigException;
 import net.rcwalter.ashlar.config.PluginConfig;
@@ -139,6 +140,7 @@ public final class AshlarPlugin extends JavaPlugin {
         AllowList allowList = new AllowList(dataFolder.resolve("allowed-players.yml"), getLogger());
         allowList.load();
         getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown, allowList));
+        getCommand("ashlar").setTabCompleter(new AshlarTabCompleter(allowList));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
                 + "WebSocket listening on " + config.server().host() + ":" + config.server().port());

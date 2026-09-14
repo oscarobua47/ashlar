@@ -173,6 +173,8 @@ Everything above needs an AI client on the player's own machine. `ashlar-mcp --a
 /ashlar build a small stone cottage in front of me
 ```
 
+`/ashlar ask <request>` is the same thing spelled out - use it when a request happens to start with one of the command words (`usage`, `cancel`, `limit`, ...). Tab completion lists the subcommands the player may use and fills in player names.
+
 The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). Follow-up requests remember the recent conversation, so "make the roof taller" works without repeating the whole description. Replies come back in whatever language the request was written in. Players with the `ashlar.monitor` permission (default op) see a compact echo of every other player's request and final reply - `"<name> asked: ..."` and `[Ashlar -> <name>]`-prefixed replies, but none of the progress lines; turn it off with `agent.echo-to-monitors: false`.
 
 ### Usage, cost and limits
