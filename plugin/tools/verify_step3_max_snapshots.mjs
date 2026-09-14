@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // max-snapshots eviction check (plan.md 3.5 item 2). Run this AFTER editing
-// plugins/McAiBuilder/config.yml to set snapshot.max-snapshots: 2 and
+// plugins/Ashlar/config.yml to set snapshot.max-snapshots: 2 and
 // restarting the server. Creates 3 distinct snapshots; the 3rd creation
 // should evict the 1st (oldest). Cross-check the snapshots/ directory's
 // file count against list_snapshots afterwards (done by the caller in bash).

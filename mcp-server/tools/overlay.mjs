@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// OBS overlay for MC AI Builder tool calls. Zero dependencies.
+// OBS overlay for Ashlar tool calls. Zero dependencies.
 //
 // It tails a log and serves a transparent web page showing the running token
 // total and the latest calls. Two log formats are understood:
 //   - Claude Desktop's MCP server log (default; the MCP server's stderr lines
 //     "[tool <pid>] <name>: <ms> ms, ... = ~<n> tokens" land there with no
 //     extra configuration), auto-detected per OS:
-//       macOS   ~/Library/Logs/Claude/mcp-server-mc-ai-builder.log
-//       Windows %APPDATA%/Claude/logs/mcp-server-mc-ai-builder.log
-//       Linux   ~/.config/Claude/logs/mcp-server-mc-ai-builder.log
+//       macOS   ~/Library/Logs/Claude/mcp-server-ashlar.log
+//       Windows %APPDATA%/Claude/logs/mcp-server-ashlar.log
+//       Linux   ~/.config/Claude/logs/mcp-server-ashlar.log
 //   - the JSONL file the MCP server writes when MC_USAGE_LOG is set (use this
 //     with Claude Code or any client that does not keep stderr).
 //
@@ -37,10 +37,10 @@ function defaultLog() {
     const home = homedir();
     const candidates =
         process.platform === "darwin"
-            ? [join(home, "Library", "Logs", "Claude", "mcp-server-mc-ai-builder.log")]
+            ? [join(home, "Library", "Logs", "Claude", "mcp-server-ashlar.log")]
             : process.platform === "win32"
-              ? [join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude", "logs", "mcp-server-mc-ai-builder.log")]
-              : [join(home, ".config", "Claude", "logs", "mcp-server-mc-ai-builder.log")];
+              ? [join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude", "logs", "mcp-server-ashlar.log")]
+              : [join(home, ".config", "Claude", "logs", "mcp-server-ashlar.log")];
     return candidates.find(existsSync) ?? candidates[0];
 }
 
@@ -97,7 +97,7 @@ function summary() {
 }
 
 const PAGE = `<!doctype html>
-<html><head><meta charset="utf-8"><title>MC AI Builder usage</title>
+<html><head><meta charset="utf-8"><title>Ashlar usage</title>
 <style>
   html, body { margin: 0; background: transparent; font-family: "SF Mono", Menlo, Consolas, monospace; color: #fff; }
   .panel { display: inline-block; min-width: 460px; padding: 14px 18px; border-radius: 14px;
@@ -116,7 +116,7 @@ const PAGE = `<!doctype html>
   .row .ms { color: #999; min-width: 70px; text-align: right; }
 </style></head>
 <body><div class="panel">
-  <div class="title">MC AI Builder &middot; MCP tool calls</div>
+  <div class="title">Ashlar &middot; MCP tool calls</div>
   <div class="total"><span id="total">0</span><small>tokens returned (est.)</small></div>
   <div class="meta"><span id="calls">0</span> calls &middot; last: <span id="last">-</span></div>
   <div class="recent" id="recent"></div>

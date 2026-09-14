@@ -120,7 +120,7 @@ export function startHttp(client: PluginClient, config: HttpServeConfig): HttpSe
     });
 
     httpServer.listen(config.port, config.host, () => {
-        console.error(`mc-ai-builder-mcp[${process.pid}]: serving over HTTP on http://${config.host}:${config.port}${MCP_PATH}`);
+        console.error(`ashlar-mcp[${process.pid}]: serving over HTTP on http://${config.host}:${config.port}${MCP_PATH}`);
     });
 
     return {

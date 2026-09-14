@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Environment configuration for the MC AI Builder MCP server. All values are
+ * Environment configuration for the Ashlar MCP server. All values are
  * read once from `process.env` at startup; nothing here mutates it. See
  * {@link usageText} for the one-screen description shown to the user when a
  * required variable is missing.
@@ -100,11 +100,11 @@ export function loadHttpServeConfig(): HttpServeConfig {
 
 /** One-screen usage text printed to stderr when a required env var is missing, then the process exits 2. */
 export function usageText(): string {
-    return `mc-ai-builder-mcp: missing or invalid configuration
+    return `ashlar-mcp: missing or invalid configuration
 
 Usage:
-  mc-ai-builder-mcp --stdio     Serve MCP over stdio (default; for Claude Code/Desktop, Cursor, etc.)
-  mc-ai-builder-mcp --http      Serve MCP over Streamable HTTP on MCP_HTTP_HOST:MCP_HTTP_PORT
+  ashlar-mcp --stdio     Serve MCP over stdio (default; for Claude Code/Desktop, Cursor, etc.)
+  ashlar-mcp --http      Serve MCP over Streamable HTTP on MCP_HTTP_HOST:MCP_HTTP_PORT
 
 Environment variables (always required):
   MC_PLUGIN_URL          WebSocket URL of the Paper plugin, e.g. ws://127.0.0.1:8765
@@ -123,10 +123,10 @@ Environment variables (--http mode only):
                           Required when MCP_HTTP_HOST is not localhost/127.0.0.1/::1.
 
 Example (stdio):
-  MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme mc-ai-builder-mcp --stdio
+  MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme ashlar-mcp --stdio
 
 Example (http):
   MC_PLUGIN_URL=ws://127.0.0.1:8765 MC_PLUGIN_TOKEN=changeme \\
-  MCP_HTTP_TOKEN=a-long-random-token-value mc-ai-builder-mcp --http
+  MCP_HTTP_TOKEN=a-long-random-token-value ashlar-mcp --http
 `;
 }

@@ -3,7 +3,7 @@ plugins {
     id("xyz.jpenilla.run-paper") version "3.1.0"
 }
 
-group = "dev.mcaibuilder"
+group = "net.rcwalter"
 version = "0.1.0"
 
 java {
@@ -49,7 +49,7 @@ tasks.processResources {
 }
 
 tasks.jar {
-    archiveFileName.set("mc-ai-builder-${project.version}.jar")
+    archiveFileName.set("ashlar-${project.version}.jar")
 }
 
 tasks.compileJava {

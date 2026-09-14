@@ -1,4 +1,4 @@
-# MC AI Builder
+# Ashlar
 
 AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar plus one URL.
 
@@ -6,7 +6,7 @@ AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar pl
 
 *Built by Claude through this MCP.*
 
-MC AI Builder is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket.
+Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket.
 
 ## How it works
 
@@ -44,9 +44,9 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `mc-ai-builder-0.1.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
-2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/McAiBuilder/config.yml` and disables itself because the token is empty.
-3. Edit `plugins/McAiBuilder/config.yml`:
+1. Download `ashlar-0.1.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
+3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
    - `server.port`: an idle TCP port your host/panel exposes.
    - `server.allowed-ips`: optional. If the MCP server runs somewhere with a fixed public IP (a VPS), put that IP here. If it runs on your own PC behind a typical home connection, your IP changes and an allow-list would lock you out - leave it empty and rely on the token, which is the real authentication. See [Security](#security) for what an empty list means and how to tighten it anyway.
@@ -57,14 +57,14 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 Requires **Node >= 22**.
 
 ```sh
-git clone <this repository>
-cd mcp-server
+git clone https://github.com/rcwalter24/ashlar.git
+cd ashlar/mcp-server
 npm install --omit=optional
 npm run build
 ```
 
-<!-- TODO(publish): once mc-ai-builder-mcp is published to npm, this step
-     becomes `npx mc-ai-builder-mcp` and the git-clone step above can be
+<!-- TODO(publish): once ashlar-mcp is published to npm, this step
+     becomes `npx ashlar-mcp` and the git-clone step above can be
      dropped for most users. -->
 
 This produces `mcp-server/dist/cli.js`, the entry point every client config below points at.
@@ -78,7 +78,7 @@ Edit `claude_desktop_config.json` (Settings -> Developer -> Edit Config) and add
 ```json
 {
   "mcpServers": {
-    "mc-ai-builder": {
+    "ashlar": {
       "command": "/absolute/path/to/node",
       "args": ["/absolute/path/to/MinecraftMcp/mcp-server/dist/cli.js", "--stdio"],
       "env": {
@@ -95,7 +95,7 @@ Use an absolute path to your `node` binary (`which node`) - Claude Desktop does 
 #### Claude Code
 
 ```sh
-claude mcp add --scope user --transport stdio mc-ai-builder \
+claude mcp add --scope user --transport stdio ashlar \
   -e MC_PLUGIN_URL=ws://<your-server-ip>:8765 \
   -e MC_PLUGIN_TOKEN=<the token from config.yml> \
   -- node /absolute/path/to/MinecraftMcp/mcp-server/dist/cli.js --stdio
@@ -167,12 +167,12 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 - `server.allowed-ips` is a second layer, not the first: the token is what actually authenticates a client (a failed or missing handshake is closed within 5 seconds). Set the allow-list when the MCP server has a fixed IP (a VPS). When it runs on a home PC with a dynamic IP, leave it empty rather than pinning today's address; if you want to lock it down anyway, use the host's firewall or panel rules, or put both machines on a private overlay network (Tailscale, WireGuard) and allow only that address range.
 - The plugin does **not** provide TLS. Plaintext `ws://` across the open internet exposes the token to anyone on the path - acceptable only for local/LAN testing. For anything crossing an untrusted network, put a reverse proxy (Caddy, Nginx, Cloudflare Tunnel, ...) in front of it to terminate TLS (`wss://`), and do the same for the MCP server's own HTTP mode.
 - Disable `run-command.enabled` if you do not need the `mc_command` escape hatch - it runs arbitrary console commands with full operator privileges.
-- Every executed operation is appended to `plugins/McAiBuilder/operations.log` (IP, method, summary, blocks changed) when `logging.log-operations` is on, as an audit trail.
+- Every executed operation is appended to `plugins/Ashlar/operations.log` (IP, method, summary, blocks changed) when `logging.log-operations` is on, as an audit trail.
 - `limits.*` bound how much a single call can touch (blocks, chunks, read volume); `world.allowed-worlds` and the optional `world.build-region` bound where it can happen. Configure these to match what you actually want an AI to be able to do.
 
 ## Configuration reference
 
-### Plugin (`plugins/McAiBuilder/config.yml`)
+### Plugin (`plugins/Ashlar/config.yml`)
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -235,9 +235,9 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 
 **Symptom:** need to see the MCP server's logs for any of the above.
 **Fix:** Claude Desktop's MCP server logs live at:
-  - macOS: `~/Library/Logs/Claude/mcp-server-mc-ai-builder.log`
-  - Windows: `%APPDATA%\Claude\logs\mcp-server-mc-ai-builder.log`
-  - Linux: `~/.config/Claude/logs/mcp-server-mc-ai-builder.log`
+  - macOS: `~/Library/Logs/Claude/mcp-server-ashlar.log`
+  - Windows: `%APPDATA%\Claude\logs\mcp-server-ashlar.log`
+  - Linux: `~/.config/Claude/logs/mcp-server-ashlar.log`
 
 ## Measuring token usage
 

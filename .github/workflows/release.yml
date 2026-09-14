@@ -61,7 +61,7 @@ jobs:
         working-directory: mcp-server
         run: |
           npm pack
-          mv mc-ai-builder-mcp-*.tgz "mcp-server-${GITHUB_REF_NAME}.tgz"
+          mv ashlar-mcp-*.tgz "mcp-server-${GITHUB_REF_NAME}.tgz"
 
       - name: Upload mcp-server tarball
         uses: actions/upload-artifact@v4

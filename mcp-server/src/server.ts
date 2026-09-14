@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import type { PluginClient } from "./plugin-client.js";
 import { registerAllTools } from "./tools/index.js";
 
-const SERVER_NAME = "mc-ai-builder-mcp";
+const SERVER_NAME = "ashlar-mcp";
 const SERVER_VERSION = "0.1.0";
 
 /**
@@ -14,7 +14,7 @@ const SERVER_VERSION = "0.1.0";
  * Desktop's "Load tools when needed"), so the model knows every tool that
  * exists and can search for it by exact name.
  */
-const INSTRUCTIONS = `MC AI Builder: tools for reading and building in a live Minecraft (Paper) server. Nine tools are available - load them by name when needed:
+const INSTRUCTIONS = `Ashlar: tools for reading and building in a live Minecraft (Paper) server. Nine tools are available - load them by name when needed:
 
 mc_status   - server/plugin health and queue length
 mc_players  - online players with position and facing ("here", "in front of me", "at my feet")

@@ -25,7 +25,7 @@ jobs:
       - name: Upload plugin jar
         uses: actions/upload-artifact@v4
         with:
-          name: mc-ai-builder-plugin
+          name: ashlar-plugin
           path: plugin/build/libs/*.jar
           if-no-files-found: error
 

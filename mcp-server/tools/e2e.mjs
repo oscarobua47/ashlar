@@ -26,7 +26,7 @@ const distCli = path.join(__dirname, "..", "dist", "cli.js");
 const MC_PLUGIN_URL = process.env.MC_PLUGIN_URL ?? "ws://127.0.0.1:8765";
 const MC_PLUGIN_TOKEN = process.env.MC_PLUGIN_TOKEN ?? "24e77d575101fd68043ba698c67bf45d";
 // Distinct from the plugin server's default port 3000, since a developer's
-// machine commonly already has another mc-ai-builder-mcp --http instance
+// machine commonly already has another ashlar-mcp --http instance
 // bound there (plan.md 4.5.2 HTTP checks).
 const MCP_HTTP_PORT = process.env.MCP_HTTP_PORT ?? "3100";
 const MCP_HTTP_TOKEN = process.env.MCP_HTTP_TOKEN ?? "http-test-token-0123456789";
@@ -144,7 +144,7 @@ async function main() {
         }
     });
 
-    const client = new Client({ name: "mc-ai-builder-e2e", version: "0.1.0" });
+    const client = new Client({ name: "ashlar-e2e", version: "0.1.0" });
     await client.connect(transport);
 
     // --- tools/list -------------------------------------------------------
@@ -567,7 +567,7 @@ async function main() {
                 {
                     pos: [SIGN_X, SIGN_Y, SIGN_Z],
                     block: "minecraft:oak_wall_sign[facing=south]",
-                    sign: { front: ["Made by", "MC AI Builder"] }
+                    sign: { front: ["Made by", "Ashlar"] }
                 }
             ]
         }
@@ -584,7 +584,7 @@ async function main() {
     console.log(signInspectText);
     check("mc_inspect over the sign not an error", !signInspect.isError);
     check("mc_inspect output contains a Signs: section", /Signs:/.test(signInspectText));
-    check("Signs: line contains the front text", /Made by.*MC AI Builder/.test(signInspectText));
+    check("Signs: line contains the front text", /Made by.*Ashlar/.test(signInspectText));
 
     // --- step4d Fix 2 regression: sand next to a fence must still not fall -----
     section("mc_build (regression: sand next to a fence in the same batch)");

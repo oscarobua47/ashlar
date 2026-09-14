@@ -1,1 +1,1 @@
-rootProject.name = "mc-ai-builder"
+rootProject.name = "ashlar"

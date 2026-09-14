@@ -1,11 +1,11 @@
 {
-  "name": "mc-ai-builder-mcp",
+  "name": "ashlar-mcp",
   "version": "0.1.0",
-  "description": "MCP server that lets AI clients build in a Minecraft Paper server through the MC AI Builder plugin",
+  "description": "MCP server that lets AI clients build in a Minecraft Paper server through the Ashlar plugin",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "bin": {
-    "mc-ai-builder-mcp": "dist/cli.js"
+    "ashlar-mcp": "dist/cli.js"
   },
   "engines": {
     "node": ">=22"

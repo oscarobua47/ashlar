@@ -19,7 +19,7 @@ async function main(): Promise<void> {
         pluginConfig = loadPluginConnectionConfig();
     } catch (err) {
         if (err instanceof ConfigError) {
-            console.error(`mc-ai-builder-mcp[${process.pid}]: ${err.message}`);
+            console.error(`ashlar-mcp[${process.pid}]: ${err.message}`);
             console.error("");
             console.error(usageText());
             process.exit(2);
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
             httpConfig = loadHttpServeConfig();
         } catch (err) {
             if (err instanceof ConfigError) {
-                console.error(`mc-ai-builder-mcp[${process.pid}]: ${err.message}`);
+                console.error(`ashlar-mcp[${process.pid}]: ${err.message}`);
                 console.error("");
                 console.error(usageText());
                 process.exit(2);
@@ -60,9 +60,9 @@ async function main(): Promise<void> {
     const shutdown = (signal: string) => {
         if (shuttingDown) return;
         shuttingDown = true;
-        console.error(`mc-ai-builder-mcp[${process.pid}]: received ${signal}, shutting down`);
+        console.error(`ashlar-mcp[${process.pid}]: received ${signal}, shutting down`);
         void stopTransport()
-            .catch(err => console.error(`mc-ai-builder-mcp[${process.pid}]: error during shutdown: ${(err as Error).message}`))
+            .catch(err => console.error(`ashlar-mcp[${process.pid}]: error during shutdown: ${(err as Error).message}`))
             .finally(() => {
                 client.close();
                 process.exit(0);
@@ -73,6 +73,6 @@ async function main(): Promise<void> {
 }
 
 main().catch(err => {
-    console.error(`mc-ai-builder-mcp[${process.pid}]: fatal error: ${(err as Error).stack ?? err}`);
+    console.error(`ashlar-mcp[${process.pid}]: fatal error: ${(err as Error).stack ?? err}`);
     process.exit(1);
 });

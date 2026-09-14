@@ -1,11 +1,11 @@
-name: McAiBuilder
+name: Ashlar
 version: ${version}
-main: dev.mcaibuilder.plugin.McAiBuilderPlugin
+main: net.rcwalter.ashlar.AshlarPlugin
 # api-version "26.2" is the format documented by Paper for the 26.x line
 # (docs.papermc.io/paper/dev/project-setup); confirmed accepted at load time.
 api-version: "26.2"
-author: mc-ai-builder
-description: Lets AI assistants build in bulk on a Paper server over a local WebSocket RPC bridge.
+author: Rcwalter
+description: Lets AI assistants (via MCP) survey, render, build, inspect and snapshot a Paper server over a WebSocket RPC bridge.
 
 # Third-party libraries Paper downloads and loads at runtime. Not shaded into
 # the plugin jar - keeps the jar small and avoids classloader conflicts.
