@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { appendFileSync } from "node:fs";
+
 import { formatPluginError, PluginError } from "../errors.js";
 import type { PluginClient } from "../plugin-client.js";
 
@@ -94,6 +96,24 @@ function logUsage(name: string, startedAt: number, content: ContentBlock[]): voi
     }
     const elapsedMs = Date.now() - startedAt;
     console.error(`[tool ${process.pid}] ${name}: ${elapsedMs} ms, ${parts.join(" + ")} = ~${tokens} tokens`);
+    appendUsageFile({ ts: new Date().toISOString(), pid: process.pid, tool: name, ms: elapsedMs, tokens, detail: parts.join(" + ") });
+}
+
+/**
+ * When MC_USAGE_LOG names a file, every tool call also appends one JSON line
+ * there (`{ts, pid, tool, ms, tokens, detail}`), independent of where the
+ * MCP client sends stderr. Consumed by tools/overlay.mjs (an OBS browser
+ * source) and handy for spreadsheets. Failures are ignored: logging must
+ * never break a tool call.
+ */
+function appendUsageFile(entry: Record<string, unknown>): void {
+    const file = process.env.MC_USAGE_LOG;
+    if (!file) return;
+    try {
+        appendFileSync(file, JSON.stringify(entry) + "\n");
+    } catch {
+        // ignore
+    }
 }
 
 /** Reads width/height from a base64 PNG's IHDR chunk without decoding the image. */
