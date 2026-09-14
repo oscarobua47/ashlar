@@ -3,6 +3,24 @@
   "version": "0.1.0",
   "description": "MCP server that lets AI clients build in a Minecraft Paper server through the Ashlar plugin",
   "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rcwalter24/ashlar.git",
+    "directory": "mcp-server"
+  },
+  "homepage": "https://github.com/rcwalter24/ashlar#readme",
+  "bugs": "https://github.com/rcwalter24/ashlar/issues",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "minecraft",
+    "paper",
+    "papermc",
+    "ai",
+    "claude",
+    "llm",
+    "minecraft-plugin"
+  ],
   "type": "module",
   "bin": {
     "ashlar-mcp": "dist/cli.js"
@@ -10,11 +28,21 @@
   "engines": {
     "node": ">=22"
   },
+  "files": [
+    "dist/**/*.js",
+    "!dist/**/*.test.js",
+    "tools/overlay.mjs",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "test": "node --test dist/**/*.test.js",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
