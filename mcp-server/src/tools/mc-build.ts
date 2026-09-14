@@ -37,8 +37,8 @@ const fillOpSchema = z.object({
         .min(1)
         .describe(
             'Block state string in the "minecraft:" namespace, optionally with properties, ' +
-                'e.g. "minecraft:stone" or "minecraft:oak_log[axis=y]".' +
-                ORIENTATION_RULES
+                'e.g. "minecraft:stone" or "minecraft:oak_log[axis=y]". Attached/oriented blocks (ladders, torches, ' +
+                "signs, doors, stairs): see the orientation rules on `blocks[].block`; the same rules apply here."
         ),
     mode: fillModeEnum
         .optional()
