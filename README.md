@@ -80,7 +80,7 @@ Edit `claude_desktop_config.json` (Settings -> Developer -> Edit Config) and add
   "mcpServers": {
     "ashlar": {
       "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/MinecraftMcp/mcp-server/dist/cli.js", "--stdio"],
+      "args": ["/absolute/path/to/ashlar/mcp-server/dist/cli.js", "--stdio"],
       "env": {
         "MC_PLUGIN_URL": "ws://<your-server-ip>:8765",
         "MC_PLUGIN_TOKEN": "<the token from config.yml>"
@@ -98,7 +98,7 @@ Use an absolute path to your `node` binary (`which node`) - Claude Desktop does 
 claude mcp add --scope user --transport stdio ashlar \
   -e MC_PLUGIN_URL=ws://<your-server-ip>:8765 \
   -e MC_PLUGIN_TOKEN=<the token from config.yml> \
-  -- node /absolute/path/to/MinecraftMcp/mcp-server/dist/cli.js --stdio
+  -- node /absolute/path/to/ashlar/mcp-server/dist/cli.js --stdio
 ```
 
 #### Remote/HTTP mode (for a VPS-hosted MCP server)
