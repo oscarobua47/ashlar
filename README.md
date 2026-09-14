@@ -56,20 +56,13 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 2. Install the MCP server
 
-Requires **Node >= 22**.
+Requires **Node >= 22** on the machine that runs your AI client. The MCP server is published to npm as [`ashlar-mcp`](https://www.npmjs.com/package/ashlar-mcp); `npx` downloads it on first use, so there is nothing to clone or build:
 
 ```sh
-git clone https://github.com/rcwalter24/ashlar.git
-cd ashlar/mcp-server
-npm install --omit=optional
-npm run build
+npx -y ashlar-mcp --stdio    # fails fast with a usage message until MC_PLUGIN_URL/MC_PLUGIN_TOKEN are set
 ```
 
-<!-- TODO(publish): once ashlar-mcp is published to npm, this step
-     becomes `npx ashlar-mcp` and the git-clone step above can be
-     dropped for most users. -->
-
-This produces `mcp-server/dist/cli.js`, the entry point every client config below points at.
+If you prefer a fixed path (or want to avoid the first-launch download inside a GUI client), install it once globally with `npm install -g ashlar-mcp` and point the client configs below at the resulting `ashlar-mcp` binary (`which ashlar-mcp`) instead of `npx`.
 
 ### 3. Connect a client
 
@@ -81,8 +74,8 @@ Edit `claude_desktop_config.json` (Settings -> Developer -> Edit Config) and add
 {
   "mcpServers": {
     "ashlar": {
-      "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/ashlar/mcp-server/dist/cli.js", "--stdio"],
+      "command": "/absolute/path/to/npx",
+      "args": ["-y", "ashlar-mcp", "--stdio"],
       "env": {
         "MC_PLUGIN_URL": "ws://<your-server-ip>:8765",
         "MC_PLUGIN_TOKEN": "<the token from config.yml>"
@@ -92,7 +85,7 @@ Edit `claude_desktop_config.json` (Settings -> Developer -> Edit Config) and add
 }
 ```
 
-Use an absolute path to your `node` binary (`which node`) - Claude Desktop does not inherit your shell's PATH. After adding the server, open its "Tool access" settings and pick **"Tools already loaded"**; the alternative, "Load tools when needed", is unreliable in practice (the model can end up seeing only one or two `mc_*` tools). Claude Desktop starts two instances of the MCP server per configured connector - this is normal and harmless.
+Use an absolute path to `npx` (`which npx`) - Claude Desktop does not inherit your shell's PATH. After adding the server, open its "Tool access" settings and pick **"Tools already loaded"**; the alternative, "Load tools when needed", is unreliable in practice (the model can end up seeing only one or two `mc_*` tools). Claude Desktop starts two instances of the MCP server per configured connector - this is normal and harmless.
 
 #### Claude Code
 
@@ -100,7 +93,7 @@ Use an absolute path to your `node` binary (`which node`) - Claude Desktop does 
 claude mcp add --scope user --transport stdio ashlar \
   -e MC_PLUGIN_URL=ws://<your-server-ip>:8765 \
   -e MC_PLUGIN_TOKEN=<the token from config.yml> \
-  -- node /absolute/path/to/ashlar/mcp-server/dist/cli.js --stdio
+  -- npx -y ashlar-mcp --stdio
 ```
 
 #### Remote/HTTP mode (for a VPS-hosted MCP server)
@@ -111,7 +104,7 @@ Run the MCP server itself over HTTP instead of stdio, e.g. on the same VPS as a 
 MC_PLUGIN_URL=ws://127.0.0.1:8765 \
 MC_PLUGIN_TOKEN=<plugin token> \
 MCP_HTTP_TOKEN=<a second, separate long random token> \
-node dist/cli.js --http
+npx -y ashlar-mcp --http
 ```
 
 Clients that can send custom headers authenticate with `Authorization: Bearer <MCP_HTTP_TOKEN>` against `POST /mcp`. Clients that cannot set headers (such as a remote MCP connector configured with only a URL) can instead use `POST /mcp/<MCP_HTTP_TOKEN>`, which puts the token in the path. `GET /healthz` is unauthenticated and reports whether the MCP server currently has a live connection to the plugin.
