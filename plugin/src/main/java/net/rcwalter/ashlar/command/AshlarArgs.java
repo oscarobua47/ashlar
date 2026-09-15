@@ -18,6 +18,9 @@ import java.util.Locale;
  * /ashlar usage &lt;player&gt;|all
  * /ashlar limit &lt;player&gt;|default &lt;cost|tokens|requests&gt; &lt;number&gt;|off
  * /ashlar limit &lt;player&gt;|default reset
+ * /ashlar credit &lt;player&gt;
+ * /ashlar credit &lt;player&gt; &lt;add|set&gt; &lt;number&gt;
+ * /ashlar credit &lt;player&gt; off
  * /ashlar pause
  * /ashlar resume
  * /ashlar allow &lt;player&gt;
@@ -27,15 +30,15 @@ import java.util.Locale;
  * </pre>
  *
  * The first word decides the subcommand, case-insensitively; {@code usage},
- * {@code limit}, {@code pause}, {@code resume}, {@code allow}, {@code deny},
- * {@code allowed}, {@code help} and {@code cancel} are reserved, so a plain
- * request cannot start with one of them.
+ * {@code limit}, {@code credit}, {@code pause}, {@code resume}, {@code allow},
+ * {@code deny}, {@code allowed}, {@code help} and {@code cancel} are reserved,
+ * so a plain request cannot start with one of them.
  */
 public final class AshlarArgs {
 
     public enum Kind {
         REQUEST, CANCEL_SELF, CANCEL_OTHER, RESET, USAGE_SELF, USAGE_OTHER, USAGE_ALL,
-        LIMIT, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, INVALID
+        LIMIT, CREDIT_SHOW, CREDIT_SET, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, INVALID
     }
 
     /** {@code ashlar simulate <x> <y> <z> [facing] <text...>} (step8b-prompt.md), console only. */
@@ -64,6 +67,8 @@ public final class AshlarArgs {
     static final String USAGE_USAGE = "Usage: /ashlar usage | /ashlar usage <player>|all";
     static final String USAGE_LIMIT =
             "Usage: /ashlar limit <player>|default <cost|tokens|requests> <number>|off | /ashlar limit <player>|default reset";
+    static final String USAGE_CREDIT =
+            "Usage: /ashlar credit <player> | /ashlar credit <player> <add|set> <number> | /ashlar credit <player> off";
     static final String USAGE_PAUSE = "Usage: /ashlar pause";
     static final String USAGE_RESUME = "Usage: /ashlar resume";
     static final String USAGE_ALLOW = "Usage: /ashlar allow <player>";
@@ -98,6 +103,7 @@ public final class AshlarArgs {
             case "cancel" -> parseCancel(args);
             case "usage" -> parseUsage(args);
             case "limit" -> parseLimit(args);
+            case "credit" -> parseCredit(args);
             case "pause" -> args.length == 1 ? simple(Kind.PAUSE) : invalid(USAGE_PAUSE);
             case "resume" -> args.length == 1 ? simple(Kind.RESUME) : invalid(USAGE_RESUME);
             case "allow" -> args.length == 2 ? new Parsed(Kind.ALLOW, args[1], List.of(), null) : invalid(USAGE_ALLOW);
@@ -185,6 +191,43 @@ public final class AshlarArgs {
             return new Parsed(Kind.LIMIT, args[1], List.of(kind, normalizedValue), null);
         }
         return invalid(USAGE_LIMIT);
+    }
+
+    /**
+     * {@code credit <player>} (show, no args); {@code credit <player> off} ({@code args = ["off"]});
+     * {@code credit <player> add|set <number>} ({@code args = [action, value]}, value a positive number).
+     */
+    private static Parsed parseCredit(String[] args) {
+        if (args.length == 2) {
+            return new Parsed(Kind.CREDIT_SHOW, args[1], List.of(), null);
+        }
+        if (args.length < 3) {
+            return invalid(USAGE_CREDIT);
+        }
+        String action = args[2].toLowerCase(Locale.ROOT);
+        if (action.equals("off")) {
+            return args.length == 3 ? new Parsed(Kind.CREDIT_SET, args[1], List.of("off"), null) : invalid(USAGE_CREDIT);
+        }
+        if (!action.equals("add") && !action.equals("set")) {
+            return invalid(USAGE_CREDIT);
+        }
+        if (args.length != 4) {
+            return invalid(USAGE_CREDIT);
+        }
+        String value = args[3];
+        if (!isValidPositiveNumber(value)) {
+            return invalid(USAGE_CREDIT);
+        }
+        return new Parsed(Kind.CREDIT_SET, args[1], List.of(action, value), null);
+    }
+
+    private static boolean isValidPositiveNumber(String value) {
+        try {
+            double parsed = Double.parseDouble(value);
+            return Double.isFinite(parsed) && parsed > 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     private static boolean isValidLimitValue(String value) {

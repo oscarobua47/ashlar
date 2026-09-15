@@ -60,6 +60,7 @@ public final class AdminActions {
         switch (action) {
             case "usage" -> handleUsage(by, target);
             case "limit" -> handleLimit(by, target, args);
+            case "credit" -> handleCredit(by, target, args);
             case "cancel" -> handleCancel(by, target);
             case "pause" -> handlePauseResume(by, false);
             case "resume" -> handlePauseResume(by, true);
@@ -151,6 +152,60 @@ public final class AdminActions {
         send.send(by.uuid(), "Set limits for " + who + ": " + fmtLimitsLine(store.effectiveLimits(uuidOrNull), null), SendKind.FINAL);
     }
 
+    /** {@code credit <player>} shows the balance; {@code credit <player> add|set|off [amount]} manages it. */
+    public void handleCredit(By by, Target target, List<String> args) {
+        if (target == null) {
+            send.send(by.uuid(), "credit needs a target player.", SendKind.FINAL);
+            return;
+        }
+        Optional<UsageStore.NameMatch> resolved = resolveTarget(target);
+        if (resolved.isEmpty()) {
+            send.send(by.uuid(), "Unknown player \"" + target.name() + "\".", SendKind.FINAL);
+            return;
+        }
+        String uuid = resolved.get().uuid();
+        String name = resolved.get().name();
+
+        if (args.isEmpty()) {
+            Optional<UsageStore.Credit> credit = store.creditOf(uuid);
+            if (credit.isEmpty()) {
+                send.send(by.uuid(), name + " has no credit limit.", SendKind.FINAL);
+            } else {
+                send.send(by.uuid(), "Credit for " + name + ": " + UsageStore.fmtCredit(credit.get().balance(), currency) + " left", SendKind.FINAL);
+            }
+            return;
+        }
+
+        String action = args.get(0);
+        String rawAmount = args.size() > 1 ? args.get(1) : null;
+        switch (action) {
+            case "off" -> {
+                store.disableCredit(uuid);
+                send.send(by.uuid(), "Credit disabled for " + name + ".", SendKind.FINAL);
+            }
+            case "add" -> {
+                Double n = parseDouble(rawAmount);
+                if (n == null || !Double.isFinite(n)) {
+                    send.send(by.uuid(), "Amount must be a number (got \"" + (rawAmount != null ? rawAmount : "") + "\").", SendKind.FINAL);
+                    return;
+                }
+                double newBalance = store.addCredit(uuid, name, n);
+                send.send(by.uuid(), "Credit for " + name + ": " + UsageStore.fmtCredit(newBalance, currency)
+                        + " (added " + UsageStore.fmtCost(n, currency) + ")", SendKind.FINAL);
+            }
+            case "set" -> {
+                Double n = parseDouble(rawAmount);
+                if (n == null || !Double.isFinite(n) || n <= 0) {
+                    send.send(by.uuid(), "Amount must be a positive number (got \"" + (rawAmount != null ? rawAmount : "") + "\").", SendKind.FINAL);
+                    return;
+                }
+                store.setCredit(uuid, name, n);
+                send.send(by.uuid(), "Credit for " + name + ": " + UsageStore.fmtCredit(n, currency), SendKind.FINAL);
+            }
+            default -> send.send(by.uuid(), "Unknown credit action \"" + action + "\". Use add, set, or off.", SendKind.FINAL);
+        }
+    }
+
     public void handleCancel(By by, Target target) {
         if (target == null) {
             send.send(by.uuid(), "cancel needs a target player.", SendKind.FINAL);
@@ -187,11 +242,15 @@ public final class AdminActions {
     private String fmtUsageBlock(UsageStore.UsageSummary s) {
         String todayTokens = UsageStore.fmtTokens(s.today().inputTokens + s.today().cachedInputTokens + s.today().outputTokens);
         String totalTokens = UsageStore.fmtTokens(s.total().inputTokens + s.total().cachedInputTokens + s.total().outputTokens);
-        return String.join("\n", List.of(
+        List<String> lines = new ArrayList<>(List.of(
                 "Usage for " + s.name() + ":",
                 "today: " + s.today().requests + " requests, " + todayTokens + " tokens, " + UsageStore.fmtCost(s.today().cost, currency),
                 "total: " + s.total().requests + " requests, " + totalTokens + " tokens, " + UsageStore.fmtCost(s.total().cost, currency),
                 "limits: " + fmtLimitsLine(s.limits(), s.overrides())));
+        if (s.credit().isPresent()) {
+            lines.add("credit: " + UsageStore.fmtCredit(s.credit().get().balance(), currency) + " left");
+        }
+        return String.join("\n", lines);
     }
 
     private String fmtLimitValue(UsageStore.LimitKind kind, UsageStore.LimitValue value) {

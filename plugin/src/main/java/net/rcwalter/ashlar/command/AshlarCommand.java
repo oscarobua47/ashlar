@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * {@code /ashlar}: the in-game entry point into the AI assistant
  * (step6a-prompt.md) and, from step6e-prompt.md on, its admin surface
- * (usage/limit/cancel &lt;player&gt;/pause/resume/allow/deny/allowed/help).
+ * (usage/limit/credit/cancel &lt;player&gt;/pause/resume/allow/deny/allowed/help).
  * Bukkit runs command executors on the main thread, so this may read Bukkit
  * state freely; the only network action most subcommands take is
  * {@link WsServer#broadcastEvent}, which just enqueues bytes on the socket -
@@ -123,6 +123,8 @@ public final class AshlarCommand implements CommandExecutor {
             case USAGE_OTHER -> handleUsageOther(player, parsed.targetName());
             case USAGE_ALL -> handleUsageAll(player);
             case LIMIT -> handleLimit(player, parsed.targetName(), parsed.args());
+            case CREDIT_SHOW -> handleCredit(player, parsed.targetName(), List.of());
+            case CREDIT_SET -> handleCredit(player, parsed.targetName(), parsed.args());
             case PAUSE -> handlePause(player);
             case RESUME -> handleResume(player);
             case ALLOW -> handleAllow(player, parsed.targetName());
@@ -275,6 +277,23 @@ public final class AshlarCommand implements CommandExecutor {
         reply(player, "Limit change sent.");
     }
 
+    /**
+     * {@code /ashlar credit <player>} (show, {@code creditArgs} empty) and {@code /ashlar credit
+     * <player> add|set|off [amount]} - embedded mode only; external mode has no local accounting to
+     * show or change, so it just says so (step8f-prompt.md).
+     */
+    private void handleCredit(Player player, String targetName, List<String> creditArgs) {
+        if (!isEmbedded()) {
+            reply(player, "Credit is managed by the external agent.");
+            return;
+        }
+        if (agentService == null) {
+            reply(player, NOT_CONFIGURED);
+            return;
+        }
+        agentService.admin("credit", byOf(player), targetOf(targetName), creditArgs);
+    }
+
     private void handlePause(Player player) {
         if (isEmbedded()) {
             agentService.admin("pause", byOf(player), null, List.of());
@@ -333,6 +352,8 @@ public final class AshlarCommand implements CommandExecutor {
             new HelpLine("ashlar.monitor", "/ashlar usage <player>|all - another player's usage, or everyone's"),
             new HelpLine("ashlar.admin", "/ashlar limit <player>|default <cost|tokens|requests> <number>|off - set a daily cap"),
             new HelpLine("ashlar.admin", "/ashlar limit <player>|default reset - remove the override"),
+            new HelpLine("ashlar.admin", "/ashlar credit <player> - show a player's prepaid credit balance"),
+            new HelpLine("ashlar.admin", "/ashlar credit <player> <add|set> <number>|off - manage a player's prepaid credit"),
             new HelpLine("ashlar.admin", "/ashlar pause - stop the assistant from accepting requests"),
             new HelpLine("ashlar.admin", "/ashlar resume - let the assistant accept requests again"),
             new HelpLine("ashlar.admin", "/ashlar allow <player> - let a player use /ashlar without a permission"),
@@ -385,16 +406,20 @@ public final class AshlarCommand implements CommandExecutor {
         return switch (keyword) {
             case "cancel" -> args.length >= 2 ? "ashlar.admin" : "ashlar.use";
             case "usage" -> args.length >= 2 ? "ashlar.monitor" : "ashlar.use";
-            case "limit", "pause", "resume", "allow", "deny", "allowed" -> "ashlar.admin";
+            case "limit", "credit", "pause", "resume", "allow", "deny", "allowed" -> "ashlar.admin";
             case "help" -> null;
             default -> "ashlar.use";
         };
     }
 
-    /** Whether this subcommand talks to a connected Node process at all. */
+    /**
+     * Whether this subcommand talks to a connected Node process at all. {@code credit} is embedded-
+     * only and replies for itself in every mode ({@link #handleCredit}), so it is excluded the same
+     * way {@code allow}/{@code deny}/{@code allowed}/{@code reset} are.
+     */
     private static boolean needsConnection(AshlarArgs.Kind kind) {
         return switch (kind) {
-            case HELP, ALLOW, DENY, ALLOWED, RESET -> false;
+            case HELP, ALLOW, DENY, ALLOWED, RESET, CREDIT_SHOW, CREDIT_SET -> false;
             default -> true;
         };
     }

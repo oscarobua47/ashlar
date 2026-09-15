@@ -21,8 +21,9 @@ import java.util.Locale;
 public final class AshlarTabCompleter implements TabCompleter {
 
     private static final List<String> USE_WORDS = List.of("ask", "cancel", "reset", "usage", "help");
-    private static final List<String> ADMIN_WORDS = List.of("limit", "pause", "resume", "allow", "deny", "allowed");
+    private static final List<String> ADMIN_WORDS = List.of("limit", "credit", "pause", "resume", "allow", "deny", "allowed");
     private static final List<String> LIMIT_KINDS = List.of("cost", "tokens", "requests", "reset");
+    private static final List<String> CREDIT_ACTIONS = List.of("add", "set", "off");
 
     private final AllowList allowList;
 
@@ -58,6 +59,7 @@ public final class AshlarTabCompleter implements TabCompleter {
                 case "cancel", "allow", "deny" -> admin ? filter(onlineNames(), args[1]) : List.of();
                 case "usage" -> monitor ? filter(withExtra(onlineNames(), "all"), args[1]) : List.of();
                 case "limit" -> admin ? filter(withExtra(onlineNames(), "default"), args[1]) : List.of();
+                case "credit" -> admin ? filter(onlineNames(), args[1]) : List.of();
                 default -> List.of();
             };
         }
@@ -68,6 +70,9 @@ public final class AshlarTabCompleter implements TabCompleter {
             if (args.length == 4 && !args[2].equalsIgnoreCase("reset")) {
                 return filter(List.of("off"), args[3]);
             }
+        }
+        if (keyword.equals("credit") && admin && args.length == 3) {
+            return filter(CREDIT_ACTIONS, args[2]);
         }
         return List.of();
     }

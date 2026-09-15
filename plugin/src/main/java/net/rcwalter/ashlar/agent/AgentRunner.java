@@ -74,7 +74,12 @@ public final class AgentRunner {
     }
 
     public record RunRequest(PlayerInfo player, String text, List<ChatMessage> history, BooleanSupplier cancelled,
-                              Consumer<String> onProgress, Consumer<Usage> onTurnUsage) {
+                              Consumer<String> onProgress, Consumer<Usage> onTurnUsage, BooleanSupplier wrapUp) {
+        /** Equivalent to the six-arg form with {@code wrapUp = null}: no credit-driven wrap-up. */
+        public RunRequest(PlayerInfo player, String text, List<ChatMessage> history, BooleanSupplier cancelled,
+                           Consumer<String> onProgress, Consumer<Usage> onTurnUsage) {
+            this(player, text, history, cancelled, onProgress, onTurnUsage, null);
+        }
     }
 
     public record RunResult(String text, Usage usage, int toolCalls, List<ChatMessage> exchange) {
@@ -112,25 +117,37 @@ public final class AgentRunner {
 
         int toolCallCount = 0;
         boolean budgetExhausted = false;
+        boolean creditWrappedUp = false;
         int callIndex = 0;
+        int modelCallCount = 0;
 
         for (;;) {
             if (req.cancelled().getAsBoolean()) {
                 return new RunResult("Cancelled.", usage, toolCallCount, exchange);
             }
 
-            if (budgetExhausted) {
-                ChatMessage note = ChatMessage.user("[system] Tool budget exhausted - summarise what was done and stop.");
+            if (modelCallCount > 0 && !budgetExhausted && !creditWrappedUp
+                    && req.wrapUp() != null && req.wrapUp().getAsBoolean()) {
+                creditWrappedUp = true;
+            }
+            boolean noMoreTools = budgetExhausted || creditWrappedUp;
+
+            if (noMoreTools) {
+                String noteText = creditWrappedUp
+                        ? "[system] The player's credit is used up - do not call any more tools; say what was completed, what remains, and the snapshot id, in the player's language."
+                        : "[system] Tool budget exhausted - summarise what was done and stop.";
+                ChatMessage note = ChatMessage.user(noteText);
                 messages.add(note);
                 exchange.add(note);
             }
 
             Reply reply;
             try {
-                reply = modelApi.chat(new ArrayList<>(messages), tools, budgetExhausted ? ToolChoice.NONE : ToolChoice.AUTO, req.cancelled());
+                reply = modelApi.chat(new ArrayList<>(messages), tools, noMoreTools ? ToolChoice.NONE : ToolChoice.AUTO, req.cancelled());
             } catch (CancelledException e) {
                 return new RunResult("Cancelled.", usage, toolCallCount, exchange);
             }
+            modelCallCount++;
             usage = usage.plus(reply.usage());
             if (req.onTurnUsage() != null) {
                 req.onTurnUsage().accept(reply.usage());
@@ -139,7 +156,7 @@ public final class AgentRunner {
             exchange.add(reply.message());
 
             List<ToolCall> toolCalls = reply.message().toolCalls() != null ? reply.message().toolCalls() : List.of();
-            if (toolCalls.isEmpty() || budgetExhausted) {
+            if (toolCalls.isEmpty() || noMoreTools) {
                 String replyText = reply.message().textOfContent().trim();
                 String finalText = !replyText.isEmpty() ? replyText : "(no reply)";
                 return new RunResult(finalText, usage, toolCallCount, exchange);

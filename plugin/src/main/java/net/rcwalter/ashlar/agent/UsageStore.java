@@ -34,10 +34,11 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Persists per-player token/cost usage, per-day limit overrides and the global pause flag
- * (pure-Java port of {@code mcp-server/src/agent/usage.ts}). Loaded synchronously at construction;
- * saved atomically ({@code <file>.tmp} then move), debounced, and on {@link #flush()} / {@link
- * #close()}.
+ * Persists per-player token/cost usage, per-day limit overrides, per-player prepaid credit
+ * (step8f-prompt.md) and the global pause flag (pure-Java port of {@code
+ * mcp-server/src/agent/usage.ts}, credit added after that file was retired in 0.4.0). Loaded
+ * synchronously at construction; saved atomically ({@code <file>.tmp} then move), debounced, and
+ * on {@link #flush()} / {@link #close()}.
  */
 public final class UsageStore implements AutoCloseable {
 
@@ -153,7 +154,12 @@ public final class UsageStore implements AutoCloseable {
     }
 
     public record UsageSummary(String uuid, String name, DayCounters today, TotalCounters total,
-                                Map<LimitKind, LimitValue> limits, Map<LimitKind, Boolean> overrides) {
+                                Map<LimitKind, LimitValue> limits, Map<LimitKind, Boolean> overrides,
+                                Optional<Credit> credit) {
+    }
+
+    /** A player's prepaid balance; absent from the JSON store entirely when the player has none. */
+    public record Credit(boolean enabled, double balance) {
     }
 
     public record RecordResult(double cost, DayCounters today, TotalCounters total) {
@@ -178,6 +184,7 @@ public final class UsageStore implements AutoCloseable {
         DayCounters today;
         TotalCounters total = new TotalCounters();
         long updatedAt;
+        Credit credit;
     }
 
     private final Path filePath;
@@ -304,6 +311,7 @@ public final class UsageStore implements AutoCloseable {
             pr.today = readDayCounters(rec.getAsJsonObject("today"), todayStr());
             pr.total = readTotalCounters(rec.getAsJsonObject("total"));
             pr.updatedAt = rec.has("updatedAt") && rec.get("updatedAt").isJsonPrimitive() ? rec.get("updatedAt").getAsLong() : 0;
+            pr.credit = readCredit(rec);
             players.put(entry.getKey(), pr);
         }
     }
@@ -357,6 +365,17 @@ public final class UsageStore implements AutoCloseable {
             t.cost = doubleOr(o, "cost", 0);
         }
         return t;
+    }
+
+    private static Credit readCredit(JsonObject rec) {
+        if (!rec.has("credit") || !rec.get("credit").isJsonObject()) {
+            return null;
+        }
+        JsonObject c = rec.getAsJsonObject("credit");
+        boolean enabled = c.has("enabled") && c.get("enabled").isJsonPrimitive() && c.get("enabled").getAsJsonPrimitive().isBoolean()
+                && c.get("enabled").getAsBoolean();
+        double balance = doubleOr(c, "balance", 0);
+        return new Credit(enabled, balance);
     }
 
     private static long longOr(JsonObject o, String field, long fallback) {
@@ -475,6 +494,12 @@ public final class UsageStore implements AutoCloseable {
         o.add("today", dayCountersToJson(rec.today));
         o.add("total", totalCountersToJson(rec.total));
         o.addProperty("updatedAt", rec.updatedAt);
+        if (rec.credit != null) {
+            JsonObject c = new JsonObject();
+            c.addProperty("enabled", rec.credit.enabled());
+            c.addProperty("balance", rec.credit.balance());
+            o.add("credit", c);
+        }
         return o;
     }
 
@@ -592,6 +617,10 @@ public final class UsageStore implements AutoCloseable {
             return CheckResult.rejected("daily cost limit (" + fmtCost(costLimit.amount(), currency) + ") reached");
         }
 
+        if (rec != null && rec.credit != null && rec.credit.enabled() && rec.credit.balance() <= 0) {
+            return CheckResult.rejected("out of credit (" + fmtCredit(rec.credit.balance(), currency) + " left) - ask an operator to top up");
+        }
+
         return CheckResult.allowed();
     }
 
@@ -613,10 +642,57 @@ public final class UsageStore implements AutoCloseable {
         rec.total.outputTokens += usage.outputTokens();
         rec.total.cost += cost;
 
+        if (rec.credit != null && rec.credit.enabled()) {
+            // Deducted without a floor: may go slightly negative on the turn that empties it,
+            // which is exactly the signal AgentRunner's wrapUp supplier watches for; display
+            // (fmtCredit) clamps a negative balance to 0.
+            rec.credit = new Credit(true, rec.credit.balance() - cost);
+        }
+
         rec.updatedAt = now.get().toEpochMilli();
         scheduleSave();
 
         return new RecordResult(cost, rec.today.copy(), rec.total.copy());
+    }
+
+    /**
+     * Adds {@code amount} to {@code uuid}'s credit balance (enabling credit if it was not already
+     * enabled), clamped so a correction never pushes the balance below 0; returns the new balance.
+     * {@code name} is used only when creating a not-yet-seen player.
+     */
+    public double addCredit(String uuid, String name, double amount) {
+        PlayerRecord rec = getOrCreatePlayer(uuid, name);
+        double current = rec.credit != null ? rec.credit.balance() : 0;
+        double newBalance = Math.max(0, current + amount);
+        rec.credit = new Credit(true, newBalance);
+        rec.updatedAt = now.get().toEpochMilli();
+        scheduleSave();
+        return newBalance;
+    }
+
+    /** Sets {@code uuid}'s credit balance outright (enabling credit if it was not already enabled). {@code name} is used only when creating a not-yet-seen player. */
+    public void setCredit(String uuid, String name, double amount) {
+        PlayerRecord rec = getOrCreatePlayer(uuid, name);
+        rec.credit = new Credit(true, amount);
+        rec.updatedAt = now.get().toEpochMilli();
+        scheduleSave();
+    }
+
+    /** Disables {@code uuid}'s credit; a not-yet-seen player has nothing to disable. */
+    public void disableCredit(String uuid) {
+        PlayerRecord rec = players.get(uuid);
+        if (rec == null || rec.credit == null) {
+            return;
+        }
+        rec.credit = null;
+        rec.updatedAt = now.get().toEpochMilli();
+        scheduleSave();
+    }
+
+    /** {@code uuid}'s credit, if enabled. */
+    public Optional<Credit> creditOf(String uuid) {
+        PlayerRecord rec = players.get(uuid);
+        return rec != null && rec.credit != null ? Optional.of(rec.credit) : Optional.empty();
     }
 
     /** Sets a per-day cap for {@code uuid}, or the store default when {@code uuid} is null. {@code name} is used only when creating a not-yet-seen player. */
@@ -686,7 +762,8 @@ public final class UsageStore implements AutoCloseable {
                 rec != null ? rec.today.copy() : freshDay(todayStr()),
                 rec != null ? rec.total.copy() : new TotalCounters(),
                 effectiveLimits(uuid),
-                overrides);
+                overrides,
+                rec != null ? Optional.ofNullable(rec.credit) : Optional.empty());
     }
 
     public UsageSummary summary(String uuid) {
@@ -720,5 +797,10 @@ public final class UsageStore implements AutoCloseable {
         int decimals = (amount > 0 && amount < 0.01) ? 4 : 2;
         String formatted = String.format(Locale.ROOT, "%." + decimals + "f", amount);
         return "USD".equals(currency) ? "$" + formatted : currency + " " + formatted;
+    }
+
+    /** Same rendering as {@link #fmtCost}, but a negative balance (the last turn overdrawing it) shows as 0. */
+    public static String fmtCredit(double balance, String currency) {
+        return fmtCost(Math.max(0, balance), currency);
     }
 }

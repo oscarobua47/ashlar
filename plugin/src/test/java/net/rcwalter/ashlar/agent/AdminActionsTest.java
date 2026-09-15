@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Port of {@code mcp-server/src/agent/admin.test.ts}. */
@@ -185,6 +186,134 @@ class AdminActionsTest {
         admin.handle("limit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("bogus", "5"));
 
         assertTrue(sent.get(0).text().contains("Unknown limit kind"));
+    }
+
+    @Test
+    void creditShowReportsNoLimitWhenNeverEnabled() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of());
+
+        assertTrue(sent.get(0).text().contains("Alex has no credit limit."));
+    }
+
+    @Test
+    void creditShowReportsBalanceWhenEnabled() {
+        UsageStore s = newStore();
+        s.addCredit("alex-uuid", "Alex", 3.2);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of());
+
+        assertTrue(sent.get(0).text().contains("Credit for Alex: $3.20 left"));
+    }
+
+    @Test
+    void creditAddEnablesAndReportsNewBalance() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("add", "5"));
+
+        assertEquals(5.0, s.creditOf("alex-uuid").orElseThrow().balance());
+        assertTrue(sent.get(0).text().contains("Credit for Alex: $5.00 (added $5.00)"), "unexpected reply: " + sent.get(0).text());
+
+        sent.clear();
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("add", "2.5"));
+        assertTrue(sent.get(0).text().contains("Credit for Alex: $7.50 (added $2.50)"), "unexpected reply: " + sent.get(0).text());
+    }
+
+    @Test
+    void creditSetReplacesBalanceOutright() {
+        UsageStore s = newStore();
+        s.addCredit("alex-uuid", "Alex", 100);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("set", "5"));
+
+        assertEquals(5.0, s.creditOf("alex-uuid").orElseThrow().balance());
+        assertTrue(sent.get(0).text().contains("Credit for Alex: $5.00"));
+        assertFalse(sent.get(0).text().contains("added"));
+    }
+
+    @Test
+    void creditSetNonPositiveIsRejectedNotApplied() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("set", "0"));
+
+        assertTrue(sent.get(0).text().contains("must be a positive number"));
+        assertTrue(s.creditOf("alex-uuid").isEmpty());
+    }
+
+    @Test
+    void creditAddNonNumberIsRejected() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("add", "not-a-number"));
+
+        assertTrue(sent.get(0).text().contains("must be a number"));
+        assertTrue(s.creditOf("alex-uuid").isEmpty());
+    }
+
+    @Test
+    void creditOffDisablesIt() {
+        UsageStore s = newStore();
+        s.addCredit("alex-uuid", "Alex", 5);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("off"));
+
+        assertTrue(sent.get(0).text().contains("Credit disabled for Alex."));
+        assertTrue(s.creditOf("alex-uuid").isEmpty());
+    }
+
+    @Test
+    void creditUnknownActionIsRejected() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("bogus"));
+
+        assertTrue(sent.get(0).text().contains("Unknown credit action"));
+    }
+
+    @Test
+    void creditUnknownPlayerTellsCaller() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("credit", BY, new AdminActions.Target("Nobody", null), List.of());
+
+        assertTrue(sent.get(0).text().contains("Unknown player \"Nobody\""));
+    }
+
+    @Test
+    void creditUsageBlockShowsCreditLineOnlyWhenEnabled() {
+        UsageStore s = newStore();
+        s.record(BY.uuid(), BY.name(), new Usage(1000, 0, 100));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of());
+        assertFalse(sent.get(0).text().contains("credit:"), "no credit line when credit is not enabled");
+
+        s.addCredit(BY.uuid(), BY.name(), 3.2);
+        sent.clear();
+        admin.handle("usage", BY, null, List.of());
+        assertTrue(sent.get(0).text().contains("credit: $3.20 left"));
     }
 
     @Test

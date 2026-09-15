@@ -101,6 +101,10 @@ class AgentRunnerTest {
         return new AgentRunner.RunRequest(player(), text, List.of(), cancelled, onProgress, u -> { });
     }
 
+    private static AgentRunner.RunRequest requestWithWrapUp(String text, java.util.function.BooleanSupplier wrapUp) {
+        return new AgentRunner.RunRequest(player(), text, List.of(), () -> false, l -> { }, u -> { }, wrapUp);
+    }
+
     @Test
     void twoToolCallTurnWhereOneToolReturnsImage() {
         FakeModelApi model = new FakeModelApi(List.of(
@@ -166,6 +170,42 @@ class AgentRunnerTest {
         assertEquals(ToolChoice.NONE, model.calls.get(1).toolChoice());
         ChatMessage lastMessage = model.calls.get(1).messages().get(model.calls.get(1).messages().size() - 1);
         assertTrue(lastMessage.contentText().contains("Tool budget exhausted"));
+    }
+
+    @Test
+    void wrapUpFlippingTrueAfterFirstToolCallForcesToolChoiceNoneWithCreditNote() {
+        FakeModelApi model = new FakeModelApi(List.of(
+                assistantToolCallsReply(List.of(new ToolCall("call-1", "mc_status", "{}"))),
+                assistantTextReply("Here is what I finished, snapshot abc123.")));
+        ToolRegistry registry = new ToolRegistry(List.of(
+                fakeTool("mc_status", (ctx, args) -> CompletableFuture.completedFuture(ToolResult.text("ok")))));
+        AgentRunner runner = new AgentRunner(model, registry, Set.of("mc_status"), 25, "high", Optional.empty());
+
+        // Simulates credit reaching zero once the first tool call's cost is deducted: wrapUp is
+        // never true before the loop's second model call (see the next test), so returning true
+        // unconditionally here still exercises "flips true after the first tool call".
+        AgentRunner.RunResult result = runner.run(requestWithWrapUp("do a lot of things", () -> true));
+
+        assertEquals("Here is what I finished, snapshot abc123.", result.text());
+        assertEquals(2, model.calls.size());
+        assertEquals(ToolChoice.AUTO, model.calls.get(0).toolChoice());
+        assertEquals(ToolChoice.NONE, model.calls.get(1).toolChoice());
+        ChatMessage lastMessage = model.calls.get(1).messages().get(model.calls.get(1).messages().size() - 1);
+        assertTrue(lastMessage.contentText().contains("credit is used up"), "unexpected note: " + lastMessage.contentText());
+        assertEquals(1, result.toolCalls(), "no further tool calls once wrapped up");
+    }
+
+    @Test
+    void wrapUpIsNotCheckedBeforeTheFirstModelCall() {
+        FakeModelApi model = new FakeModelApi(List.of(assistantTextReply("Done immediately.")));
+        AgentRunner runner = new AgentRunner(model, new ToolRegistry(List.of()), Set.of(), 25, "high", Optional.empty());
+
+        AgentRunner.RunResult result = runner.run(requestWithWrapUp("hi", () -> {
+            throw new AssertionError("wrapUp must not be checked before the first model call");
+        }));
+
+        assertEquals("Done immediately.", result.text());
+        assertEquals(ToolChoice.AUTO, model.calls.get(0).toolChoice());
     }
 
     @Test

@@ -249,7 +249,8 @@ public final class AgentService {
                         requestCost[0] += r.cost();
                         requestUsage[0] = requestUsage[0].plus(usage);
                         lastRecord[0] = r;
-                    }));
+                    },
+                    () -> usageStore.creditOf(player.uuid()).map(c -> c.balance() <= 0).orElse(false)));
         } catch (CancelledException e) {
             progress.cancelPending();
             outbox.send(uuid, "Cancelled.", true);
@@ -283,6 +284,11 @@ public final class AgentService {
         String footer = formatUsageFooter(requestCost[0], requestUsage[0], today, player.uuid());
         String finalText = result.text() + "\n" + footer;
 
+        boolean creditUsedUp = usageStore.creditOf(player.uuid()).map(c -> c.balance() <= 0).orElse(false);
+        if (creditUsedUp) {
+            finalText += "\nCredit used up - ask an operator to top up, then say \"continue\".";
+        }
+
         for (String chunk : chunkText(finalText, CHUNK_MAX_LENGTH)) {
             outbox.send(uuid, chunk, true);
         }
@@ -294,15 +300,22 @@ public final class AgentService {
         long todayTokens = today.inputTokens + today.cachedInputTokens + today.outputTokens;
         PluginConfig.AgentConfig.PricingConfig pricing = config.pricing();
         boolean pricesAreZero = pricing.input() == 0 && pricing.cachedInput() == 0 && pricing.output() == 0;
+        String body;
         if (pricesAreZero) {
-            return "(this request: " + UsageStore.fmtTokens(requestTokens) + " tokens | today: "
-                    + UsageStore.fmtTokens(todayTokens) + " tokens)";
+            body = "(this request: " + UsageStore.fmtTokens(requestTokens) + " tokens | today: "
+                    + UsageStore.fmtTokens(todayTokens) + " tokens";
+        } else {
+            UsageStore.LimitValue costLimit = usageStore.effectiveLimit(uuid, UsageStore.LimitKind.COST);
+            String ofPart = costLimit.isOff() ? "" : " of " + UsageStore.fmtCost(costLimit.amount(), pricing.currency());
+            body = "(this request: " + UsageStore.fmtTokens(requestTokens) + " tokens, "
+                    + UsageStore.fmtCost(requestCost, pricing.currency()) + " | today: "
+                    + UsageStore.fmtCost(today.cost, pricing.currency()) + ofPart;
         }
-        UsageStore.LimitValue costLimit = usageStore.effectiveLimit(uuid, UsageStore.LimitKind.COST);
-        String ofPart = costLimit.isOff() ? "" : " of " + UsageStore.fmtCost(costLimit.amount(), pricing.currency());
-        return "(this request: " + UsageStore.fmtTokens(requestTokens) + " tokens, "
-                + UsageStore.fmtCost(requestCost, pricing.currency()) + " | today: "
-                + UsageStore.fmtCost(today.cost, pricing.currency()) + ofPart + ")";
+        Optional<UsageStore.Credit> credit = usageStore.creditOf(uuid);
+        if (credit.isPresent()) {
+            body += " | credit: " + UsageStore.fmtCredit(credit.get().balance(), pricing.currency()) + " left";
+        }
+        return body + ")";
     }
 
     private static String truncate(String s, int max) {

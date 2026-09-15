@@ -426,6 +426,73 @@ class AgentServiceTest {
     }
 
     @Test
+    void footerGainsCreditLineWhenEnabled() {
+        ScriptedModelApi model = new ScriptedModelApi(List.of(textReply("Built it.", new Usage(1_000_000, 0, 0))));
+        RecordingOutbox outbox = new RecordingOutbox();
+        PluginConfig.AgentConfig config = agentConfig(2, 0, 0);
+        UsageStore usageStore = new UsageStore(tempDir.resolve("usage.json"), config.pricing().input(),
+                config.pricing().cachedInput(), config.pricing().output(), config.pricing().currency(),
+                new UsageStore.Limits(0, 0, 0), Pricing.parsePeakHours("always"), 0.5, java.time.Instant::now, 0);
+        usageStore.addCredit(PLAYER_1.toString(), "Alex", 3.5);
+        HistoryStore historyStore = new HistoryStore(6, 30);
+        service = new AgentService(config, new ToolRegistry(List.of()), model, usageStore, historyStore, outbox, LOGGER);
+
+        service.submit(player(PLAYER_1, "Alex"), "build a house");
+
+        awaitTrue(() -> outbox.forPlayer(PLAYER_1).stream().anyMatch(RecordingOutbox.Sent::finalKind), "the final reply");
+        RecordingOutbox.Sent finalSent = outbox.forPlayer(PLAYER_1).stream().filter(RecordingOutbox.Sent::finalKind).findFirst().orElseThrow();
+        assertTrue(finalSent.text().contains("| credit: $3.20 left)"), "unexpected footer: " + finalSent.text());
+    }
+
+    @Test
+    void submitRejectsImmediatelyWhenCreditIsAlreadyZero() {
+        ScriptedModelApi model = new ScriptedModelApi(List.of());
+        RecordingOutbox outbox = new RecordingOutbox();
+        PluginConfig.AgentConfig config = agentConfig(2, 0, 0);
+        UsageStore usageStore = new UsageStore(tempDir.resolve("usage.json"), config.pricing().input(),
+                config.pricing().cachedInput(), config.pricing().output(), config.pricing().currency(),
+                new UsageStore.Limits(0, 0, 0), Pricing.parsePeakHours("always"), 0.5, java.time.Instant::now, 0);
+        usageStore.setCredit(PLAYER_1.toString(), "Alex", 0);
+        HistoryStore historyStore = new HistoryStore(6, 30);
+        service = new AgentService(config, new ToolRegistry(List.of()), model, usageStore, historyStore, outbox, LOGGER);
+
+        service.submit(player(PLAYER_1, "Alex"), "build a house");
+
+        awaitTrue(() -> !outbox.forPlayer(PLAYER_1).isEmpty(), "a rejection message");
+        RecordingOutbox.Sent sent = outbox.forPlayer(PLAYER_1).get(0);
+        assertTrue(sent.finalKind());
+        assertTrue(sent.text().contains("out of credit"), "unexpected message: " + sent.text());
+    }
+
+    @Test
+    void wrapUpPathAppendsTheExtraCreditUsedUpLine() {
+        // The first turn's $0.30 (1M input tokens at the configured $0.30/1M, "always"-peak price)
+        // overdraws the $0.10 starting balance, so the wrapUp supplier - read fresh off the store,
+        // which record() already updated - is true before the runner's second chat() call.
+        ScriptedModelApi model = new ScriptedModelApi(List.of(
+                new Reply(ChatMessage.assistantToolCalls(List.of(new ToolCall("call-1", "tool_a", "{}"))),
+                        new Usage(1_000_000, 0, 0), "tool_calls"),
+                textReply("Wall built, roof still to do. Snapshot xyz.", new Usage(10, 0, 5))));
+        RecordingOutbox outbox = new RecordingOutbox();
+        PluginConfig.AgentConfig config = agentConfig(2, 0, 0);
+        UsageStore usageStore = new UsageStore(tempDir.resolve("usage.json"), config.pricing().input(),
+                config.pricing().cachedInput(), config.pricing().output(), config.pricing().currency(),
+                new UsageStore.Limits(0, 0, 0), Pricing.parsePeakHours("always"), 0.5, java.time.Instant::now, 0);
+        usageStore.setCredit(PLAYER_1.toString(), "Alex", 0.10);
+        HistoryStore historyStore = new HistoryStore(6, 30);
+        ToolRegistry registry = new ToolRegistry(List.of(
+                fakeTool("tool_a", (ctx, args) -> CompletableFuture.completedFuture(ToolResult.text("a-done")))));
+        service = new AgentService(config, registry, model, usageStore, historyStore, outbox, LOGGER);
+
+        service.submit(player(PLAYER_1, "Alex"), "build a house");
+
+        awaitTrue(() -> outbox.forPlayer(PLAYER_1).stream().anyMatch(RecordingOutbox.Sent::finalKind), "the final reply");
+        RecordingOutbox.Sent finalSent = outbox.forPlayer(PLAYER_1).stream().filter(RecordingOutbox.Sent::finalKind).findFirst().orElseThrow();
+        assertTrue(finalSent.text().contains("Credit used up - ask an operator to top up, then say \"continue\"."),
+                "unexpected final message: " + finalSent.text());
+    }
+
+    @Test
     void shutdownCancelsARunningRequestAndReturnsPromptly() {
         BlockingModelApi model = new BlockingModelApi(textReply("Never sent.", new Usage(1, 0, 1)));
         RecordingOutbox outbox = new RecordingOutbox();

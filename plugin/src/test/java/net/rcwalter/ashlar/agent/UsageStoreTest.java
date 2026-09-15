@@ -236,4 +236,145 @@ class UsageStoreTest {
         assertEquals("$0.0061", UsageStore.fmtCost(0.0061, "USD"));
         assertEquals("CNY 0.04", UsageStore.fmtCost(0.04, "CNY"));
     }
+
+    // ---- credit ----
+
+    @Test
+    void addCreditEnablesAndAccumulates() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            assertTrue(store.creditOf("u1").isEmpty());
+
+            double after1 = store.addCredit("u1", "Alex", 5);
+            assertEquals(5.0, after1);
+            assertTrue(store.creditOf("u1").isPresent());
+            assertTrue(store.creditOf("u1").get().enabled());
+            assertEquals(5.0, store.creditOf("u1").get().balance());
+
+            double after2 = store.addCredit("u1", "Alex", 2.5);
+            assertEquals(7.5, after2);
+            assertEquals(7.5, store.creditOf("u1").get().balance());
+        }
+    }
+
+    @Test
+    void addCreditNegativeCorrectionClampsAtZero() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.addCredit("u1", "Alex", 2);
+            double after = store.addCredit("u1", "Alex", -10);
+            assertEquals(0.0, after);
+            assertEquals(0.0, store.creditOf("u1").get().balance());
+        }
+    }
+
+    @Test
+    void setCreditReplacesBalanceOutright() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.addCredit("u1", "Alex", 100);
+            store.setCredit("u1", "Alex", 3.2);
+            assertEquals(3.2, store.creditOf("u1").get().balance());
+        }
+    }
+
+    @Test
+    void disableCreditClearsIt() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.addCredit("u1", "Alex", 5);
+            store.disableCredit("u1");
+            assertTrue(store.creditOf("u1").isEmpty());
+
+            // No effect on a player who never had credit, or who is not yet known.
+            store.disableCredit("never-seen");
+            assertTrue(store.creditOf("never-seen").isEmpty());
+        }
+    }
+
+    @Test
+    void recordDeductsCostFromEnabledBalanceOnly() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.addCredit("u1", "Alex", 10);
+            store.record("u1", "Alex", new Usage(1_000_000, 0, 0)); // costs $0.30 at peak price
+            assertEquals(9.7, store.creditOf("u1").get().balance(), 1e-9);
+
+            // A player without credit is unaffected: record() must not create a credit balance.
+            store.record("u2", "Steve", new Usage(1_000_000, 0, 0));
+            assertTrue(store.creditOf("u2").isEmpty());
+        }
+    }
+
+    @Test
+    void recordCanDriveBalanceSlightlyNegativeButDisplayShowsZero() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.setCredit("u1", "Alex", 0.1);
+            store.record("u1", "Alex", new Usage(1_000_000, 0, 0)); // costs $0.30, more than the balance
+            assertTrue(store.creditOf("u1").get().balance() < 0);
+            assertEquals("$0.00", UsageStore.fmtCredit(store.creditOf("u1").get().balance(), "USD"));
+        }
+    }
+
+    @Test
+    void checkAllowedRejectsWhenCreditIsUsedUp() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.setCredit("u1", "Alex", 0);
+            UsageStore.CheckResult result = store.checkAllowed("u1");
+            assertFalse(result.ok());
+            assertTrue(result.reason().contains("out of credit ($0.00 left) - ask an operator to top up"),
+                    "unexpected reason: " + result.reason());
+        }
+    }
+
+    @Test
+    void checkAllowedIgnoresCreditForPlayersWithoutIt() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            assertTrue(store.checkAllowed("nobody").ok());
+        }
+    }
+
+    @Test
+    void checkAllowedAllowsWhenCreditIsPositive() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.setCredit("u1", "Alex", 1);
+            assertTrue(store.checkAllowed("u1").ok());
+        }
+    }
+
+    @Test
+    void creditPersistsAcrossRestart() throws IOException {
+        Path filePath = filePath();
+        try (UsageStore store1 = new UsageStore(filePath, 0.3, 0.006, 1.2, "USD", DEFAULT_ENV_LIMITS,
+                Pricing.parsePeakHours("mon-fri 01:00-04:00,06:00-10:00"), 0.5, () -> PEAK_TIME, 0)) {
+            store1.addCredit("u1", "Alex", 5);
+        }
+
+        JsonObject raw = JsonParser.parseString(Files.readString(filePath)).getAsJsonObject();
+        JsonObject playerJson = raw.getAsJsonObject("players").getAsJsonObject("u1");
+        assertTrue(playerJson.has("credit"));
+        assertTrue(playerJson.getAsJsonObject("credit").get("enabled").getAsBoolean());
+        assertEquals(5.0, playerJson.getAsJsonObject("credit").get("balance").getAsDouble());
+
+        try (UsageStore store2 = new UsageStore(filePath, 0.3, 0.006, 1.2, "USD", DEFAULT_ENV_LIMITS,
+                Pricing.parsePeakHours("mon-fri 01:00-04:00,06:00-10:00"), 0.5, () -> PEAK_TIME, 0)) {
+            assertTrue(store2.creditOf("u1").isPresent());
+            assertEquals(5.0, store2.creditOf("u1").get().balance());
+            UsageStore.UsageSummary summary = store2.summary("u1");
+            assertTrue(summary.credit().isPresent());
+            assertEquals(5.0, summary.credit().get().balance());
+        }
+    }
+
+    @Test
+    void creditAbsentFromJsonWhenNeverEnabled() throws IOException {
+        Path filePath = filePath();
+        try (UsageStore store = new UsageStore(filePath, 0.3, 0.006, 1.2, "USD", DEFAULT_ENV_LIMITS,
+                Pricing.parsePeakHours("mon-fri 01:00-04:00,06:00-10:00"), 0.5, () -> PEAK_TIME, 0)) {
+            store.record("u1", "Alex", new Usage(10, 0, 1));
+        }
+        JsonObject raw = JsonParser.parseString(Files.readString(filePath)).getAsJsonObject();
+        assertFalse(raw.getAsJsonObject("players").getAsJsonObject("u1").has("credit"));
+    }
+
+    @Test
+    void fmtCreditClampsNegativeToZero() {
+        assertEquals("$0.00", UsageStore.fmtCredit(-1.5, "USD"));
+        assertEquals("$3.20", UsageStore.fmtCredit(3.2, "USD"));
+    }
 }

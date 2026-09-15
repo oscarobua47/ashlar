@@ -197,6 +197,13 @@ Players with the `ashlar.admin` permission (default op) get these in-game comman
 - **`/ashlar pause`** / **`/ashlar resume`** - a global switch; while paused, every new `/ashlar` request is rejected with a message, without touching one already running.
 - **`/ashlar cancel <player>`** - cancels another player's running or queued request (their own `/ashlar cancel` still works too); the target is told who cancelled it.
 - **`/ashlar allow <player>`** / **`/ashlar deny <player>`** / **`/ashlar allowed`** - the plugin's own allow list (see Setup).
+- **`/ashlar credit <player>`** / **`/ashlar credit <player> <add|set> <amount>`** / **`/ashlar credit <player> off`** - manage a player's prepaid credit (see "Prepaid credit" below).
+
+#### Prepaid credit
+
+Daily limits (above) are the operator's own safety valve and are checked only before a request starts. Credit is different: it is someone else's money, so it is checked before a request *and* enforced while one is running. Give a player credit with `/ashlar credit <player> add <amount>` (tops up, enabling credit if it was off) or `/ashlar credit <player> set <amount>` (replaces the balance outright); `/ashlar credit <player> off` disables it again; `/ashlar credit <player>` with no further arguments shows the balance. A player without credit enabled is completely unaffected by any of this - `/ashlar usage` and the reply footer only show a credit line once they have some.
+
+The balance is deducted after every model turn, the same per-turn accounting the usage counters already use. If it reaches zero while a request is still running, the request is wrapped up gracefully rather than cut off mid-build: the tool call already in flight finishes, then the model gets one final turn with no tools to say what it completed, what is left, and the snapshot id - the same mechanism used when a request hits `agent.model.max-tool-calls`. The final reply gets an extra line telling the player to ask an operator to top up and then say "continue". Starting a *new* request with a balance already at or below zero is rejected up front, like any other limit. Daily limits still apply on top of credit - both are checked. Balances persist in the same `plugins/Ashlar/usage.json` as everything else above.
 
 `agent.limits.*` and `agent.pricing.*` in `plugins/Ashlar/config.yml` (embedded mode only):
 

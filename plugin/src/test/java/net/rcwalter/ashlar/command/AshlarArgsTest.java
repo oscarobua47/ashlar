@@ -158,6 +158,83 @@ class AshlarArgsTest {
     }
 
     @Test
+    void creditWithPlayerOnlyIsCreditShow() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex"));
+        assertEquals(AshlarArgs.Kind.CREDIT_SHOW, parsed.kind());
+        assertEquals("Alex", parsed.targetName());
+        assertEquals(List.of(), parsed.args());
+    }
+
+    @Test
+    void creditAddIsCreditSet() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex add 5"));
+        assertEquals(AshlarArgs.Kind.CREDIT_SET, parsed.kind());
+        assertEquals("Alex", parsed.targetName());
+        assertEquals(List.of("add", "5"), parsed.args());
+    }
+
+    @Test
+    void creditSetIsCreditSet() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex set 3.2"));
+        assertEquals(AshlarArgs.Kind.CREDIT_SET, parsed.kind());
+        assertEquals(List.of("set", "3.2"), parsed.args());
+    }
+
+    @Test
+    void creditOffIsCreditSetWithNoAmount() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex off"));
+        assertEquals(AshlarArgs.Kind.CREDIT_SET, parsed.kind());
+        assertEquals(List.of("off"), parsed.args());
+    }
+
+    @Test
+    void creditIsCaseInsensitiveForKeywordAndAction() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("CrEdIt Alex ADD 5"));
+        assertEquals(AshlarArgs.Kind.CREDIT_SET, parsed.kind());
+        assertEquals(List.of("add", "5"), parsed.args());
+    }
+
+    @Test
+    void creditAddWithoutAmountIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex add"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+        assertNotNull(parsed.error());
+    }
+
+    @Test
+    void creditOffWithExtraAmountIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex off 5"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+    }
+
+    @Test
+    void creditAddWithNonNumericAmountIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex add abc"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+    }
+
+    @Test
+    void creditSetWithNonPositiveAmountIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex set -5"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+        AshlarArgs.Parsed zero = AshlarArgs.parse(words("credit Alex set 0"));
+        assertEquals(AshlarArgs.Kind.INVALID, zero.kind());
+    }
+
+    @Test
+    void creditWithBadActionIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit Alex speed 5"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+    }
+
+    @Test
+    void creditAloneIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("credit"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+        assertNotNull(parsed.error());
+    }
+
+    @Test
     void pauseAloneIsPause() {
         AshlarArgs.Parsed parsed = AshlarArgs.parse(words("pause"));
         assertEquals(AshlarArgs.Kind.PAUSE, parsed.kind());
