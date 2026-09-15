@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package net.rcwalter.ashlar.agent;
+
+import net.rcwalter.ashlar.agent.model.Usage;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** Port of {@code mcp-server/src/agent/admin.test.ts}. */
+class AdminActionsTest {
+
+    @TempDir
+    Path tempDir;
+
+    private UsageStore store;
+
+    private static final AdminActions.By BY = new AdminActions.By("Op", "op-uuid");
+
+    private record Sent(String uuid, String text, AdminActions.SendKind kind) {
+    }
+
+    private UsageStore newStore() {
+        store = new UsageStore(tempDir.resolve("usage.json"), 0.3, 0.006, 1.2, "USD",
+                new UsageStore.Limits(0, 0, 40), Pricing.parsePeakHours("always"), 0.5, java.time.Instant::now, 0);
+        return store;
+    }
+
+    @AfterEach
+    void closeStore() {
+        if (store != null) {
+            store.close();
+        }
+    }
+
+    private static List<Sent> newSent() {
+        return new ArrayList<>();
+    }
+
+    private static AdminActions.Send fakeSend(List<Sent> sent) {
+        return (uuid, text, kind) -> sent.add(new Sent(uuid, text, kind));
+    }
+
+    @Test
+    void usageSelfNullTargetReportsCallersOwnUsage() {
+        UsageStore s = newStore();
+        s.record(BY.uuid(), BY.name(), new Usage(1000, 0, 100));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of());
+
+        assertEquals(1, sent.size());
+        assertEquals(BY.uuid(), sent.get(0).uuid());
+        assertTrue(sent.get(0).text().contains("Usage for Op:"));
+        assertTrue(sent.get(0).text().contains("today: 1 requests"));
+        assertEquals(AdminActions.SendKind.FINAL, sent.get(0).kind());
+    }
+
+    @Test
+    void usageNamedPlayerResolvedByUuid() {
+        UsageStore s = newStore();
+        s.record("alex-uuid", "Alex", new Usage(500, 0, 50));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of());
+
+        assertTrue(sent.get(0).text().contains("Usage for Alex:"));
+    }
+
+    @Test
+    void usageOfflineNamedPlayerResolvedByLastSeenName() {
+        UsageStore s = newStore();
+        s.record("alex-uuid", "Alex", new Usage(500, 0, 50));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("alex", null), List.of());
+
+        assertTrue(sent.get(0).text().contains("Usage for Alex:"));
+    }
+
+    @Test
+    void usageUnknownPlayerTellsCaller() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("Nobody", null), List.of());
+
+        assertTrue(sent.get(0).text().contains("Unknown player \"Nobody\""));
+    }
+
+    @Test
+    void usageAllListsEveryPlayerSortedByTodayCost() {
+        UsageStore s = newStore();
+        s.record("u1", "Cheap", new Usage(100, 0, 10));
+        s.record("u2", "Pricey", new Usage(1_000_000, 0, 1_000_000));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("all", null), List.of());
+
+        String text = sent.get(0).text();
+        int priceyIndex = text.indexOf("Pricey");
+        int cheapIndex = text.indexOf("Cheap");
+        assertTrue(priceyIndex >= 0 && cheapIndex >= 0 && priceyIndex < cheapIndex, "Pricey (higher cost) must be listed first");
+    }
+
+    @Test
+    void limitSetsPerPlayerOverrideAndRepliesWithNewEffectiveLimits() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("limit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("cost", "5"));
+
+        assertEquals(5.0, s.effectiveLimit("alex-uuid", UsageStore.LimitKind.COST).amount());
+        assertTrue(sent.get(0).text().contains("Set limits for Alex"));
+        assertTrue(sent.get(0).text().contains("$5.00/day"));
+    }
+
+    @Test
+    void limitNullTargetSetsServerDefault() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("limit", BY, null, List.of("tokens", "10000"));
+
+        assertEquals(10_000.0, s.effectiveLimits(null).get(UsageStore.LimitKind.TOKENS).amount());
+        assertTrue(sent.get(0).text().contains("Set limits for the server default"));
+    }
+
+    @Test
+    void limitOffSetsUnlimited() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("limit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("requests", "off"));
+
+        assertTrue(s.effectiveLimit("alex-uuid", UsageStore.LimitKind.REQUESTS).isOff());
+    }
+
+    @Test
+    void limitResetRemovesTheOverride() {
+        UsageStore s = newStore();
+        s.setLimit("alex-uuid", UsageStore.LimitKind.COST, UsageStore.LimitValue.of(5), "Alex");
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("limit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("reset"));
+
+        assertTrue(s.effectiveLimit("alex-uuid", UsageStore.LimitKind.COST).isOff());
+        assertTrue(sent.get(0).text().contains("Reset limits for Alex"));
+    }
+
+    @Test
+    void limitNonPositiveValueIsRejectedNotApplied() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("limit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("cost", "-1"));
+
+        assertTrue(sent.get(0).text().contains("must be a positive number"));
+        assertTrue(s.effectiveLimit("alex-uuid", UsageStore.LimitKind.COST).isOff());
+    }
+
+    @Test
+    void limitUnknownKindIsRejected() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("limit", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("bogus", "5"));
+
+        assertTrue(sent.get(0).text().contains("Unknown limit kind"));
+    }
+
+    @Test
+    void cancelRunningReportsSuccessAndNotifiesTargetNoneReportsFailure() {
+        UsageStore s = newStore();
+        Map<String, AdminActions.CancelOutcome> outcomes = Map.of("alex-uuid", AdminActions.CancelOutcome.RUNNING, "steve-uuid", AdminActions.CancelOutcome.NONE);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> outcomes.getOrDefault(uuid, AdminActions.CancelOutcome.NONE), fakeSend(sent), "USD");
+
+        admin.handle("cancel", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of());
+        assertTrue(sent.get(0).text().contains("Cancelled Alex's request."));
+        assertEquals("alex-uuid", sent.get(1).uuid());
+        assertTrue(sent.get(1).text().contains("cancelled by Op"));
+
+        sent.clear();
+        admin.handle("cancel", BY, new AdminActions.Target("Steve", "steve-uuid"), List.of());
+        assertTrue(sent.get(0).text().contains("Steve has no request running."));
+        assertEquals(1, sent.size(), "no notification is sent when there was nothing to cancel");
+    }
+
+    @Test
+    void pauseResumeSetsStorePauseFlagAndReplies() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("pause", BY, null, List.of());
+        assertTrue(s.isPaused());
+        assertTrue(sent.get(0).text().toLowerCase(java.util.Locale.ROOT).contains("paused"));
+
+        admin.handle("resume", BY, null, List.of());
+        assertTrue(!s.isPaused());
+        assertTrue(sent.get(1).text().toLowerCase(java.util.Locale.ROOT).contains("resumed"));
+    }
+
+    @Test
+    void unknownActionIsIgnoredWithoutSendingAnything() {
+        UsageStore s = newStore();
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("teleport", BY, null, List.of());
+
+        assertEquals(0, sent.size());
+    }
+}
