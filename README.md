@@ -62,15 +62,9 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
    - `server.allowed-ips`: optional. If the MCP server runs somewhere with a fixed public IP (a VPS), put that IP here. If it runs on your own PC behind a typical home connection, your IP changes and an allow-list would lock you out - leave it empty and rely on the token, which is the real authentication. See [Security](#security) for what an empty list means and how to tighten it anyway.
 4. Restart the server.
 
-### 2. Install the MCP server
+### 2. Have Node on the client machine
 
-Requires **Node >= 22** on the machine that runs your AI client. `ashlar-mcp` 0.4 needs plugin 0.3 or newer - it fetches the tool catalog from the plugin at startup and exits with a clear message if the plugin is too old. The MCP server is published to npm as [`ashlar-mcp`](https://www.npmjs.com/package/ashlar-mcp); `npx` downloads it on first use, so there is nothing to clone or build:
-
-```sh
-npx -y ashlar-mcp --stdio    # fails fast with a usage message until MC_PLUGIN_URL/MC_PLUGIN_TOKEN are set
-```
-
-If you prefer a fixed path (or want to avoid the first-launch download inside a GUI client), install it once globally with `npm install -g ashlar-mcp` and point the client configs below at the resulting `ashlar-mcp` binary (`which ashlar-mcp`) instead of `npx`.
+There is nothing to install by hand. The client configs below start the MCP server with `npx -y ashlar-mcp`, which downloads it from npm on first launch and caches it; the only requirement is **Node >= 22** on the machine that runs your AI client. (`ashlar-mcp` 0.4 needs plugin 0.3 or newer and exits with a clear message otherwise. If you would rather have a fixed path, `npm install -g ashlar-mcp` once and point the configs at the resulting `ashlar-mcp` binary.)
 
 ### 3. Connect a client
 
