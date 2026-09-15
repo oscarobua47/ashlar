@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.0
+
+The tool layer moves into the plugin: tool descriptions, JSON schemas and result formatting are now owned by the Java side, and the MCP server becomes a thin protocol adapter.
+
+### Plugin (`plugin/`)
+
+- `InvocationContext` decouples tool execution from the WebSocket session, so tools can run for in-process callers (the in-game assistant) as well as RPC clients; handlers are split into services.
+- A main-thread guard protects in-process callers, and `MainThread.call` now completes its futures off the main thread.
+- The nine tools (`mc_status`, `mc_players`, `mc_survey`, `mc_render`, `mc_build`, `mc_inspect`, `mc_snapshot`, `mc_restore`, `mc_command`) are Java classes (`tool/mc/`), each with a description and JSON Schema in a resource file (`resources/tools/*.json`) plus a shared `instructions.txt`.
+- Model-facing result text formatting (headers, warnings, ASCII maps, error text) is ported to Java (`tool.text`), with cross-language golden files (`plugin/src/test/resources/goldens/`) as the reference.
+- Two new RPCs: `tool_catalog` (returns the tool specs plus the `instructions` text) and `tool_call` (runs one tool by name and returns its formatted result).
+
+### MCP server (`mcp-server/`)
+
+- Generic adapter: `ashlar-mcp` no longer contains any Ashlar-specific tool code. On connect it fetches the catalog via `tool_catalog` and registers every tool exactly as the plugin describes it; each call is forwarded to `tool_call` and the result passed through untouched.
+- `mcp-server/src/tools/*` (nine tool modules, schemas, result formatting) deleted along with their tests; only a small `ContentBlock` helper remains.
+- `ashlar-mcp` 0.3 requires plugin >= 0.3.0: it fetches the catalog at startup and exits with a clear message if the plugin is too old to answer `tool_catalog`. Plugin 0.3 still serves every RPC from 0.1/0.2, so an older `ashlar-mcp` 0.2 keeps working against it.
+
+### Known limitations (tracked for later)
+
+- Snapshots do not capture block entity contents (sign text, container items); `restore` loses them.
+- `mc_inspect` slices merge by block type, not full state, once a slice has more than 47 distinct types.
+- Blocks that share a Minecraft map color (e.g. stone/stone bricks/cobblestone) can be indistinguishable in `mc_render`/`mc_survey` images.
+- No `/ashlar undo` yet - players have to ask the assistant to restore the snapshot it took.
+- An in-progress build cannot be cancelled mid-fill; `/ashlar cancel` takes effect between tool calls, not inside one.
+- Daily per-player request/token/cost counters and limit overrides are read at `--agent` startup and saved debounced/on close; a hard crash between saves can lose the last few seconds of counters (the file itself, and the pause flag, do survive a clean restart).
+- The Node adapter registers the catalog once at startup (no `tools/list_changed`); a plugin reload with changed tool specs needs `ashlar-mcp` restarted to pick them up.
+
 ## 0.2.0
 
 In-game AI assistant: players can now ask for a build directly in chat, without any MCP client on their own machine.

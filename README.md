@@ -13,15 +13,21 @@ Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Des
 ## How it works
 
 ```
-AI client                MCP server              Paper plugin
-(Claude/ChatGPT/...)     (Node, mcp-server/)      (Java, plugin/)
+AI client                MCP server                 Paper plugin
+(Claude/ChatGPT/...)     (Node, mcp-server/,         (Java, plugin/ - owns the
+                          a protocol adapter)         tool layer: descriptions,
+                                                       schemas, result text,
+                                                       execution)
 
-   mc_* tool call  --->     WebSocket RPC   --->   main-thread block
-   (stdio or HTTP)          (ws:// / wss://)        writes, tick-budgeted
+   mc_* tool call  --->  tool_catalog/tool_call  --->   main-thread block
+   (stdio or HTTP)       over WebSocket RPC             writes, tick-budgeted
+                         (ws:// / wss://)
         <---  text/image result  <---  JSON result / progress events
 
 player's /ashlar  --->  plugin chat event  --->  ashlar-mcp --agent  --->  model API  --->  same tools above
 ```
+
+The tool layer lives entirely in the plugin, not in the MCP server: `ashlar-mcp` fetches the tool catalog (descriptions, JSON schemas, and the server-level instructions text) from the plugin at startup and just forwards calls, so there is one definition of every tool, reused by any MCP client and by the in-game assistant alike.
 
 - Coarse-grained tools: one `mc_build` call places up to 500,000 blocks, instead of the AI placing blocks one at a time.
 - All block edits run on the server's main thread, spread across ticks under a per-tick time budget, so a large build does not freeze the server or lag players.
@@ -48,7 +54,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.2.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.3.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
@@ -58,7 +64,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 2. Install the MCP server
 
-Requires **Node >= 22** on the machine that runs your AI client. The MCP server is published to npm as [`ashlar-mcp`](https://www.npmjs.com/package/ashlar-mcp); `npx` downloads it on first use, so there is nothing to clone or build:
+Requires **Node >= 22** on the machine that runs your AI client. `ashlar-mcp` 0.3 needs plugin 0.3 or newer - it fetches the tool catalog from the plugin at startup and exits with a clear message if the plugin is too old. The MCP server is published to npm as [`ashlar-mcp`](https://www.npmjs.com/package/ashlar-mcp); `npx` downloads it on first use, so there is nothing to clone or build:
 
 ```sh
 npx -y ashlar-mcp --stdio    # fails fast with a usage message until MC_PLUGIN_URL/MC_PLUGIN_TOKEN are set
@@ -243,6 +249,7 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 | Java | 25 required (Paper 26.x's hard requirement) |
 | Node | >= 22 required (MCP server uses the built-in `WebSocket` global) |
 | MCP clients | Any MCP SDK v2 client: Claude Desktop, Claude Code, Cursor, etc. |
+| `ashlar-mcp` <-> plugin | `ashlar-mcp` 0.3 requires plugin >= 0.3.0 (fetches the tool catalog via `tool_catalog` at startup; exits with a clear message otherwise); plugin 0.3 still serves every RPC an `ashlar-mcp` 0.2 client uses, so an older `ashlar-mcp` keeps working against a newer plugin. |
 
 **Not supported:** Minecraft 1.21.x and older (different Paper API version), Folia (single main-thread scheduling model assumed throughout), Bedrock Edition.
 
@@ -394,12 +401,18 @@ node tools/e2e.mjs        # end-to-end check against a running plugin test serve
 
 Project layout: `plugin/` is an independent Gradle project (Paper plugin, Java 25); `mcp-server/` is an independent npm project (TypeScript, MCP SDK v2). Both sides follow the same hard rules: Bukkit API only on the main thread inside the tick-budgeted executor, block writes only via `setBlockData(data, false)`, requests fully validated on the network thread before being queued, no NMS/reflection, and pure-ASCII sources.
 
+The tool layer lives entirely under `plugin/`: each `mc_*` tool is a Java class in `plugin/src/main/java/net/rcwalter/ashlar/tool/mc/`, its description and JSON Schema are a resource file in `plugin/src/main/resources/tools/<name>.json`, and the server-level instructions text sent to the model is `plugin/src/main/resources/tools/instructions.txt`. To change a tool's description, schema, or the instructions text, edit the matching resource - both MCP clients and the in-game assistant pick it up automatically, since both go through the plugin's `tool_catalog`/`tool_call` RPCs and neither hardcodes any tool knowledge of its own. Result text formatting (headers, warnings, ASCII maps, error text) lives in `plugin/src/main/java/net/rcwalter/ashlar/tool/text/`; the golden files under `plugin/src/test/resources/goldens/` are the reference for that formatting and should be updated deliberately, not silently, when it changes.
+
 ## Roadmap
 
-**v0.3:**
+**v0.4:**
+- In-game assistant runs inside the plugin - no Node process needed for `/ashlar` at all.
 - `/ashlar undo` - a dedicated command instead of asking the assistant to restore its snapshot.
 - Mid-build cancellation: today `/ashlar cancel` only takes effect between tool calls, not inside a single `mc_build` fill.
 - A native Anthropic-format provider for `--agent`, alongside the current OpenAI-compatible chat-completions one.
+
+**v0.5:**
+- Event bus for world/player events, and per-token scopes (a token can be limited to a subset of tools/worlds instead of all-or-nothing).
 
 **v1.1:**
 - Deterministic color tinting so blocks sharing a Minecraft map color (e.g. stone/stone bricks/cobblestone) are distinguishable in `mc_render`/`mc_survey` images.
@@ -412,6 +425,7 @@ Project layout: `plugin/` is an independent Gradle project (Paper plugin, Java 2
 - WorldEdit-compatible `.schem` import/export as a soft dependency.
 - Parametric structure generators (sphere, column, roof, spiral staircase).
 - An optional "redstone domain" (`mc_interact` to toggle levers/buttons and sample block state over several ticks, `mc_entities` to list moving parts) for actually testing redstone builds, not just placing them.
+- MCP endpoint inside the plugin (the Paper plugin speaks MCP directly, so a local/single-player setup would not need `mcp-server` at all) - under evaluation, not committed.
 
 ## License
 
