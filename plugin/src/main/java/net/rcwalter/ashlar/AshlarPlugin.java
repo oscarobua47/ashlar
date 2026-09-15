@@ -28,11 +28,24 @@ import net.rcwalter.ashlar.handler.SendMessageHandler;
 import net.rcwalter.ashlar.handler.SetBlocksHandler;
 import net.rcwalter.ashlar.handler.SnapshotHandler;
 import net.rcwalter.ashlar.handler.SubscribeHandler;
+import net.rcwalter.ashlar.handler.ToolCallHandler;
+import net.rcwalter.ashlar.handler.ToolCatalogHandler;
 import net.rcwalter.ashlar.log.OperationLog;
 import net.rcwalter.ashlar.net.WsServer;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcDispatcher;
+import net.rcwalter.ashlar.rpc.RpcHandler;
 import net.rcwalter.ashlar.snapshot.SnapshotStore;
+import net.rcwalter.ashlar.tool.ToolRegistry;
+import net.rcwalter.ashlar.tool.mc.McBuild;
+import net.rcwalter.ashlar.tool.mc.McCommand;
+import net.rcwalter.ashlar.tool.mc.McInspect;
+import net.rcwalter.ashlar.tool.mc.McPlayers;
+import net.rcwalter.ashlar.tool.mc.McRender;
+import net.rcwalter.ashlar.tool.mc.McRestore;
+import net.rcwalter.ashlar.tool.mc.McSnapshot;
+import net.rcwalter.ashlar.tool.mc.McStatus;
+import net.rcwalter.ashlar.tool.mc.McSurvey;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionDefault;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -40,6 +53,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -123,6 +137,24 @@ public final class AshlarPlugin extends JavaPlugin {
         SnapshotService snapshotService = new SnapshotService(config, executor, snapshotStore);
         HealthService healthService = new HealthService(this, startedAt, executor);
 
+        // Handler instances are kept as local variables (rather than passed inline to
+        // dispatcher.register) so the same instances can back both the WebSocket RPCs below and
+        // the in-process tool layer (plan.md step7.2b): a tool_call for e.g. mc_build calls
+        // straight into fillBatchHandler.handle(ctx, params), reusing every validation rule the
+        // fill_batch RPC enforces instead of duplicating it.
+        HealthHandler healthHandler = new HealthHandler(healthService);
+        FillBatchHandler fillBatchHandler = new FillBatchHandler(config, fillService);
+        SetBlocksHandler setBlocksHandler = new SetBlocksHandler(config, sparseService);
+        HeightmapHandler heightmapHandler = new HeightmapHandler(config, heightmapService);
+        ReadRegionHandler readRegionHandler = new ReadRegionHandler(config, readRegionService);
+        SnapshotHandler snapshotHandler = new SnapshotHandler(config, snapshotService, snapshotStore);
+        RunCommandHandler runCommandHandler = new RunCommandHandler(config);
+        PlayersHandler playersHandler = new PlayersHandler();
+        RenderHandler renderHandler = new RenderHandler(config, renderService);
+        RpcHandler snapshotCreateHandler = snapshotHandler.snapshot();
+        RpcHandler restoreHandler = snapshotHandler.restore();
+        RpcHandler listSnapshotsHandler = snapshotHandler.listSnapshots();
+
         this.dispatcher = new RpcDispatcher(operationLog, getLogger());
         // Re-sending "auth" once already authenticated is idempotent (plan.md 1.2).
         dispatcher.register("auth", (ctx, params) -> {
@@ -130,20 +162,34 @@ public final class AshlarPlugin extends JavaPlugin {
             result.addProperty("authenticated", true);
             return CompletableFuture.<JsonElement>completedFuture(result);
         });
-        dispatcher.register("health", new HealthHandler(healthService));
-        dispatcher.register("fill_batch", new FillBatchHandler(config, fillService));
-        dispatcher.register("set_blocks", new SetBlocksHandler(config, sparseService));
-        dispatcher.register("heightmap", new HeightmapHandler(config, heightmapService));
-        dispatcher.register("read_region", new ReadRegionHandler(config, readRegionService));
-        SnapshotHandler snapshotHandler = new SnapshotHandler(config, snapshotService, snapshotStore);
-        dispatcher.register("snapshot", snapshotHandler.snapshot());
-        dispatcher.register("restore", snapshotHandler.restore());
-        dispatcher.register("list_snapshots", snapshotHandler.listSnapshots());
-        dispatcher.register("run_command", new RunCommandHandler(config));
-        dispatcher.register("players", new PlayersHandler());
+        dispatcher.register("health", healthHandler);
+        dispatcher.register("fill_batch", fillBatchHandler);
+        dispatcher.register("set_blocks", setBlocksHandler);
+        dispatcher.register("heightmap", heightmapHandler);
+        dispatcher.register("read_region", readRegionHandler);
+        dispatcher.register("snapshot", snapshotCreateHandler);
+        dispatcher.register("restore", restoreHandler);
+        dispatcher.register("list_snapshots", listSnapshotsHandler);
+        dispatcher.register("run_command", runCommandHandler);
+        dispatcher.register("players", playersHandler);
         dispatcher.register("subscribe", new SubscribeHandler());
         dispatcher.register("send_message", new SendMessageHandler(config));
-        dispatcher.register("render", new RenderHandler(config, renderService));
+        dispatcher.register("render", renderHandler);
+
+        // The nine mc_* tools (plan.md step7.2b), in the same order as mcp-server's
+        // tools/index.ts registerAllTools, each backed by the RpcHandler instances above.
+        ToolRegistry toolRegistry = new ToolRegistry(List.of(
+                new McStatus(healthHandler),
+                new McPlayers(playersHandler),
+                new McSurvey(heightmapHandler, renderHandler),
+                new McBuild(snapshotCreateHandler, fillBatchHandler, setBlocksHandler),
+                new McInspect(readRegionHandler),
+                new McRender(renderHandler),
+                new McSnapshot(snapshotCreateHandler, listSnapshotsHandler),
+                new McRestore(restoreHandler),
+                new McCommand(runCommandHandler)));
+        dispatcher.register("tool_catalog", new ToolCatalogHandler(toolRegistry));
+        dispatcher.register("tool_call", new ToolCallHandler(toolRegistry));
 
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());

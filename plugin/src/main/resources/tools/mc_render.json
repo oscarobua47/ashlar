@@ -1,0 +1,184 @@
+{
+  "name": "mc_render",
+  "title": "Render view",
+  "description": "Renders a region as a PNG image from a chosen viewpoint, so an AI can see terrain layout and building results instead of reading block-state text. Views: a top-down layout with map-style shading, a facade from a compass side, an exact-color cross-section slice, or a color-banded terrain height map with contour lines (the image mc_survey uses).\n\nWHEN TO USE: \"top\" to check terrain shape, a build's footprint, or how a structure sits on the land. \"north\"/\"south\"/\"east\"/\"west\" to inspect a facade - windows, doors, symmetry, roof lines. \"slice\" (axis + coordinate) for a floor plan (axis \"y\") or a vertical cut, e.g. to confirm a room is hollow. \"heightmap\" for terrain relief; prefer mc_survey, which adds the exact numbers.\n\nWHEN NOT TO USE: to get exact block states, orientations or counts - use mc_inspect. Map colors are lossy: different blocks can look identical, so check the legend.\n\nPARAMETERS: `from`/`to` are inclusive corners in any order: [x,y,z], or [x,z] for \"top\"/\"heightmap\" (preferred - the surface is found automatically; pass a y range to a top view only to look under a roof or underground, since it shows the highest block within that range). \"top\"/\"heightmap\" are area-priced (x/z footprint <= 200,000 cells); side views/\"slice\" are volume-priced (<= 200,000 blocks) - for a facade, limit y to the building's height. `view` (default \"top\") is one of top/north/south/east/west/slice/heightmap; `slice` is required for `view: \"slice\"`. `scale` is pixels per block, 0-16 (default 0 = auto). `grid` is grid spacing, 0-64 (default 10; 0 disables it). `heightmapType`/`contour` only apply to `view: \"heightmap\"`.\n\nSIDE EFFECTS: none - read-only. Returns an image plus text: view, axes, top-left coordinate, grid interval and a legend (blocks as hex color, name, pixel count; for \"heightmap\", height bands plus min/max/median height, surface materials and the largest flat zone). PNGs are capped at 3MB (scale halves automatically).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "world": {
+        "description": "World name. Omitted uses the plugin's configured default world.",
+        "type": "string",
+        "minLength": 1
+      },
+      "from": {
+        "anyOf": [
+          {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ],
+            "items": false,
+            "minItems": 3,
+            "maxItems": 3
+          },
+          {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        ],
+        "description": "Inclusive corner of the region: [x, y, z], or just [x, z] for view \"top\"/\"heightmap\" (the surface is then found automatically over the whole world height). Give a y range to a top view only when you want to look under a roof or underground."
+      },
+      "to": {
+        "anyOf": [
+          {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ],
+            "items": false,
+            "minItems": 3,
+            "maxItems": 3
+          },
+          {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        ],
+        "description": "Inclusive corner opposite `from`, same shape as `from`. Order does not matter."
+      },
+      "view": {
+        "description": "\"top\" (default): top-down layout, shaded like a vanilla in-game map. \"north\"/\"south\"/\"east\"/\"west\": the facade seen from that compass direction, shaded by depth. \"slice\": an exact-color 2D cross-section (requires the `slice` parameter). \"heightmap\": a color-banded terrain height map with contour lines - an x/z area only, area-priced like mc_survey rather than volume-priced.",
+        "type": "string",
+        "enum": [
+          "top",
+          "north",
+          "south",
+          "east",
+          "west",
+          "slice",
+          "heightmap"
+        ]
+      },
+      "slice": {
+        "description": "Required when `view` is \"slice\"; ignored otherwise.",
+        "type": "object",
+        "properties": {
+          "axis": {
+            "type": "string",
+            "enum": [
+              "x",
+              "y",
+              "z"
+            ],
+            "description": "Which axis is held fixed. \"y\" gives a top-down floor plan at one exact layer; \"x\" or \"z\" gives a vertical cross-section."
+          },
+          "at": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The fixed coordinate value on that axis. Must lie within [from, to] on that axis."
+          }
+        },
+        "required": [
+          "axis",
+          "at"
+        ]
+      },
+      "scale": {
+        "description": "Pixels per block, 0-16. Default 0 = auto-sized so the image's longer side is about 1024px (capped at 4,000,000 total pixels).",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 16
+      },
+      "grid": {
+        "description": "Draw a coordinate grid line every N blocks, with coordinate labels along the top/left edges. Default 10; 0 disables the grid entirely.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 64
+      },
+      "heightmapType": {
+        "description": "Only used when `view` is \"heightmap\": which surface to measure (same meaning as mc_survey's `type`). Default SOLID_OR_LIQUID_NO_LEAVES.",
+        "type": "string",
+        "enum": [
+          "SOLID",
+          "SOLID_OR_LIQUID",
+          "SOLID_OR_LIQUID_NO_LEAVES",
+          "ANY"
+        ]
+      },
+      "contour": {
+        "description": "Only used when `view` is \"heightmap\": draw a contour line every N blocks of height, 0 disables. Default 5.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4096
+      }
+    },
+    "required": [
+      "from",
+      "to"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

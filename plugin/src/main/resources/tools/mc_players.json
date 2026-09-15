@@ -1,0 +1,16 @@
+{
+  "name": "mc_players",
+  "title": "List online players",
+  "description": "Lists every player currently online, with exact position, block position, facing direction, and status, giving an AI the spatial context needed to place a build relative to a player instead of guessing coordinates. Calls the plugin's \"players\" RPC, which reads Bukkit.getOnlinePlayers() on the main thread.\n\nWHEN TO USE: whenever a request depends on where a player is or is looking. Phrases like \"here\", \"where I am\", \"in front of me\", or \"at my feet\" all mean \"call mc_players first and use its pos/inFront values\" - the AI has no other way to learn a player's location. Also call it before a build that should avoid burying or trapping a player, or to answer \"who is online right now\".\n\nWHEN NOT TO USE: for terrain or block data unrelated to a player's position (use mc_survey for surface height, mc_inspect for block contents). Do not call it repeatedly while waiting for a player to move; call it once and reuse the coordinates.\n\nPARAMETERS: none. This tool takes no arguments and always returns every online player.\n\nSIDE EFFECTS: none - purely read-only and safe to call at any time; it never modifies the world. For each player, `pos` is the block the player's feet occupy; the block under the player is y-1, so filling `pos` itself when asked to build \"at my feet\" would place a block inside the player, not under them - build at y-1, or at `inFront` (`pos` shifted one block toward the direction the player is facing) for \"in front of me\" requests instead. `exact` is the unrounded coordinate (2 decimal places); `facing` is one of south/west/north/east derived from yaw; `gameMode`, `flying`, and `health` describe the player's current status. Returns \"No players online.\" when nobody is connected.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

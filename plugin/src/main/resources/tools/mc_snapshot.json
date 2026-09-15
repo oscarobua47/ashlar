@@ -1,0 +1,82 @@
+{
+  "name": "mc_snapshot",
+  "title": "Snapshot region",
+  "description": "Captures the current block contents of a region so it can be restored later with mc_restore, or lists every snapshot currently stored on the server. This is the manual counterpart to mc_build's own `snapshot: true` option - use it to protect an area before an experimental or risky change, independent of any single build call.\n\nWHEN TO USE: before manually editing an area across several separate mc_build calls when you want one restore point covering all of them (mc_build's own snapshot option only covers that single call's bounding box); before letting a user try something destructive; to check what snapshots already exist and their ids/labels/timestamps before deciding whether to restore one, or before running low on the server's snapshot slots (oldest snapshots are evicted automatically once the configured maximum is reached).\n\nWHEN NOT TO USE: to read current block contents (use mc_inspect - snapshots do not display their contents, they only exist to be restored later). If you already passed `snapshot: true` to mc_build for a single build call, calling mc_snapshot again for the same region is redundant.\n\nPARAMETERS: `action` is \"create\" (default) or \"list\". For \"create\": `world` (optional, defaults to the plugin's default world), `from`/`to` (required, inclusive [x, y, z] corners in any order, X east/Z south/Y up, volume up to 200,000 blocks), and an optional `label` string to help identify the snapshot later. \"list\" takes no other parameters and returns every stored snapshot regardless of world.\n\nSIDE EFFECTS: \"create\" does not modify the world - it only reads and stores a copy of the region, comparable in cost to mc_inspect over the same volume. It does consume one of the server's limited snapshot slots; the oldest snapshot is silently evicted once the configured maximum count is reached, so do not rely on a snapshot existing indefinitely. \"list\" has no side effects at all.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "description": "\"create\" (default) takes a new snapshot; \"list\" returns every snapshot currently stored.",
+        "type": "string",
+        "enum": [
+          "create",
+          "list"
+        ]
+      },
+      "world": {
+        "description": "World name for a create. Omitted uses the plugin's configured default world.",
+        "type": "string",
+        "minLength": 1
+      },
+      "from": {
+        "description": "Inclusive [x, y, z] corner of the region to capture. Required when action is create.",
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        ],
+        "items": false,
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "to": {
+        "description": "Inclusive [x, y, z] corner opposite `from`. Required when action is create.",
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        ],
+        "items": false,
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "label": {
+        "description": "Optional free-text note stored with the snapshot, e.g. \"before tower\".",
+        "type": "string"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "mc_restore",
+  "title": "Restore snapshot",
+  "description": "Restores a region to exactly the state a snapshot captured it in, undoing everything built on top of it since. This is the undo mechanism for this whole toolset: neither mc_build nor any other tool can partially undo itself any other way.\n\nWHEN TO USE: whenever a build went wrong and you have a snapshot id from mc_build's response (when it was called with snapshot:true) or from mc_snapshot; when a user asks to undo, revert, or roll back a recent change; before trying a second, different approach to the same area after an experimental one did not work out. Restoring does not delete the snapshot, so the same id can be restored more than once if needed (for example, to reset an area repeatedly while iterating).\n\nWHEN NOT TO USE: to see what a snapshot or region currently contains before deciding whether to restore it (use mc_inspect on the same coordinates - mc_restore only writes, it does not report contents). To list available snapshot ids when you do not already have one (use mc_snapshot with action:\"list\").\n\nPARAMETERS: `id` is the snapshot id string, required. There is no coordinate input - the region and world to restore are entirely determined by the snapshot itself, exactly as it was when captured. An id that does not exist (typo, or already evicted because the server's snapshot count limit was exceeded by newer snapshots) is rejected with an error rather than silently doing nothing.\n\nSIDE EFFECTS: permanently overwrites the current contents of the snapshot's region with the captured contents - anything placed there since the snapshot was taken, inside that region, is lost and cannot itself be undone unless another snapshot was taken in between. Blocks are restored without physics updates, same as mc_build. Cost is comparable to an mc_build call over the same volume (typically a second or two for tens of thousands of blocks). If the snapshot's world no longer exists on this server, the restore fails without changing anything.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Snapshot id, e.g. \"snap-20260913-220102-a3f9\", as returned by mc_snapshot or mc_build with snapshot:true."
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

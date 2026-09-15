@@ -1,0 +1,86 @@
+{
+  "name": "mc_survey",
+  "title": "Survey terrain",
+  "description": "Surveys terrain by reading surface height over a rectangular x/z area, so an AI can form spatial intuition about the ground before building. By default (`format: \"image\"`) it renders a color heightmap: 8 hypsometric bands from dark green (low) through yellow/tan/brown to light gray (high), blue for water/lava, relief shading, a coordinate grid, and contour lines - plus text with the numbers a picture cannot give: area, min/max/median height, dominant surface materials, and the largest flat buildable zone with its coordinates and y. Always use the default image format; `format: \"text\"` (an ASCII relief map) exists only for clients that truly cannot show images or when the user explicitly asks for a text map - it is larger and harder to read than the picture. Either format accepts `matrix: true` to append the numeric per-block height matrix.\n\nWHEN TO USE: before any nontrivial build, to find a flat spot, see where water/lava is, and pick a sensible y level, rather than guessing coordinates. Also useful mid-project to check terrain outside the current build area, or to answer \"what does the land around x,z look like\".\n\nWHEN NOT TO USE: for a full 3D read of placed blocks or underground structure (use mc_inspect). Do not call it repeatedly over tiny sub-areas when one call over the whole area would do; the area limit exists so one call can cover a meaningful build site.\n\nCOORDINATES: X grows east, Z grows south. `from`/`to` are inclusive [x, z] pairs (no y - this tool measures height, it does not take one). Area = (x2-x1+1)*(z2-z1+1), at most 200,000 cells; one call comfortably covers e.g. a 300x300 area. The image is area-priced, not volume-priced, so a wide, shallow survey costs the same as a square one of equal area. Y values in the output are absolute world height.\n\nSIDE EFFECTS: none - this is a read-only tool and never modifies the world. A large area (tens of thousands of cells) may take a second or two on the plugin side; there is no other cost to calling it freely.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "world": {
+        "description": "World name. Omitted uses the plugin's configured default world.",
+        "type": "string",
+        "minLength": 1
+      },
+      "from": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "Inclusive [x, z] corner of the area to survey (no y - the tool measures the surface height)."
+      },
+      "to": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "Inclusive [x, z] corner opposite `from`. Order does not matter; the tool normalizes min/max."
+      },
+      "type": {
+        "description": "Which surface to measure. SOLID: highest solid block, ignoring water (a river reads as its bed). SOLID_OR_LIQUID: highest solid or liquid block (a river reads as its water surface). SOLID_OR_LIQUID_NO_LEAVES (default): same as SOLID_OR_LIQUID but ignores leaves, useful for finding ground level under a forest canopy. ANY: highest non-air block including leaves and snow layers.",
+        "type": "string",
+        "enum": [
+          "SOLID",
+          "SOLID_OR_LIQUID",
+          "SOLID_OR_LIQUID_NO_LEAVES",
+          "ANY"
+        ]
+      },
+      "format": {
+        "description": "Output format. Leave unset. \"image\" (default): a color heightmap picture plus the exact numbers (min/max/median height, surface materials, largest flat zone) as text. \"text\": an ASCII relief map instead of the picture - only when the user explicitly asks for a text map; you can see images, so do not pick this on your own.",
+        "type": "string",
+        "enum": [
+          "image",
+          "text"
+        ]
+      },
+      "matrix": {
+        "description": "Whether to include the numeric height matrix (one number per block, about one token each), appended after the image/map. In format:\"text\" it is included by default for areas up to 40x40 (1600 cells) and omitted above that unless set true. In the default format:\"image\" it is always omitted unless set true (the image already conveys relief; set true when you need exact per-block numbers for a larger area).",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "from",
+      "to"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}
