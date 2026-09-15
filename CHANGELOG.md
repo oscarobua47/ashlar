@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.1
+
+- History between requests keeps only the player's text and the final reply (no tool traffic), keeping follow-up context small; `/ashlar reset` clears it; the system prompt asks the model to make final replies self-sufficient (bounding box, materials, snapshot id).
+
 ## 0.4.0
 
 0.3.0 was not published separately; this release includes it. The in-game assistant now runs inside the plugin: `/ashlar` needs no Node process and no inbound port, just a model API key in `config.yml`.
@@ -15,8 +19,6 @@ All notable changes to this project are documented in this file.
 - Console-only `ashlar simulate <x> <y> <z> [facing] <request>`: drives one request through the same code path with a synthetic player position, progress and replies printed to the console - the way to test the assistant without a player online (replaces `tools/agent-sim.mjs`).
 - Cancellation now reaches a running fill: `/ashlar cancel` stops between tool calls as before, but `onDisable` cancels every in-flight request and gives the executor up to 5 seconds to drain before shutting down.
 - `ChatOut`: the assistant's message-sending logic (progress lines, final replies, monitor echo) is shared between the embedded and external paths instead of living only in the `send_message` RPC handler.
-
-- History between requests keeps only the player's text and the final reply (no tool traffic), keeping follow-up context small; `/ashlar reset` clears it; the system prompt asks the model to make final replies self-sufficient (bounding box, materials, snapshot id).
 
 ### MCP server (`mcp-server/`)
 
