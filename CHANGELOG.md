@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## 0.4.2
 
 - `mc_build` gains `liquids: "flow"`: water and lava targets are placed with physics so a single source at the top of a fountain or waterfall actually flows (default `"static"` is unchanged). Capped by `limits.max-flowing-liquids-per-operation` (default 2000). The engine keeps the affected chunks ticking for 10 s after such a build so the fluid spreads even with no player nearby.
+- Adjacent chests with the same facing written by `mc_build` are paired into double chests (`chestsPaired` in the result); trapped and normal chests never pair with each other.
 
 ## 0.4.1
 

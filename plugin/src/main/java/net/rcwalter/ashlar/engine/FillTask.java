@@ -35,6 +35,8 @@ public final class FillTask extends BuildTask {
     private final long[] opChanged;
     private final List<int[]> connectablePositions = new ArrayList<>();
     private final ConnectionPass connectionPass;
+    private final List<int[]> chestPositions = new ArrayList<>();
+    private final ChestPairPass chestPairPass;
     private final List<int[]> supportPositions = new ArrayList<>();
     private final NeighbourPositions neighbourPositions = new NeighbourPositions();
     private final SupportCheck supportCheck;
@@ -60,6 +62,7 @@ public final class FillTask extends BuildTask {
         this.world = world;
         this.opChanged = new long[ops.size()];
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
+        this.chestPairPass = new ChestPairPass(world, chestPositions, connect);
         this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
         this.liquidsFlow = liquidsFlow;
     }
@@ -126,6 +129,9 @@ public final class FillTask extends BuildTask {
         if (!connectionPass.step(deadlineNanos)) {
             return false;
         }
+        if (!chestPairPass.step(deadlineNanos)) {
+            return false;
+        }
         return supportCheck.step(deadlineNanos);
     }
 
@@ -167,6 +173,9 @@ public final class FillTask extends BuildTask {
                     if (ConnectionPass.isConnectable(target)) {
                         connectablePositions.add(new int[]{x, y, z});
                     }
+                    if (ChestPairPass.isChest(target)) {
+                        chestPositions.add(new int[]{x, y, z});
+                    }
                     if (SupportCheck.needsCheck(target)) {
                         supportPositions.add(new int[]{x, y, z});
                     }
@@ -207,6 +216,7 @@ public final class FillTask extends BuildTask {
         result.addProperty("totalChanged", changed());
         result.addProperty("queuedMs", queuedMs);
         result.addProperty("elapsedMs", elapsedMs);
+        result.addProperty("chestsPaired", chestPairPass.pairsMade());
         SupportWarnings.addTo(result, supportCheck, neighbourPositions.truncated());
         return result;
     }

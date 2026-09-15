@@ -623,6 +623,65 @@ async function main() {
     console.log(sandBelowOriginalText);
     check("no sand fell to the block below", !/minecraft:sand/.test(sandBelowOriginalText));
 
+    // --- step8e: chest pairing ------------------------------------------------
+    section("mc_build (two adjacent north-facing chests pair; a third facing south and a trapped chest stay single)");
+    const CHEST_X = 520;
+    const CHEST_Y = 70;
+    const CHEST_Z = 520;
+    const chestBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: [
+                { from: [CHEST_X - 1, CHEST_Y - 1, CHEST_Z - 1], to: [CHEST_X + 3, CHEST_Y - 1, CHEST_Z + 3], block: "minecraft:stone" },
+                { from: [CHEST_X - 1, CHEST_Y, CHEST_Z - 1], to: [CHEST_X + 3, CHEST_Y + 2, CHEST_Z + 3], block: "minecraft:air" }
+            ],
+            blocks: [
+                // First pair: same facing, same material, adjacent - must pair (left/right).
+                { pos: [CHEST_X, CHEST_Y, CHEST_Z], block: "minecraft:chest[facing=north]" },
+                { pos: [CHEST_X + 1, CHEST_Y, CHEST_Z], block: "minecraft:chest[facing=north]" },
+                // Adjacent to the pair but facing south: must stay single.
+                { pos: [CHEST_X + 2, CHEST_Y, CHEST_Z], block: "minecraft:chest[facing=south]" },
+                // Trapped chest next to a normal chest, same facing: different material, both stay single.
+                { pos: [CHEST_X, CHEST_Y, CHEST_Z + 2], block: "minecraft:trapped_chest[facing=north]" },
+                { pos: [CHEST_X + 1, CHEST_Y, CHEST_Z + 2], block: "minecraft:chest[facing=north]" }
+            ]
+        }
+    });
+    const chestBuildText = textOf(chestBuild);
+    console.log(chestBuildText);
+    check("mc_build chests not an error", !chestBuild.isError);
+    check("response text contains chestsPaired", /chestsPaired/.test(chestBuildText));
+    check("chestsPaired: 1", /chestsPaired: 1/.test(chestBuildText));
+
+    section("mc_inspect (chest area: expect exactly one left + one right, the rest single)");
+    const chestStats = await client.callTool({
+        name: "mc_inspect",
+        arguments: { from: [CHEST_X, CHEST_Y, CHEST_Z], to: [CHEST_X + 2, CHEST_Y, CHEST_Z + 2] }
+    });
+    const chestStatsText = textOf(chestStats);
+    console.log(chestStatsText);
+    check("mc_inspect chest area not an error", !chestStats.isError);
+    check(
+        "exactly one type=left chest",
+        (chestStatsText.match(/minecraft:chest\[[^\]]*type=left[^\]]*\]/g) ?? []).length === 1
+    );
+    check(
+        "exactly one type=right chest",
+        (chestStatsText.match(/minecraft:chest\[[^\]]*type=right[^\]]*\]/g) ?? []).length === 1
+    );
+    check(
+        "the south-facing third chest stayed single",
+        /minecraft:chest\[facing=south,type=single/.test(chestStatsText)
+    );
+    check(
+        "the trapped chest stayed single",
+        /minecraft:trapped_chest\[[^\]]*type=single[^\]]*\]/.test(chestStatsText)
+    );
+    check(
+        "the normal chest next to the trapped chest stayed single (not paired across materials)",
+        (chestStatsText.match(/(?<!trapped_)minecraft:chest\[facing=north,type=single/g) ?? []).length === 1
+    );
+
     // --- step4h: post-build support warnings ---------------------------------
     section("mc_build (support warnings: unsupported ladder, embedded torch, correct wall torch, floating door)");
     const WARN_X = 500;

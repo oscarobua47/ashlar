@@ -145,6 +145,7 @@ public final class McBuild implements Tool {
         String blocksLine;
         final List<WarningText.SupportWarning> warnings = new ArrayList<>();
         boolean warningsTruncated = false;
+        long chestsPaired = 0;
     }
 
     @Override
@@ -166,7 +167,8 @@ public final class McBuild implements Tool {
             }
 
             return step.thenApply(ignored ->
-                    ToolText.buildResultText(state.snapshotLine, state.fillsSection, state.blocksLine, state.warnings, state.warningsTruncated));
+                    ToolText.buildResultText(state.snapshotLine, state.fillsSection, state.blocksLine,
+                            state.chestsPaired, state.warnings, state.warningsTruncated));
         });
     }
 
@@ -222,6 +224,7 @@ public final class McBuild implements Tool {
                 opLines.add(new ToolText.FillOpLine(index, spec.from(), spec.to(), spec.block(), op.get("changed").getAsLong(), op.get("volume").getAsLong()));
             }
             state.fillsSection = ToolText.fillsSection(opLines, r.get("totalChanged").getAsLong(), r.get("totalVolume").getAsLong(), r.get("elapsedMs").getAsLong());
+            collectChestsPaired(state, r);
             collectWarnings(state, r);
         });
     }
@@ -245,8 +248,15 @@ public final class McBuild implements Tool {
         return setBlocksHandler.handle(ctx, params).thenAccept(el -> {
             JsonObject r = el.getAsJsonObject();
             state.blocksLine = ToolText.blocksLine(r.get("changed").getAsLong(), r.get("requested").getAsLong(), r.get("elapsedMs").getAsLong());
+            collectChestsPaired(state, r);
             collectWarnings(state, r);
         });
+    }
+
+    private static void collectChestsPaired(BuildState state, JsonObject r) {
+        if (r.has("chestsPaired")) {
+            state.chestsPaired += r.get("chestsPaired").getAsLong();
+        }
     }
 
     private static void collectWarnings(BuildState state, JsonObject r) {

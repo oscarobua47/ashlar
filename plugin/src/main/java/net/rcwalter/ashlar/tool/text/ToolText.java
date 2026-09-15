@@ -193,11 +193,22 @@ public final class ToolText {
     }
 
     /**
+     * The {@code chestsPaired: <n>} line (step8e-prompt.md): how many adjacent single chests were
+     * paired into double chests across this call's fills/blocks. Omitted entirely when zero, so a
+     * build with no chests produces no visible change to its output.
+     */
+    public static String chestsPairedLine(long chestsPaired) {
+        return "chestsPaired: " + chestsPaired;
+    }
+
+    /**
      * Full composition of {@code mc_build}'s result text: an optional snapshot line, an optional
-     * Fills: section, an optional Blocks: line, then the WARNINGS section (if any).
+     * Fills: section, an optional Blocks: line, an optional chestsPaired line, then the WARNINGS
+     * section (if any).
      */
     public static String buildResultText(String snapshotLine, List<String> fillsSection, String blocksLine,
-                                          List<WarningText.SupportWarning> warnings, boolean warningsTruncated) {
+                                          long chestsPaired, List<WarningText.SupportWarning> warnings,
+                                          boolean warningsTruncated) {
         List<String> lines = new ArrayList<>();
         if (snapshotLine != null) {
             lines.add(snapshotLine);
@@ -207,6 +218,9 @@ public final class ToolText {
         }
         if (blocksLine != null) {
             lines.add(blocksLine);
+        }
+        if (chestsPaired > 0) {
+            lines.add(chestsPairedLine(chestsPaired));
         }
         lines.addAll(WarningText.formatWarnings(warnings, warningsTruncated));
         return String.join("\n", lines);
