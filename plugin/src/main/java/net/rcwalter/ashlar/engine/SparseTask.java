@@ -87,6 +87,9 @@ public final class SparseTask extends BuildTask {
                 // every liquid when liquidsFlow is false, is written with physics=false.
                 boolean physics = liquidsFlow && LiquidBlocks.isFlowable(target.getMaterial());
                 block.setBlockData(target, physics);
+                if (physics) {
+                    addPhysicsWrite();
+                }
                 addChanged(1);
                 if (ConnectionPass.isConnectable(target)) {
                     connectablePositions.add(new int[]{op.x(), op.y(), op.z()});

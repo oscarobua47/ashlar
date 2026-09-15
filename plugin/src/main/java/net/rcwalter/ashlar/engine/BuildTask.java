@@ -23,6 +23,7 @@ public abstract class BuildTask {
 
     private final Region region;
     private long changed = 0;
+    private long physicsWrites = 0;
     private long done = 0;
     private long lastReportedDone = 0;
     private ProgressListener progressListener = (d, t) -> { };
@@ -78,6 +79,26 @@ public abstract class BuildTask {
     /** Adds to the running "actually written" counter. Call only for cells that were really written. */
     protected final void addChanged(long n) {
         changed += n;
+    }
+
+    /**
+     * Number of blocks this task wrote WITH physics (liquids under {@code liquids: "flow"}).
+     * Such writes only schedule fluid ticks; the ticks run only while the chunk is ticking,
+     * and a chunk with no player nearby stops ticking as soon as our chunk ticket is gone
+     * (verified on the test server, step8d). So a task that wrote any is entitled to
+     * {@link #ticketHoldTicks()} of extra ticket time after it finishes.
+     */
+    public final long physicsWrites() {
+        return physicsWrites;
+    }
+
+    protected final void addPhysicsWrite() {
+        physicsWrites++;
+    }
+
+    /** How many ticks the executor keeps the task's chunk tickets after completion: 200 (10 s) when liquids were placed with physics, else 0. */
+    public long ticketHoldTicks() {
+        return physicsWrites > 0 ? 200 : 0;
     }
 
     /** Advances the scanned counter and fires a {@code progress} event every {@link #PROGRESS_INTERVAL} blocks. */

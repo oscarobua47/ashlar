@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.2
+
+- `mc_build` gains `liquids: "flow"`: water and lava targets are placed with physics so a single source at the top of a fountain or waterfall actually flows (default `"static"` is unchanged). Capped by `limits.max-flowing-liquids-per-operation` (default 2000). The engine keeps the affected chunks ticking for 10 s after such a build so the fluid spreads even with no player nearby.
+
 ## 0.4.1
 
 - History between requests keeps only the player's text and the final reply (no tool traffic), keeping follow-up context small; `/ashlar reset` clears it; the system prompt asks the model to make final replies self-sufficient (bounding box, materials, snapshot id).

@@ -798,15 +798,11 @@ async function main() {
     const LIQ_STATIC_X = 720;
     const LIQ_Z = 700;
 
-    // No players are online on the test server, so a freshly-written chunk is loaded (writes and
-    // reads succeed) but not necessarily "ticking" - scheduled block ticks, which is how fluid
-    // spread actually happens, need that. /forceload keeps a chunk both loaded and simulated (see
-    // the step8d report's engine-behaviour verification for how this was found).
-    await client.callTool({
-        name: "mc_command",
-        arguments: { command: `forceload add ${LIQ_FLOW_X - 2} ${LIQ_Z - 2} ${LIQ_STATIC_X + 8} ${LIQ_Z + 8}` }
-    });
-
+    // No players are online on the test server, so a freshly-written chunk is loaded but stops
+    // ticking as soon as the plugin's chunk ticket is gone - and fluid spread is scheduled block
+    // ticks. The engine therefore keeps the tickets of a task that placed liquids with physics for
+    // 10 s after it finishes (BuildTask#ticketHoldTicks); this section deliberately does NOT
+    // /forceload anything, so it also proves that hold works.
     // Each test point is its own walled 7x7 pit (floor at y=60, walls y=60..64, open top) so a
     // spreading source cannot bleed into the other point's read window - one water source dropped
     // 3 blocks above the floor (y=63), at the pit's centre.

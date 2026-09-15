@@ -157,7 +157,16 @@ public final class TickBudgetExecutor {
 
     private void completeCurrent() {
         QueuedTask qt = current;
-        releaseGuard();
+        long hold = qt.task().ticketHoldTicks();
+        if (hold > 0 && currentGuard != null) {
+            // Liquids placed with physics need their chunks to keep ticking for a
+            // while so the scheduled fluid updates actually spread (BuildTask#physicsWrites).
+            ChunkTicketGuard guard = currentGuard;
+            currentGuard = null;
+            Bukkit.getScheduler().runTaskLater(plugin, guard::release, hold);
+        } else {
+            releaseGuard();
+        }
         current = null;
         // queuedMs: submit -> task actually starting. elapsedMs: execution time only
         // (plan.md 2.6 follow-up fix; previously elapsedMs included queue wait).
