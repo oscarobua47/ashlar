@@ -54,7 +54,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.4.1.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.4.2.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**

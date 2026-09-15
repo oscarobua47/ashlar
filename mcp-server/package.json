@@ -1,6 +1,6 @@
 {
   "name": "ashlar-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "MCP server that lets AI clients build in a Minecraft Paper server through the Ashlar plugin",
   "license": "AGPL-3.0-or-later",
   "repository": {
