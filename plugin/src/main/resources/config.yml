@@ -102,10 +102,96 @@ engine:
 
 agent:
   # The in-game assistant: players with the ashlar.use permission can type
-  # "/ashlar <request>" and a connected `ashlar-mcp --agent` process answers
-  # through the model configured there. Disable to reject the command
-  # entirely.
-  enabled: true
+  # "/ashlar <request>".
+  #   embedded = the plugin runs the assistant itself using agent.model below
+  #              (default); no Node process or inbound port needed.
+  #   external = forward /ashlar requests to a connected `ashlar-mcp --agent`
+  #              process (0.2 behaviour).
+  #   off      = /ashlar is disabled entirely.
+  mode: embedded
+
+  # Only used when mode is "embedded".
+  model:
+    # OpenAI-compatible base URL; "/chat/completions" is appended. No
+    # trailing slash needed.
+    base-url: "https://api.deepseek.com"
+
+    # Required in embedded mode. Leave empty and /ashlar will reply that the
+    # assistant is not configured, instead of refusing to start.
+    api-key: ""
+
+    # Model name sent in each request.
+    model: "deepseek-flash"
+
+    # Per-request tool-call budget; once reached the model gets one last
+    # turn with tool calls disabled to summarise what it did.
+    max-tool-calls: 25
+
+    # Timeout for a single model API call, in milliseconds.
+    request-timeout-ms: 120000
+
+    # Detail level passed for images sent to the model: low, high, or auto.
+    image-detail: "high"
+
+    # Optional path to a text file appended to the built-in system prompt.
+    # Leave empty to use the built-in prompt as-is.
+    system-prompt-file: ""
+
+    # Whether mc_command (arbitrary console command execution) is offered to
+    # the model as a tool. Off by default even if run-command.enabled above
+    # is true, since it gives the model direct console access.
+    allow-command: false
+
+  # Only used when mode is "embedded".
+  limits:
+    # Maximum requests one player may start per day (UTC), counted by UUID.
+    # 0 = unlimited.
+    max-requests-per-player-per-day: 40
+
+    # Maximum tokens (input + cached + output) one player may use per day.
+    # 0 = unlimited.
+    max-tokens-per-player-per-day: 0
+
+    # Maximum cost (in agent.pricing.currency) one player may incur per day.
+    # 0 = unlimited.
+    max-cost-per-player-per-day: 0
+
+    # Requests running at once across all players.
+    max-concurrent: 2
+
+    # User/assistant exchanges remembered per player between requests.
+    history-turns: 6
+
+    # A player's remembered history is forgotten after this many minutes of
+    # inactivity.
+    history-ttl-minutes: 30
+
+  # Only used when mode is "embedded". Pricing feeds the cost shown in each
+  # reply's footer and the max-cost-per-player-per-day limit above.
+  pricing:
+    # USD (or "currency" below) per 1,000,000 uncached input tokens, at peak
+    # price.
+    input: 0.30
+
+    # Per 1,000,000 cached input tokens, at peak price.
+    cached-input: 0.006
+
+    # Per 1,000,000 output tokens, at peak price.
+    output: 1.20
+
+    # Label only: "USD" is shown as "$"; anything else is shown as
+    # "<code> " before the amount.
+    currency: "USD"
+
+    # UTC windows in which the prices above apply at full (peak) price;
+    # outside them, off-peak-multiplier is applied instead. Format: an
+    # optional day range (mon-fri, sat-sun, daily; default daily) followed
+    # by comma-separated HH:MM-HH:MM windows. "always" disables the
+    # off-peak discount entirely.
+    peak-hours: "mon-fri 01:00-04:00,06:00-10:00"
+
+    # Price multiplier applied outside the peak-hours windows.
+    off-peak-multiplier: 0.5
 
   # Minimum seconds between two requests from the same player.
   cooldown-seconds: 5

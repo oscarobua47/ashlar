@@ -3,12 +3,19 @@ package net.rcwalter.ashlar;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import net.rcwalter.ashlar.agent.AgentService;
+import net.rcwalter.ashlar.agent.HistoryStore;
+import net.rcwalter.ashlar.agent.ModelClient;
+import net.rcwalter.ashlar.agent.ModelConfig;
+import net.rcwalter.ashlar.agent.Pricing;
+import net.rcwalter.ashlar.agent.UsageStore;
 import net.rcwalter.ashlar.command.AllowList;
 import net.rcwalter.ashlar.command.AshlarCommand;
 import net.rcwalter.ashlar.command.AshlarTabCompleter;
 import net.rcwalter.ashlar.command.Cooldown;
 import net.rcwalter.ashlar.config.ConfigException;
 import net.rcwalter.ashlar.config.PluginConfig;
+import net.rcwalter.ashlar.player.ChatOut;
 import net.rcwalter.ashlar.engine.FillService;
 import net.rcwalter.ashlar.engine.HealthService;
 import net.rcwalter.ashlar.engine.HeightmapService;
@@ -51,7 +58,9 @@ import org.bukkit.permissions.PermissionDefault;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -75,6 +84,7 @@ public final class AshlarPlugin extends JavaPlugin {
     private TickBudgetExecutor executor;
     private SnapshotStore snapshotStore;
     private ExecutorService renderExecutor;
+    private AgentService agentService;
 
     @Override
     public void onEnable() {
@@ -172,8 +182,9 @@ public final class AshlarPlugin extends JavaPlugin {
         dispatcher.register("list_snapshots", listSnapshotsHandler);
         dispatcher.register("run_command", runCommandHandler);
         dispatcher.register("players", playersHandler);
+        ChatOut chatOut = new ChatOut(config, getLogger());
         dispatcher.register("subscribe", new SubscribeHandler());
-        dispatcher.register("send_message", new SendMessageHandler(config));
+        dispatcher.register("send_message", new SendMessageHandler(chatOut));
         dispatcher.register("render", renderHandler);
 
         // The nine mc_* tools (plan.md step7.2b), in the same order as mcp-server's
@@ -191,6 +202,37 @@ public final class AshlarPlugin extends JavaPlugin {
         dispatcher.register("tool_catalog", new ToolCatalogHandler(toolRegistry));
         dispatcher.register("tool_call", new ToolCallHandler(toolRegistry));
 
+        PluginConfig.AgentConfig.Mode agentMode = config.agent().mode();
+        if (agentMode == PluginConfig.AgentConfig.Mode.EMBEDDED) {
+            PluginConfig.AgentConfig.ModelConfig modelCfg = config.agent().model();
+            if (modelCfg.apiKey().isEmpty()) {
+                getLogger().warning("agent.mode is embedded but agent.model.api-key is empty; "
+                        + "/ashlar will report the assistant as not configured until it is set.");
+            } else {
+                ModelClient modelClient = new ModelClient(
+                        new ModelConfig(modelCfg.baseUrl(), modelCfg.apiKey(), modelCfg.model(),
+                                Duration.ofMillis(modelCfg.requestTimeoutMs())),
+                        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build(),
+                        getLogger());
+                PluginConfig.AgentConfig.PricingConfig pricingCfg = config.agent().pricing();
+                UsageStore usageStore = new UsageStore(dataFolder.resolve("usage.json"),
+                        pricingCfg.input(), pricingCfg.cachedInput(), pricingCfg.output(), pricingCfg.currency(),
+                        new UsageStore.Limits(config.agent().limits().maxCostPerPlayerPerDay(),
+                                config.agent().limits().maxTokensPerPlayerPerDay(),
+                                config.agent().limits().maxRequestsPerPlayerPerDay()),
+                        Pricing.parsePeakHours(pricingCfg.peakHours()), pricingCfg.offPeakMultiplier());
+                HistoryStore historyStore = new HistoryStore(config.agent().limits().historyTurns(),
+                        config.agent().limits().historyTtlMinutes());
+                this.agentService = new AgentService(config.agent(), toolRegistry, modelClient, usageStore,
+                        historyStore, chatOut, getLogger());
+            }
+            getLogger().info("Ashlar agent: mode=embedded model=" + modelCfg.model()
+                    + " base-url=" + modelCfg.baseUrl()
+                    + (this.agentService != null ? " (configured)" : " (NOT configured - see warning above)"));
+        } else {
+            getLogger().info("Ashlar agent: mode=" + agentMode.name().toLowerCase(java.util.Locale.ROOT));
+        }
+
         InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
         this.wsServer = new WsServer(address, config, dispatcher, getLogger());
         // Wired in after the WsServer exists (construction-order workaround: the
@@ -204,7 +246,7 @@ public final class AshlarPlugin extends JavaPlugin {
         Cooldown cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
         AllowList allowList = new AllowList(dataFolder.resolve("allowed-players.yml"), getLogger());
         allowList.load();
-        getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown, allowList));
+        getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown, allowList, agentService));
         getCommand("ashlar").setTabCompleter(new AshlarTabCompleter(allowList));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
@@ -213,6 +255,9 @@ public final class AshlarPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (agentService != null) {
+            agentService.shutdown();
+        }
         if (executor != null) {
             executor.shutdown();
         }

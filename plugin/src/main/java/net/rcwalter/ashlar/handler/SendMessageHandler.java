@@ -3,11 +3,8 @@ package net.rcwalter.ashlar.handler;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.rcwalter.ashlar.config.PluginConfig;
 import net.rcwalter.ashlar.net.ClientSession;
-import net.rcwalter.ashlar.player.Monitors;
+import net.rcwalter.ashlar.player.ChatOut;
 import net.rcwalter.ashlar.rpc.ErrorCode;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.rpc.RpcError;
@@ -15,7 +12,6 @@ import net.rcwalter.ashlar.rpc.SessionRpcHandler;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -45,10 +41,10 @@ public final class SendMessageHandler implements SessionRpcHandler {
 
     private static final int MAX_TEXT_LENGTH = 4000;
 
-    private final PluginConfig config;
+    private final ChatOut chatOut;
 
-    public SendMessageHandler(PluginConfig config) {
-        this.config = config;
+    public SendMessageHandler(ChatOut chatOut) {
+        this.chatOut = chatOut;
     }
 
     @Override
@@ -76,27 +72,11 @@ public final class SendMessageHandler implements SessionRpcHandler {
             if (player == null) {
                 throw new RpcError(ErrorCode.BAD_REQUEST, "player not online: " + finalPlayerRef);
             }
-            List<Player> monitors = finalKind && config.agent().echoToMonitors()
-                    ? Monitors.onlineExcept(player)
-                    : List.of();
-            Component monitorPrefix = Component.text("[Ashlar -> " + player.getName() + "] ", NamedTextColor.GOLD);
-
-            int lines = 0;
-            for (String line : finalText.split("\n", -1)) {
-                if (line.isEmpty()) {
-                    continue;
-                }
-                Component body = Component.text(line, NamedTextColor.WHITE);
-                player.sendMessage(Component.text("[Ashlar] ", NamedTextColor.GOLD).append(body));
-                for (Player monitor : monitors) {
-                    monitor.sendMessage(monitorPrefix.append(body));
-                }
-                lines++;
-            }
+            ChatOut.Delivered delivered = chatOut.deliver(player, finalText, finalKind);
             JsonObject result = new JsonObject();
             result.addProperty("delivered", true);
-            result.addProperty("lines", lines);
-            result.addProperty("monitors", monitors.size());
+            result.addProperty("lines", delivered.lines());
+            result.addProperty("monitors", delivered.monitors());
             return (JsonElement) result;
         });
     }

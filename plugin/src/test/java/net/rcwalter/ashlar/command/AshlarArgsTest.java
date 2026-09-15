@@ -238,4 +238,68 @@ class AshlarArgsTest {
         assertEquals(AshlarArgs.Kind.INVALID, p.kind());
         assertEquals(AshlarArgs.USAGE_ASK, p.error());
     }
+
+    @Test
+    void simulateFromConsoleWithFacingParsesCoordinatesFacingAndText() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 0 70 0 south build a small stone hut"), true);
+        assertEquals(AshlarArgs.Kind.SIMULATE, p.kind());
+        AshlarArgs.Simulate sim = p.simulate();
+        assertEquals(0, sim.x());
+        assertEquals(70, sim.y());
+        assertEquals(0, sim.z());
+        assertEquals("south", sim.facing());
+        assertEquals(List.of("build", "a", "small", "stone", "hut"), sim.text());
+    }
+
+    @Test
+    void simulateWithoutFacingDefaultsToSouth() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 1 2 3 restore the snapshot"), true);
+        assertEquals(AshlarArgs.Kind.SIMULATE, p.kind());
+        AshlarArgs.Simulate sim = p.simulate();
+        assertEquals(1, sim.x());
+        assertEquals(2, sim.y());
+        assertEquals(3, sim.z());
+        assertEquals("south", sim.facing());
+        assertEquals(List.of("restore", "the", "snapshot"), sim.text());
+    }
+
+    @Test
+    void simulateFacingIsCaseInsensitive() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 0 70 0 NORTH look around"), true);
+        assertEquals(AshlarArgs.Kind.SIMULATE, p.kind());
+        assertEquals("north", p.simulate().facing());
+        assertEquals(List.of("look", "around"), p.simulate().text());
+    }
+
+    @Test
+    void simulateFromAPlayerIsInvalidWithUsageLine() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 0 70 0 south build a hut"), false);
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+        assertEquals(AshlarArgs.USAGE_SIMULATE, p.error());
+    }
+
+    @Test
+    void simulateWithNonNumericCoordinatesIsInvalid() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate a b c build a hut"), true);
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+    }
+
+    @Test
+    void simulateWithoutTextIsInvalid() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 0 70 0 south"), true);
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+    }
+
+    @Test
+    void simulateWithTooFewArgsIsInvalid() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 0 70 0"), true);
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+    }
+
+    @Test
+    void defaultSingleArgParseIsEquivalentToNonConsole() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(words("simulate 0 70 0 south build a hut"));
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+        assertEquals(AshlarArgs.USAGE_SIMULATE, p.error());
+    }
 }

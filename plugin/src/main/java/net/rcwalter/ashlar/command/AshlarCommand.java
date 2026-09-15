@@ -7,11 +7,17 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.rcwalter.ashlar.agent.AdminActions;
+import net.rcwalter.ashlar.agent.AgentRunner;
+import net.rcwalter.ashlar.agent.AgentService;
+import net.rcwalter.ashlar.agent.ConsolePlayer;
 import net.rcwalter.ashlar.config.PluginConfig;
 import net.rcwalter.ashlar.net.WsServer;
+import net.rcwalter.ashlar.player.Facing;
 import net.rcwalter.ashlar.player.Monitors;
 import net.rcwalter.ashlar.player.PlayerJson;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -41,32 +47,49 @@ public final class AshlarCommand implements CommandExecutor {
 
     private static final Component PREFIX = Component.text("[Ashlar] ", NamedTextColor.GOLD);
 
+    private static final String NOT_CONFIGURED =
+            "The AI assistant is not configured (agent.model.api-key is empty).";
+
     private final PluginConfig config;
     private final WsServer wsServer;
     private final Cooldown cooldown;
     private final AllowList allowList;
+    private final AgentService agentService;
     private final AtomicLong requestCounter = new AtomicLong();
 
-    public AshlarCommand(PluginConfig config, WsServer wsServer, Cooldown cooldown, AllowList allowList) {
+    public AshlarCommand(PluginConfig config, WsServer wsServer, Cooldown cooldown, AllowList allowList,
+                          AgentService agentService) {
         this.config = config;
         this.wsServer = wsServer;
         this.cooldown = cooldown;
         this.allowList = allowList;
+        this.agentService = agentService;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            reply(sender, "This command can only be used by a player.");
-            return true;
-        }
+        boolean consoleSender = !(sender instanceof Player);
         if (args.length == 0) {
-            reply(player, AshlarArgs.USAGE_TOP);
+            reply(sender, AshlarArgs.USAGE_TOP);
             return true;
         }
 
-        AshlarArgs.Parsed parsed = AshlarArgs.parse(args);
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(args, consoleSender);
 
+        if (parsed.kind() == AshlarArgs.Kind.SIMULATE) {
+            handleSimulate(sender, parsed.simulate());
+            return true;
+        }
+        if (consoleSender) {
+            if (parsed.kind() == AshlarArgs.Kind.INVALID && args[0].equalsIgnoreCase("simulate")) {
+                reply(sender, parsed.error());
+            } else {
+                reply(sender, "This command can only be used by a player.");
+            }
+            return true;
+        }
+
+        Player player = (Player) sender;
         if (!hasAccess(player, args)) {
             reply(player, "You do not have permission to do that.");
             return true;
@@ -75,12 +98,19 @@ public final class AshlarCommand implements CommandExecutor {
             reply(player, parsed.error());
             return true;
         }
-        if (!config.agent().enabled()) {
+
+        PluginConfig.AgentConfig.Mode mode = config.agent().mode();
+        if (mode == PluginConfig.AgentConfig.Mode.OFF && parsed.kind() != AshlarArgs.Kind.HELP) {
             reply(player, "The AI assistant is disabled on this server.");
             return true;
         }
-        if (needsConnection(parsed.kind()) && !wsServer.hasSubscriber("chat")) {
+        if (mode == PluginConfig.AgentConfig.Mode.EXTERNAL && needsConnection(parsed.kind())
+                && !wsServer.hasSubscriber("chat")) {
             reply(player, "The AI assistant is not connected right now.");
+            return true;
+        }
+        if (mode == PluginConfig.AgentConfig.Mode.EMBEDDED && needsConnection(parsed.kind()) && agentService == null) {
+            reply(player, NOT_CONFIGURED);
             return true;
         }
 
@@ -98,9 +128,35 @@ public final class AshlarCommand implements CommandExecutor {
             case DENY -> handleDeny(player, parsed.targetName());
             case ALLOWED -> handleAllowed(player);
             case HELP -> handleHelp(player);
+            case SIMULATE -> throw new IllegalStateException("handled above");
             case INVALID -> throw new IllegalStateException("handled above");
         }
         return true;
+    }
+
+    // -- simulate (console only) ---------------------------------------
+
+    private void handleSimulate(CommandSender sender, AshlarArgs.Simulate sim) {
+        PluginConfig.AgentConfig.Mode mode = config.agent().mode();
+        if (mode == PluginConfig.AgentConfig.Mode.OFF) {
+            reply(sender, "The AI assistant is disabled on this server.");
+            return;
+        }
+        if (mode != PluginConfig.AgentConfig.Mode.EMBEDDED) {
+            reply(sender, "ashlar simulate requires agent.mode: embedded.");
+            return;
+        }
+        if (agentService == null) {
+            reply(sender, NOT_CONFIGURED);
+            return;
+        }
+        int[] pos = {sim.x(), sim.y(), sim.z()};
+        int[] offset = Facing.offset(sim.facing());
+        int[] inFront = {pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]};
+        AgentRunner.PlayerInfo playerInfo = new AgentRunner.PlayerInfo(
+                ConsolePlayer.NAME, ConsolePlayer.ID.toString(), config.world().defaultWorld(),
+                pos, sim.facing(), inFront, "CREATIVE");
+        agentService.submit(playerInfo, String.join(" ", sim.text()));
     }
 
     // -- request -------------------------------------------------------
@@ -121,29 +177,46 @@ public final class AshlarCommand implements CommandExecutor {
         }
 
         cooldown.record(player.getUniqueId());
+        echoToMonitors(player, Component.text(player.getName() + " asked: ", NamedTextColor.GRAY)
+                .append(Component.text(text, NamedTextColor.WHITE)));
+
+        if (isEmbedded()) {
+            agentService.submit(playerInfoOf(player), text);
+            return;
+        }
+
         JsonObject event = new JsonObject();
         event.addProperty("event", "chat");
         event.addProperty("requestId", "chat-" + requestCounter.incrementAndGet());
         event.add("player", PlayerJson.describe(player));
         event.addProperty("text", text);
         wsServer.broadcastEvent("chat", event);
-        echoToMonitors(player, Component.text(player.getName() + " asked: ", NamedTextColor.GRAY)
-                .append(Component.text(text, NamedTextColor.WHITE)));
         reply(player, "Sent to the AI assistant. Replies will appear here.");
     }
 
     // -- cancel ----------------------------------------------------------
 
     private void handleCancelSelf(Player player) {
+        echoToMonitors(player, Component.text(player.getName() + " cancelled their request", NamedTextColor.GRAY));
+
+        if (isEmbedded()) {
+            boolean cancelled = agentService.cancel(player.getUniqueId());
+            reply(player, cancelled ? "Cancel requested." : "Nothing to cancel.");
+            return;
+        }
+
         JsonObject event = new JsonObject();
         event.addProperty("event", "chat_cancel");
         event.add("player", actorJson(player));
         wsServer.broadcastEvent("chat", event);
-        echoToMonitors(player, Component.text(player.getName() + " cancelled their request", NamedTextColor.GRAY));
         reply(player, "Cancel requested.");
     }
 
     private void handleCancelOther(Player player, String targetName) {
+        if (isEmbedded()) {
+            agentService.admin("cancel", byOf(player), targetOf(targetName), List.of());
+            return;
+        }
         broadcastAdmin(player, "cancel", targetJson(targetName), List.of());
         reply(player, "Cancel requested for " + targetName + ".");
     }
@@ -151,16 +224,28 @@ public final class AshlarCommand implements CommandExecutor {
     // -- usage -------------------------------------------------------------
 
     private void handleUsageSelf(Player player) {
+        if (isEmbedded()) {
+            agentService.admin("usage", byOf(player), null, List.of());
+            return;
+        }
         broadcastAdmin(player, "usage", JsonNull.INSTANCE, List.of());
         reply(player, "Usage request sent.");
     }
 
     private void handleUsageOther(Player player, String targetName) {
+        if (isEmbedded()) {
+            agentService.admin("usage", byOf(player), targetOf(targetName), List.of());
+            return;
+        }
         broadcastAdmin(player, "usage", targetJson(targetName), List.of());
         reply(player, "Usage request sent.");
     }
 
     private void handleUsageAll(Player player) {
+        if (isEmbedded()) {
+            agentService.admin("usage", byOf(player), new AdminActions.Target("all", null), List.of());
+            return;
+        }
         JsonObject target = new JsonObject();
         target.addProperty("name", "all");
         target.add("uuid", JsonNull.INSTANCE);
@@ -172,16 +257,28 @@ public final class AshlarCommand implements CommandExecutor {
 
     private void handleLimit(Player player, String targetName, List<String> limitArgs) {
         boolean isDefault = targetName.equalsIgnoreCase("default");
+        if (isEmbedded()) {
+            agentService.admin("limit", byOf(player), isDefault ? null : targetOf(targetName), limitArgs);
+            return;
+        }
         broadcastAdmin(player, "limit", isDefault ? JsonNull.INSTANCE : targetJson(targetName), limitArgs);
         reply(player, "Limit change sent.");
     }
 
     private void handlePause(Player player) {
+        if (isEmbedded()) {
+            agentService.admin("pause", byOf(player), null, List.of());
+            return;
+        }
         broadcastAdmin(player, "pause", JsonNull.INSTANCE, List.of());
         reply(player, "Pause requested.");
     }
 
     private void handleResume(Player player) {
+        if (isEmbedded()) {
+            agentService.admin("resume", byOf(player), null, List.of());
+            return;
+        }
         broadcastAdmin(player, "resume", JsonNull.INSTANCE, List.of());
         reply(player, "Resume requested.");
     }
@@ -301,6 +398,33 @@ public final class AshlarCommand implements CommandExecutor {
         args.forEach(argsArray::add);
         event.add("args", argsArray);
         wsServer.broadcastEvent("chat", event);
+    }
+
+    /** Whether {@code agent.mode} is {@code embedded} - the request/admin handlers call {@link #agentService} instead of broadcasting an event. */
+    private boolean isEmbedded() {
+        return config.agent().mode() == PluginConfig.AgentConfig.Mode.EMBEDDED;
+    }
+
+    private static AdminActions.By byOf(Player player) {
+        return new AdminActions.By(player.getName(), player.getUniqueId().toString());
+    }
+
+    /** {@link AdminActions.Target} equivalent of {@link #targetJson}: the real uuid when online, else {@code uuid = null}. */
+    private static AdminActions.Target targetOf(String name) {
+        Player online = Bukkit.getPlayerExact(name);
+        return online != null
+                ? new AdminActions.Target(online.getName(), online.getUniqueId().toString())
+                : new AdminActions.Target(name, null);
+    }
+
+    private static AgentRunner.PlayerInfo playerInfoOf(Player player) {
+        Location loc = player.getLocation();
+        int[] pos = {loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()};
+        String facing = Facing.fromYaw(loc.getYaw());
+        int[] offset = Facing.offset(facing);
+        int[] inFront = {pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]};
+        return new AgentRunner.PlayerInfo(player.getName(), player.getUniqueId().toString(),
+                loc.getWorld().getName(), pos, facing, inFront, player.getGameMode().name());
     }
 
     /** {@code {"name":..., "uuid":...}} for an online player - the caller of the command. */
