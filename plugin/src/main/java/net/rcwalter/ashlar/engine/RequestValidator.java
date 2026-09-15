@@ -54,8 +54,18 @@ public final class RequestValidator {
         return world;
     }
 
-    /** Validates a {@code fill_batch} request's {@code ops} array and parses it into {@link FillOp}s. */
-    public List<FillOp> validateFillOps(JsonArray opsArray, int worldMinHeight, int worldMaxHeight) {
+    /**
+     * Validates a {@code fill_batch} request's {@code ops} array and parses it into {@link
+     * FillOp}s. When {@code liquidsFlow} is true (the request's top-level {@code "liquids":
+     * "flow"}, see {@link #resolveLiquidsFlow}), also counts every op whose block is a liquid
+     * (see {@link #sumFlowingLiquidWeight}) against {@code limits.max-flowing-liquids-per-operation},
+     * conservatively using the op's full region volume regardless of {@code mode}/{@code filter}
+     * (step8d-prompt.md: "the op volume when the target is a liquid ... be conservative"), and
+     * rejects the request with {@code VOLUME_EXCEEDED} if the total exceeds the cap. With
+     * {@code liquidsFlow} false this adds no extra check, matching the "no cap change" rule for
+     * {@code "static"}.
+     */
+    public List<FillOp> validateFillOps(JsonArray opsArray, int worldMinHeight, int worldMaxHeight, boolean liquidsFlow) {
         List<Region> regions = new ArrayList<>(opsArray.size());
         long totalVolume = 0;
         for (JsonElement el : opsArray) {
@@ -72,19 +82,33 @@ public final class RequestValidator {
         checkVolume(totalVolume, "total volume");
 
         List<FillOp> result = new ArrayList<>(opsArray.size());
+        List<LiquidCandidate> liquidCandidates = new ArrayList<>(opsArray.size());
         for (int i = 0; i < opsArray.size(); i++) {
             JsonObject op = opsArray.get(i).getAsJsonObject();
-            BlockData block = BlockDataParser.parse(requireString(op, "block"));
+            String blockStr = requireString(op, "block");
+            BlockData block = BlockDataParser.parse(blockStr);
             FillMode mode = FillMode.fromString(optString(op, "mode", null));
             String filterStr = optString(op, "filter", null);
             BlockData filter = filterStr == null ? null : BlockDataParser.parse(filterStr);
             result.add(new FillOp(regions.get(i), block, mode, filter));
+            liquidCandidates.add(new LiquidCandidate(blockStr, regions.get(i).volume()));
+        }
+        if (liquidsFlow) {
+            checkVolumeLimit(sumFlowingLiquidWeight(liquidCandidates), config.limits().maxFlowingLiquidsPerOperation(),
+                    "flowing liquid blocks");
         }
         return result;
     }
 
-    /** Validates a {@code set_blocks} request's {@code blocks} array and parses it into {@link SparseOp}s. */
-    public List<SparseOp> validateSparseOps(JsonArray blocksArray, int worldMinHeight, int worldMaxHeight) {
+    /**
+     * Validates a {@code set_blocks} request's {@code blocks} array and parses it into {@link
+     * SparseOp}s. When {@code liquidsFlow} is true, also counts every entry whose block is a
+     * liquid (see {@link #sumFlowingLiquidWeight}) against {@code
+     * limits.max-flowing-liquids-per-operation} and rejects the request with {@code
+     * VOLUME_EXCEEDED} if the total exceeds the cap; see {@link #validateFillOps} for the fuller
+     * rationale.
+     */
+    public List<SparseOp> validateSparseOps(JsonArray blocksArray, int worldMinHeight, int worldMaxHeight, boolean liquidsFlow) {
         // Sparse requests have no sub-operations; the whole array counts once against the limit.
         checkVolume(blocksArray.size(), "block count");
 
@@ -107,14 +131,59 @@ public final class RequestValidator {
         checkChunkCount(new Region(minX, minY, minZ, maxX, maxY, maxZ));
 
         List<SparseOp> result = new ArrayList<>(blocksArray.size());
+        List<LiquidCandidate> liquidCandidates = new ArrayList<>(blocksArray.size());
         for (int i = 0; i < blocksArray.size(); i++) {
             JsonObject entry = blocksArray.get(i).getAsJsonObject();
-            BlockData block = BlockDataParser.parse(requireString(entry, "block"));
+            String blockStr = requireString(entry, "block");
+            BlockData block = BlockDataParser.parse(blockStr);
             int[] pos = positions.get(i);
             SignData sign = parseSign(entry, block);
             result.add(new SparseOp(pos[0], pos[1], pos[2], block, sign));
+            liquidCandidates.add(new LiquidCandidate(blockStr, 1));
+        }
+        if (liquidsFlow) {
+            checkVolumeLimit(sumFlowingLiquidWeight(liquidCandidates), config.limits().maxFlowingLiquidsPerOperation(),
+                    "flowing liquid blocks");
         }
         return result;
+    }
+
+    /** One block string paired with the weight it contributes to the flowing-liquid cap if it is a liquid. */
+    record LiquidCandidate(String block, long weight) {
+    }
+
+    /**
+     * Pure: sums {@link LiquidCandidate#weight()} for every candidate whose block string is a
+     * liquid ({@link LiquidBlocks#isFlowableBlockString}) - the op's region volume for {@link
+     * #validateFillOps} (conservative: the same regardless of {@code mode}/{@code filter}, per
+     * step8d-prompt.md), or {@code 1} per entry for {@link #validateSparseOps}. Package-private,
+     * side-effect-free and touches neither Bukkit nor JSON, so it is directly unit-testable
+     * (RequestValidatorTest) without a live Paper block registry.
+     */
+    static long sumFlowingLiquidWeight(List<LiquidCandidate> candidates) {
+        long total = 0;
+        for (LiquidCandidate candidate : candidates) {
+            if (LiquidBlocks.isFlowableBlockString(candidate.block())) {
+                total += candidate.weight();
+            }
+        }
+        return total;
+    }
+
+    private static final List<String> VALID_LIQUIDS_MODES = List.of("static", "flow");
+
+    /**
+     * Resolves the {@code "liquids": "static" | "flow"} top-level request field for {@code
+     * fill_batch}/{@code set_blocks} (step8d-prompt.md), defaulting to {@code "static"} (today's
+     * behaviour: never applies physics) when the request omits it.
+     */
+    public boolean resolveLiquidsFlow(JsonObject params) {
+        String liquids = optString(params, "liquids", "static");
+        if (!VALID_LIQUIDS_MODES.contains(liquids)) {
+            throw new RpcError(ErrorCode.BAD_REQUEST,
+                    "\"liquids\" must be one of " + VALID_LIQUIDS_MODES + ", got '" + liquids + "'");
+        }
+        return "flow".equals(liquids);
     }
 
     /**

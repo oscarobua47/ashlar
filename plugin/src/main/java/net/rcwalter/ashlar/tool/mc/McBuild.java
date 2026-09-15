@@ -33,6 +33,7 @@ import static net.rcwalter.ashlar.tool.mc.JsonUtil.stringArray;
 public final class McBuild implements Tool {
 
     private static final List<String> FILL_MODES = List.of("replace", "keep", "outline", "hollow", "walls");
+    private static final List<String> LIQUIDS_MODES = List.of("static", "flow");
 
     private final ToolSpec spec = ToolSpec.load("mc_build");
     private final RpcHandler snapshotHandler;
@@ -59,7 +60,8 @@ public final class McBuild implements Tool {
     record SparseOpArg(int[] pos, String block, SignArg sign) {
     }
 
-    record Args(String world, List<FillOpArg> fills, List<SparseOpArg> blocks, boolean snapshot, Boolean connect) {
+    record Args(String world, List<FillOpArg> fills, List<SparseOpArg> blocks, boolean snapshot, Boolean connect,
+            String liquids) {
         static Args parse(JsonObject o) {
             String world = ArgParse.optString(o, "world");
 
@@ -110,7 +112,8 @@ public final class McBuild implements Tool {
 
             boolean snapshot = ArgParse.optBoolean(o, "snapshot", false);
             Boolean connect = ArgParse.optBooleanNullable(o, "connect");
-            return new Args(world, fills, blocks, snapshot, connect);
+            String liquids = ArgParse.optEnum(o, "liquids", LIQUIDS_MODES, null);
+            return new Args(world, fills, blocks, snapshot, connect, liquids);
         }
 
         private static List<String> optSignLines(JsonObject signObj, String field) {
@@ -206,6 +209,9 @@ public final class McBuild implements Tool {
         if (a.connect() != null) {
             params.addProperty("connect", a.connect());
         }
+        if (a.liquids() != null) {
+            params.addProperty("liquids", a.liquids());
+        }
         return fillBatchHandler.handle(ctx, params).thenAccept(el -> {
             JsonObject r = el.getAsJsonObject();
             List<ToolText.FillOpLine> opLines = new ArrayList<>();
@@ -232,6 +238,9 @@ public final class McBuild implements Tool {
         params.add("blocks", blocksJson);
         if (a.connect() != null) {
             params.addProperty("connect", a.connect());
+        }
+        if (a.liquids() != null) {
+            params.addProperty("liquids", a.liquids());
         }
         return setBlocksHandler.handle(ctx, params).thenAccept(el -> {
             JsonObject r = el.getAsJsonObject();

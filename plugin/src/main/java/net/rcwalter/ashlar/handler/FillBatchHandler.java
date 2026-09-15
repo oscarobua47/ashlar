@@ -62,9 +62,10 @@ public final class FillBatchHandler implements RpcHandler {
     private CompletableFuture<JsonElement> startFill(RequestValidator validator, World world, JsonArray opsArray,
             JsonObject params, int[] heights, InvocationContext ctx) {
         try {
-            List<FillOp> ops = validator.validateFillOps(opsArray, heights[0], heights[1]);
+            boolean liquidsFlow = validator.resolveLiquidsFlow(params);
+            List<FillOp> ops = validator.validateFillOps(opsArray, heights[0], heights[1], liquidsFlow);
             boolean connect = validator.resolveConnect(params);
-            return fillService.fill(world, ops, connect, ctx);
+            return fillService.fill(world, ops, connect, liquidsFlow, ctx);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);
         }

@@ -28,11 +28,18 @@ public final class FillService {
         this.executor = executor;
     }
 
-    /** Enqueues a batch fill of {@code ops} on {@code world}. Must not be called from the main thread. */
-    public CompletableFuture<JsonElement> fill(World world, List<FillOp> ops, boolean connect, InvocationContext ctx) {
+    /**
+     * Enqueues a batch fill of {@code ops} on {@code world}. Must not be called from the main
+     * thread. {@code liquidsFlow} is the request's {@code "liquids": "flow"} (step8d-prompt.md):
+     * when true, every written block whose material is a liquid ({@link LiquidBlocks#isFlowable})
+     * is written with physics enabled so it spreads like a hand-placed fluid; every other block
+     * (and every liquid when {@code liquidsFlow} is false) keeps the usual physics-free write.
+     */
+    public CompletableFuture<JsonElement> fill(World world, List<FillOp> ops, boolean connect, boolean liquidsFlow,
+            InvocationContext ctx) {
         MainThread.assertNotPrimary("FillService.fill");
         Region region = boundingRegion(ops);
-        FillTask task = new FillTask(region, ops, world, connect, config.engine().supportWarnings());
+        FillTask task = new FillTask(region, ops, world, connect, config.engine().supportWarnings(), liquidsFlow);
         return executor.submit(task, ctx);
     }
 

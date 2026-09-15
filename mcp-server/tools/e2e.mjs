@@ -50,6 +50,10 @@ function textOf(result) {
     return result.content.map(c => (c.type === "text" ? c.text : `[${c.type}]`)).join("\n");
 }
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // A successful POST /mcp response body is SSE-framed ("event: message\ndata:
 // {...}\n\n") even with responseMode "json" configured server-side, so pull
 // the JSON-RPC payload out of the last "data:" line rather than parsing the
@@ -786,6 +790,101 @@ async function main() {
     check(
         `volume clear elapsedMs is small (< 5000ms, got ${clearServerElapsedMs})`,
         clearServerElapsedMs !== null && clearServerElapsedMs < 5000
+    );
+
+    // --- step8d: liquids: "flow" (physics-enabled water/lava) ---------------------------
+    section('mc_build (liquids: "flow" - a water source spreads and falls like a fountain)');
+    const LIQ_FLOW_X = 700;
+    const LIQ_STATIC_X = 720;
+    const LIQ_Z = 700;
+
+    // No players are online on the test server, so a freshly-written chunk is loaded (writes and
+    // reads succeed) but not necessarily "ticking" - scheduled block ticks, which is how fluid
+    // spread actually happens, need that. /forceload keeps a chunk both loaded and simulated (see
+    // the step8d report's engine-behaviour verification for how this was found).
+    await client.callTool({
+        name: "mc_command",
+        arguments: { command: `forceload add ${LIQ_FLOW_X - 2} ${LIQ_Z - 2} ${LIQ_STATIC_X + 8} ${LIQ_Z + 8}` }
+    });
+
+    // Each test point is its own walled 7x7 pit (floor at y=60, walls y=60..64, open top) so a
+    // spreading source cannot bleed into the other point's read window - one water source dropped
+    // 3 blocks above the floor (y=63), at the pit's centre.
+    function liquidPitOps(x0, z0) {
+        return [
+            { from: [x0 - 1, 58, z0 - 1], to: [x0 + 7, 67, z0 + 6], block: "minecraft:air" },
+            { from: [x0, 60, z0], to: [x0 + 6, 60, z0 + 6], block: "minecraft:stone" },
+            { from: [x0, 60, z0], to: [x0 + 6, 64, z0 + 6], block: "minecraft:stone", mode: "walls" }
+        ];
+    }
+
+    const flowBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: liquidPitOps(LIQ_FLOW_X, LIQ_Z),
+            blocks: [{ pos: [LIQ_FLOW_X + 3, 63, LIQ_Z + 3], block: "minecraft:water" }],
+            liquids: "flow"
+        }
+    });
+    console.log(textOf(flowBuild));
+    check('mc_build (liquids: "flow") not an error', !flowBuild.isError);
+
+    section('mc_build (liquids: "static" control - same layout, default liquids: water stays a frozen source)');
+    const staticBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: liquidPitOps(LIQ_STATIC_X, LIQ_Z),
+            blocks: [{ pos: [LIQ_STATIC_X + 3, 63, LIQ_Z + 3], block: "minecraft:water" }]
+            // liquids omitted - defaults to "static".
+        }
+    });
+    console.log(textOf(staticBuild));
+    check('mc_build (liquids: "static") not an error', !staticBuild.isError);
+
+    console.log("  waiting 3s (>40 ticks) for fluid physics to spread ...");
+    await sleep(3000);
+
+    const flowStats = await client.callTool({
+        name: "mc_inspect",
+        arguments: { from: [LIQ_FLOW_X, 60, LIQ_Z], to: [LIQ_FLOW_X + 6, 63, LIQ_Z + 6] }
+    });
+    const flowStatsText = textOf(flowStats);
+    console.log(flowStatsText);
+    check("mc_inspect (flow pit) not an error", !flowStats.isError);
+    check(
+        'liquids:"flow" water spread beyond the single source (a non-source water level state is present)',
+        /minecraft:water\[level=[1-8]\]/.test(flowStatsText)
+    );
+
+    const staticStats = await client.callTool({
+        name: "mc_inspect",
+        arguments: { from: [LIQ_STATIC_X, 60, LIQ_Z], to: [LIQ_STATIC_X + 6, 63, LIQ_Z + 6] }
+    });
+    const staticStatsText = textOf(staticStats);
+    console.log(staticStatsText);
+    check("mc_inspect (static pit) not an error", !staticStats.isError);
+    check(
+        'liquids:"static" (default) water did not spread (no non-source water level state present)',
+        !/minecraft:water\[level=[1-8]\]/.test(staticStatsText)
+    );
+    check(
+        'liquids:"static" water is still exactly the one placed source block',
+        /\s+1\s+[\d.]+%\s+minecraft:water\[level=0\]/.test(staticStatsText)
+    );
+
+    section('mc_build (error: liquids: "flow" cap exceeded)');
+    const liquidCapExceeded = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            fills: [{ from: [750, 60, 700], to: [769, 79, 719], block: "minecraft:water" }],
+            liquids: "flow"
+        }
+    });
+    console.log(textOf(liquidCapExceeded));
+    check('liquids:"flow" cap-exceeded call isError', liquidCapExceeded.isError === true);
+    check(
+        'liquids:"flow" cap-exceeded message mentions "flowing liquid blocks" and the 2000 cap',
+        /flowing liquid blocks \d+ exceeds limit 2000/.test(textOf(liquidCapExceeded))
     );
 
     // --- mc_command ---------------------------------------------------------

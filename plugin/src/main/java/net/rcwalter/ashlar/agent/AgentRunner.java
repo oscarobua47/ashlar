@@ -42,7 +42,7 @@ import java.util.function.Consumer;
  */
 public final class AgentRunner {
 
-    private static final List<String> SHORT_ARG_KEYS = List.of("from", "to", "view", "action");
+    private static final List<String> SHORT_ARG_KEYS = List.of("from", "to", "view", "action", "liquids");
     private static final long POLL_MS = 50;
 
     private final ModelApi modelApi;

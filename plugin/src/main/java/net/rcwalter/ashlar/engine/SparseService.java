@@ -26,11 +26,16 @@ public final class SparseService {
         this.executor = executor;
     }
 
-    /** Enqueues sparse block writes on {@code world}. Must not be called from the main thread. */
-    public CompletableFuture<JsonElement> set(World world, List<SparseOp> ops, boolean connect, InvocationContext ctx) {
+    /**
+     * Enqueues sparse block writes on {@code world}. Must not be called from the main thread.
+     * {@code liquidsFlow} is the request's {@code "liquids": "flow"} (step8d-prompt.md); see
+     * {@link FillService#fill} for the full rationale.
+     */
+    public CompletableFuture<JsonElement> set(World world, List<SparseOp> ops, boolean connect, boolean liquidsFlow,
+            InvocationContext ctx) {
         MainThread.assertNotPrimary("SparseService.set");
         Region region = boundingRegion(ops);
-        SparseTask task = new SparseTask(region, ops, world, connect, config.engine().supportWarnings());
+        SparseTask task = new SparseTask(region, ops, world, connect, config.engine().supportWarnings(), liquidsFlow);
         return executor.submit(task, ctx);
     }
 

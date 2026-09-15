@@ -83,6 +83,33 @@ class McBuildTest {
     }
 
     @Test
+    void liquidsOmittedParsesAsNull() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"fills\":[{\"from\":[0,60,0],\"to\":[10,70,10],\"block\":\"minecraft:stone\"}]}"));
+        assertNull(a.liquids());
+    }
+
+    @Test
+    void liquidsStaticParses() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"blocks\":[{\"pos\":[0,60,0],\"block\":\"minecraft:water\"}],\"liquids\":\"static\"}"));
+        assertEquals("static", a.liquids());
+    }
+
+    @Test
+    void liquidsFlowParses() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"blocks\":[{\"pos\":[0,60,0],\"block\":\"minecraft:water\"}],\"liquids\":\"flow\"}"));
+        assertEquals("flow", a.liquids());
+    }
+
+    @Test
+    void liquidsInvalidValueThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"blocks\":[{\"pos\":[0,60,0],\"block\":\"minecraft:water\"}],\"liquids\":\"gushing\"}")));
+    }
+
+    @Test
     void signWithFrontAndBackParses() {
         McBuild.Args a = McBuild.Args.parse(obj(
                 "{\"blocks\":[{\"pos\":[0,60,0],\"block\":\"minecraft:oak_sign\",\"sign\":{\"front\":[\"Hello\"],\"back\":[\"World\"],\"color\":\"red\",\"glowing\":true}}]}"));

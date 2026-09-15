@@ -52,9 +52,10 @@ public final class SetBlocksHandler implements RpcHandler {
     private CompletableFuture<JsonElement> startSet(RequestValidator validator, World world, JsonArray blocksArray,
             JsonObject params, int[] heights, InvocationContext ctx) {
         try {
-            List<SparseOp> ops = validator.validateSparseOps(blocksArray, heights[0], heights[1]);
+            boolean liquidsFlow = validator.resolveLiquidsFlow(params);
+            List<SparseOp> ops = validator.validateSparseOps(blocksArray, heights[0], heights[1], liquidsFlow);
             boolean connect = validator.resolveConnect(params);
-            return sparseService.set(world, ops, connect, ctx);
+            return sparseService.set(world, ops, connect, liquidsFlow, ctx);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);
         }

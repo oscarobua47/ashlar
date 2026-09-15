@@ -38,17 +38,24 @@ public final class SparseTask extends BuildTask {
     private final List<int[]> supportPositions = new ArrayList<>();
     private final NeighbourPositions neighbourPositions = new NeighbourPositions();
     private final SupportCheck supportCheck;
+    private final boolean liquidsFlow;
     private int index = 0;
     private int worldMinHeight;
     private int worldMaxHeight;
     private boolean heightsCached = false;
 
-    public SparseTask(Region region, List<SparseOp> ops, World world, boolean connect, boolean supportWarnings) {
+    /**
+     * {@code liquidsFlow}: the request's {@code "liquids": "flow"} (step8d-prompt.md); see
+     * {@link FillTask#FillTask} for the full rationale.
+     */
+    public SparseTask(Region region, List<SparseOp> ops, World world, boolean connect, boolean supportWarnings,
+            boolean liquidsFlow) {
         super(region);
         this.ops = ops;
         this.world = world;
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
         this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
+        this.liquidsFlow = liquidsFlow;
     }
 
     @Override
@@ -75,8 +82,11 @@ public final class SparseTask extends BuildTask {
             BlockData current = block.getBlockData();
             boolean blockChanged = !current.equals(target);
             if (blockChanged) {
-                // The only block-writing call allowed anywhere: never triggers physics.
-                block.setBlockData(target, false);
+                // The only block-writing call allowed anywhere: physics is enabled only for a
+                // liquid target under liquids:"flow" (step8d-prompt.md); everything else, and
+                // every liquid when liquidsFlow is false, is written with physics=false.
+                boolean physics = liquidsFlow && LiquidBlocks.isFlowable(target.getMaterial());
+                block.setBlockData(target, physics);
                 addChanged(1);
                 if (ConnectionPass.isConnectable(target)) {
                     connectablePositions.add(new int[]{op.x(), op.y(), op.z()});

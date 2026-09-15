@@ -38,6 +38,7 @@ public final class FillTask extends BuildTask {
     private final List<int[]> supportPositions = new ArrayList<>();
     private final NeighbourPositions neighbourPositions = new NeighbourPositions();
     private final SupportCheck supportCheck;
+    private final boolean liquidsFlow;
 
     private int opIndex = 0;
     private int cursorY;
@@ -46,13 +47,21 @@ public final class FillTask extends BuildTask {
     private boolean cursorInitialized = false;
     private boolean neighbourPositionsBuilt = false;
 
-    public FillTask(Region region, List<FillOp> ops, World world, boolean connect, boolean supportWarnings) {
+    /**
+     * {@code liquidsFlow}: the request's {@code "liquids": "flow"} (step8d-prompt.md). When true,
+     * a written block whose material is a liquid ({@link LiquidBlocks#isFlowable}) is written with
+     * {@code setBlockData(data, true)} so vanilla fluid physics spreads it; every other write (and
+     * every liquid write when this is false) stays {@code setBlockData(data, false)}.
+     */
+    public FillTask(Region region, List<FillOp> ops, World world, boolean connect, boolean supportWarnings,
+            boolean liquidsFlow) {
         super(region);
         this.ops = ops;
         this.world = world;
         this.opChanged = new long[ops.size()];
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
         this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
+        this.liquidsFlow = liquidsFlow;
     }
 
     @Override
@@ -145,8 +154,11 @@ public final class FillTask extends BuildTask {
                 boolean write = !(op.mode() == FillMode.KEEP && !current.getMaterial().isAir())
                         && !(op.filter() != null && !current.matches(op.filter()));
                 if (write && !current.equals(target)) {
-                    // The only block-writing call allowed anywhere: never triggers physics.
-                    block.setBlockData(target, false);
+                    // The only block-writing call allowed anywhere: physics is enabled only for a
+                    // liquid target under liquids:"flow" (step8d-prompt.md); everything else, and
+                    // every liquid when liquidsFlow is false, is written with physics=false.
+                    boolean physics = liquidsFlow && LiquidBlocks.isFlowable(target.getMaterial());
+                    block.setBlockData(target, physics);
                     opChanged[opIndex]++;
                     addChanged(1);
                     if (ConnectionPass.isConnectable(target)) {

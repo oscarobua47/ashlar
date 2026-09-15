@@ -52,6 +52,11 @@ limits:
   # a 300x300 terrain survey; lower it on memory-constrained servers.
   max-chunks-per-operation: 1024
 
+  # Maximum number of physics-enabled liquid blocks a single fill_batch/set_blocks request may
+  # place with "liquids": "flow" (default "static" has no such cap). Each one schedules fluid
+  # updates that spread on their own, so keep this small.
+  max-flowing-liquids-per-operation: 2000
+
 world:
   # Default world name used when a request omits "world".
   default: "world"
