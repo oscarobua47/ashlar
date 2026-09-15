@@ -90,7 +90,7 @@ public final class AshlarCommand implements CommandExecutor {
         }
 
         Player player = (Player) sender;
-        if (!hasAccess(player, args)) {
+        if (!hasAccess(player, args, parsed)) {
             reply(player, "You do not have permission to do that.");
             return true;
         }
@@ -119,9 +119,9 @@ public final class AshlarCommand implements CommandExecutor {
             case CANCEL_SELF -> handleCancelSelf(player);
             case CANCEL_OTHER -> handleCancelOther(player, parsed.targetName());
             case RESET -> handleReset(player);
-            case USAGE_SELF -> handleUsageSelf(player);
-            case USAGE_OTHER -> handleUsageOther(player, parsed.targetName());
-            case USAGE_ALL -> handleUsageAll(player);
+            case USAGE_SELF -> handleUsageSelf(player, parsed.args());
+            case USAGE_OTHER -> handleUsageOther(player, parsed.targetName(), parsed.args());
+            case USAGE_ALL -> handleUsageAll(player, parsed.args());
             case LIMIT -> handleLimit(player, parsed.targetName(), parsed.args());
             case CREDIT_SHOW -> handleCredit(player, parsed.targetName(), List.of());
             case CREDIT_SET -> handleCredit(player, parsed.targetName(), parsed.args());
@@ -235,33 +235,33 @@ public final class AshlarCommand implements CommandExecutor {
         reply(player, had ? "Forgot our previous conversation." : "Nothing to forget.");
     }
 
-    private void handleUsageSelf(Player player) {
+    private void handleUsageSelf(Player player, List<String> rangeArgs) {
         if (isEmbedded()) {
-            agentService.admin("usage", byOf(player), null, List.of());
+            agentService.admin("usage", byOf(player), null, rangeArgs);
             return;
         }
-        broadcastAdmin(player, "usage", JsonNull.INSTANCE, List.of());
+        broadcastAdmin(player, "usage", JsonNull.INSTANCE, rangeArgs);
         reply(player, "Usage request sent.");
     }
 
-    private void handleUsageOther(Player player, String targetName) {
+    private void handleUsageOther(Player player, String targetName, List<String> rangeArgs) {
         if (isEmbedded()) {
-            agentService.admin("usage", byOf(player), targetOf(targetName), List.of());
+            agentService.admin("usage", byOf(player), targetOf(targetName), rangeArgs);
             return;
         }
-        broadcastAdmin(player, "usage", targetJson(targetName), List.of());
+        broadcastAdmin(player, "usage", targetJson(targetName), rangeArgs);
         reply(player, "Usage request sent.");
     }
 
-    private void handleUsageAll(Player player) {
+    private void handleUsageAll(Player player, List<String> rangeArgs) {
         if (isEmbedded()) {
-            agentService.admin("usage", byOf(player), new AdminActions.Target("all", null), List.of());
+            agentService.admin("usage", byOf(player), new AdminActions.Target("all", null), rangeArgs);
             return;
         }
         JsonObject target = new JsonObject();
         target.addProperty("name", "all");
         target.add("uuid", JsonNull.INSTANCE);
-        broadcastAdmin(player, "usage", target, List.of());
+        broadcastAdmin(player, "usage", target, rangeArgs);
         reply(player, "Usage request sent.");
     }
 
@@ -348,8 +348,8 @@ public final class AshlarCommand implements CommandExecutor {
             new HelpLine("ashlar.use", "/ashlar cancel - cancel your own running or queued request"),
             new HelpLine("ashlar.use", "/ashlar reset - forget the previous conversation (start fresh)"),
             new HelpLine("ashlar.admin", "/ashlar cancel <player> - cancel another player's request"),
-            new HelpLine("ashlar.use", "/ashlar usage - your own usage today and in total"),
-            new HelpLine("ashlar.monitor", "/ashlar usage <player>|all - another player's usage, or everyone's"),
+            new HelpLine("ashlar.use", "/ashlar usage [<days>|<from> <to>] - your own usage today/total, or a per-day report (dates: YYYY-MM-DD, YYYYMMDD, or MM-DD)"),
+            new HelpLine("ashlar.monitor", "/ashlar usage <player>|all [<days>|<from> <to>] - another player's usage, or everyone's, optionally as a per-day report"),
             new HelpLine("ashlar.admin", "/ashlar limit <player>|default <cost|tokens|requests> <number>|off - set a daily cap"),
             new HelpLine("ashlar.admin", "/ashlar limit <player>|default reset - remove the override"),
             new HelpLine("ashlar.admin", "/ashlar credit <player> - show a player's prepaid credit balance"),
@@ -390,8 +390,8 @@ public final class AshlarCommand implements CommandExecutor {
      * companion for servers with no permissions plugin). {@code help} needs
      * nothing here; it filters its own output per line.
      */
-    private boolean hasAccess(Player player, String[] args) {
-        String required = requiredPermission(args);
+    private boolean hasAccess(Player player, String[] args, AshlarArgs.Parsed parsed) {
+        String required = requiredPermission(args, parsed);
         if (required == null) {
             return true;
         }
@@ -401,11 +401,22 @@ public final class AshlarCommand implements CommandExecutor {
         return player.hasPermission(required);
     }
 
-    private static String requiredPermission(String[] args) {
+    /**
+     * {@code usage} needs {@code ashlar.monitor} only when it names a target ({@code
+     * USAGE_OTHER}/{@code USAGE_ALL}); the caller's own usage - with or without a day range,
+     * {@code USAGE_SELF} - needs only {@code ashlar.use} (step8g-prompt.md: a range alone must not
+     * require monitor). A grammar error ({@code INVALID}) falls back to the old, conservative
+     * arg-count heuristic since the real shape (self-range vs. a mistyped target) is not known.
+     */
+    private static String requiredPermission(String[] args, AshlarArgs.Parsed parsed) {
         String keyword = args[0].toLowerCase(Locale.ROOT);
         return switch (keyword) {
             case "cancel" -> args.length >= 2 ? "ashlar.admin" : "ashlar.use";
-            case "usage" -> args.length >= 2 ? "ashlar.monitor" : "ashlar.use";
+            case "usage" -> switch (parsed.kind()) {
+                case USAGE_SELF -> "ashlar.use";
+                case USAGE_OTHER, USAGE_ALL -> "ashlar.monitor";
+                default -> args.length >= 2 ? "ashlar.monitor" : "ashlar.use";
+            };
             case "limit", "credit", "pause", "resume", "allow", "deny", "allowed" -> "ashlar.admin";
             case "help" -> null;
             default -> "ashlar.use";

@@ -15,8 +15,10 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -25,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -34,16 +37,17 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Persists per-player token/cost usage, per-day limit overrides, per-player prepaid credit
- * (step8f-prompt.md) and the global pause flag (pure-Java port of {@code
- * mcp-server/src/agent/usage.ts}, credit added after that file was retired in 0.4.0). Loaded
- * synchronously at construction; saved atomically ({@code <file>.tmp} then move), debounced, and
- * on {@link #flush()} / {@link #close()}.
+ * Persists per-player token/cost usage, a rolling 90-day per-day history (step8g-prompt.md),
+ * per-day limit overrides, per-player prepaid credit (step8f-prompt.md) and the global pause flag
+ * (pure-Java port of {@code mcp-server/src/agent/usage.ts}, credit and day history added after
+ * that file was retired in 0.4.0). Loaded synchronously at construction; saved atomically
+ * ({@code <file>.tmp} then move), debounced, and on {@link #flush()} / {@link #close()}.
  */
 public final class UsageStore implements AutoCloseable {
 
     private static final Logger LOGGER = Logger.getLogger("Ashlar");
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ROOT).withZone(ZoneOffset.UTC);
+    private static final int HISTORY_DAYS_TO_KEEP = 90;
 
     public enum LimitKind {
         COST, TOKENS, REQUESTS;
@@ -158,6 +162,10 @@ public final class UsageStore implements AutoCloseable {
                                 Optional<Credit> credit) {
     }
 
+    /** {@link #history} / {@link #historyAll}: one row per day in the requested range (missing days are zero rows) plus the range's totals. */
+    public record HistoryResult(List<DayCounters> days, TotalCounters totals) {
+    }
+
     /** A player's prepaid balance; absent from the JSON store entirely when the player has none. */
     public record Credit(boolean enabled, double balance) {
     }
@@ -183,6 +191,8 @@ public final class UsageStore implements AutoCloseable {
         final Map<LimitKind, LimitValue> limits = new EnumMap<>(LimitKind.class);
         DayCounters today;
         TotalCounters total = new TotalCounters();
+        /** UTC date -> that day's counters; keeps {@code today}'s date once it stops being "today" (step8g-prompt.md). */
+        final Map<String, DayCounters> days = new HashMap<>();
         long updatedAt;
         Credit credit;
     }
@@ -312,6 +322,19 @@ public final class UsageStore implements AutoCloseable {
             pr.total = readTotalCounters(rec.getAsJsonObject("total"));
             pr.updatedAt = rec.has("updatedAt") && rec.get("updatedAt").isJsonPrimitive() ? rec.get("updatedAt").getAsLong() : 0;
             pr.credit = readCredit(rec);
+            if (rec.has("days") && rec.get("days").isJsonObject()) {
+                for (Map.Entry<String, JsonElement> dayEntry : rec.getAsJsonObject("days").entrySet()) {
+                    if (dayEntry.getValue().isJsonObject()) {
+                        pr.days.put(dayEntry.getKey(), readDayCounters(dayEntry.getValue().getAsJsonObject(), dayEntry.getKey()));
+                    }
+                }
+            }
+            // Migration (step8g-prompt.md): an old-format record has no "days" entry for its own
+            // "today" date - a file saved before this feature existed. Back-fill it so the player
+            // gains one day of history from the day the file was last written, instead of a gap.
+            if (!pr.days.containsKey(pr.today.date)) {
+                pr.days.put(pr.today.date, pr.today.copy());
+            }
             players.put(entry.getKey(), pr);
         }
     }
@@ -436,6 +459,11 @@ public final class UsageStore implements AutoCloseable {
             }
             dirty = false;
 
+            String cutoffExclusive = DAY_FORMAT.format(now.get().minus(HISTORY_DAYS_TO_KEEP, ChronoUnit.DAYS));
+            for (PlayerRecord rec : players.values()) {
+                pruneOldDays(rec, cutoffExclusive);
+            }
+
             JsonObject file = new JsonObject();
             file.addProperty("version", 1);
             file.addProperty("paused", paused);
@@ -493,6 +521,11 @@ public final class UsageStore implements AutoCloseable {
         o.add("limits", limitsToJson(rec.limits));
         o.add("today", dayCountersToJson(rec.today));
         o.add("total", totalCountersToJson(rec.total));
+        JsonObject daysJson = new JsonObject();
+        for (Map.Entry<String, DayCounters> e : new TreeMap<>(rec.days).entrySet()) {
+            daysJson.add(e.getKey(), dayCountersToJson(e.getValue()));
+        }
+        o.add("days", daysJson);
         o.addProperty("updatedAt", rec.updatedAt);
         if (rec.credit != null) {
             JsonObject c = new JsonObject();
@@ -501,6 +534,11 @@ public final class UsageStore implements AutoCloseable {
             o.add("credit", c);
         }
         return o;
+    }
+
+    /** Drops day entries older than {@link #HISTORY_DAYS_TO_KEEP} days, called just before every save. */
+    private static void pruneOldDays(PlayerRecord rec, String cutoffExclusive) {
+        rec.days.keySet().removeIf(date -> date.compareTo(cutoffExclusive) < 0);
     }
 
     /** Flushes any pending save synchronously without stopping future debounced saves. */
@@ -635,6 +673,13 @@ public final class UsageStore implements AutoCloseable {
         rec.today.cachedInputTokens += usage.cachedInputTokens();
         rec.today.outputTokens += usage.outputTokens();
         rec.today.cost += cost;
+
+        DayCounters day = rec.days.computeIfAbsent(rec.today.date, DayCounters::new);
+        day.requests += 1;
+        day.inputTokens += usage.inputTokens();
+        day.cachedInputTokens += usage.cachedInputTokens();
+        day.outputTokens += usage.outputTokens();
+        day.cost += cost;
 
         rec.total.requests += 1;
         rec.total.inputTokens += usage.inputTokens();
@@ -778,6 +823,66 @@ public final class UsageStore implements AutoCloseable {
         }
         all.sort(Comparator.comparingDouble((UsageSummary s) -> s.today().cost).reversed());
         return all;
+    }
+
+    /** Today's UTC date, {@code yyyy-MM-dd} - the "ending today" anchor for a day-count range (step8g-prompt.md). */
+    public String todayIso() {
+        return todayStr();
+    }
+
+    /**
+     * {@code uuid}'s usage for each UTC date in {@code [from, to]} inclusive - a zero row for any
+     * day with no recorded activity, so the caller gets exactly one line per day - plus the
+     * summed {@link TotalCounters} for the whole range.
+     */
+    public HistoryResult history(String uuid, LocalDate from, LocalDate to) {
+        PlayerRecord rec = players.get(uuid);
+        if (rec != null) {
+            rollover(rec);
+        }
+        List<DayCounters> rows = new ArrayList<>();
+        TotalCounters totals = new TotalCounters();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            String date = DAY_FORMAT.format(d.atStartOfDay(ZoneOffset.UTC).toInstant());
+            DayCounters counters = rec != null && rec.days.containsKey(date) ? rec.days.get(date).copy() : freshDay(date);
+            rows.add(counters);
+            totals.requests += counters.requests;
+            totals.inputTokens += counters.inputTokens;
+            totals.cachedInputTokens += counters.cachedInputTokens;
+            totals.outputTokens += counters.outputTokens;
+            totals.cost += counters.cost;
+        }
+        return new HistoryResult(rows, totals);
+    }
+
+    /** Same as {@link #history} but summed over every known player, for {@code usage all <range>}. */
+    public HistoryResult historyAll(LocalDate from, LocalDate to) {
+        for (PlayerRecord rec : players.values()) {
+            rollover(rec);
+        }
+        List<DayCounters> rows = new ArrayList<>();
+        TotalCounters totals = new TotalCounters();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            String date = DAY_FORMAT.format(d.atStartOfDay(ZoneOffset.UTC).toInstant());
+            DayCounters counters = freshDay(date);
+            for (PlayerRecord rec : players.values()) {
+                DayCounters playerDay = rec.days.get(date);
+                if (playerDay != null) {
+                    counters.requests += playerDay.requests;
+                    counters.inputTokens += playerDay.inputTokens;
+                    counters.cachedInputTokens += playerDay.cachedInputTokens;
+                    counters.outputTokens += playerDay.outputTokens;
+                    counters.cost += playerDay.cost;
+                }
+            }
+            rows.add(counters);
+            totals.requests += counters.requests;
+            totals.inputTokens += counters.inputTokens;
+            totals.cachedInputTokens += counters.cachedInputTokens;
+            totals.outputTokens += counters.outputTokens;
+            totals.cost += counters.cost;
+        }
+        return new HistoryResult(rows, totals);
     }
 
     /** {@code 21.9k}, {@code 1.2M}, plain integer below 1000; trailing {@code .0} is dropped ({@code 500000} -> {@code 500k}). */

@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package net.rcwalter.ashlar.command;
 
+import java.time.DateTimeException;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Pure parser for {@code /ashlar}'s argument grammar (step6e-prompt.md), no
@@ -16,6 +22,8 @@ import java.util.Locale;
  * /ashlar cancel &lt;player&gt;
  * /ashlar usage
  * /ashlar usage &lt;player&gt;|all
+ * /ashlar usage [&lt;player&gt;|all] &lt;days&gt;
+ * /ashlar usage [&lt;player&gt;|all] &lt;from&gt; &lt;to&gt; (each YYYY-MM-DD, YYYYMMDD, or MM-DD for the current UTC year)
  * /ashlar limit &lt;player&gt;|default &lt;cost|tokens|requests&gt; &lt;number&gt;|off
  * /ashlar limit &lt;player&gt;|default reset
  * /ashlar credit &lt;player&gt;
@@ -64,7 +72,8 @@ public final class AshlarArgs {
     static final String USAGE_ASK = "Usage: /ashlar ask <what you want>";
     static final String USAGE_RESET = "Usage: /ashlar reset";
     static final String USAGE_CANCEL = "Usage: /ashlar cancel | /ashlar cancel <player>";
-    static final String USAGE_USAGE = "Usage: /ashlar usage | /ashlar usage <player>|all";
+    static final String USAGE_USAGE =
+            "Usage: /ashlar usage [<player>|all] [<days 1-31> | <from> <to>] (dates: YYYY-MM-DD, YYYYMMDD, or MM-DD for this year)";
     static final String USAGE_LIMIT =
             "Usage: /ashlar limit <player>|default <cost|tokens|requests> <number>|off | /ashlar limit <player>|default reset";
     static final String USAGE_CREDIT =
@@ -161,17 +170,119 @@ public final class AshlarArgs {
         return invalid(USAGE_CANCEL);
     }
 
+    private static final Pattern DIGITS_ONLY = Pattern.compile("[0-9]+");
+    private static final Pattern ISO_DATE_SHAPE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    private static final Pattern COMPACT_DATE_SHAPE = Pattern.compile("\\d{8}");
+    private static final Pattern MONTH_DAY_SHAPE = Pattern.compile("\\d{1,2}-\\d{1,2}");
+
+    /**
+     * {@code usage [player|all] [days | from to]} (step8g-prompt.md): after the optional target,
+     * a bare token is either the whole remaining range (no target - the caller's own usage) or
+     * the target's range. A token that merely looks like a range (all digits, {@code YYYY-MM-DD},
+     * {@code YYYYMMDD}, or {@code MM-DD}/{@code M-D} shaped) is never re-read as a player name if
+     * it fails as a range - that is the "bad N" / "one date with no pair" invalid case, not a
+     * player named "40" or "2026-01-01".
+     */
     private static Parsed parseUsage(String[] args) {
         if (args.length == 1) {
             return simple(Kind.USAGE_SELF);
         }
-        if (args.length == 2) {
-            if (args[1].equalsIgnoreCase("all")) {
+        List<String> rest = List.of(args).subList(1, args.length);
+
+        if (rest.size() == 1) {
+            String token = rest.get(0);
+            if (token.equalsIgnoreCase("all")) {
                 return new Parsed(Kind.USAGE_ALL, "all", List.of(), null);
             }
-            return new Parsed(Kind.USAGE_OTHER, args[1], List.of(), null);
+            if (looksLikeRangeToken(token)) {
+                return parseValidDays(token) != null ? new Parsed(Kind.USAGE_SELF, null, List.of(token), null) : invalid(USAGE_USAGE);
+            }
+            return new Parsed(Kind.USAGE_OTHER, token, List.of(), null);
         }
+
+        if (rest.size() == 2) {
+            String fromA = normalizeDate(rest.get(0));
+            String toA = normalizeDate(rest.get(1));
+            if (fromA != null && toA != null) {
+                return new Parsed(Kind.USAGE_SELF, null, List.of(fromA, toA), null);
+            }
+        }
+
+        if (rest.size() == 2 || rest.size() == 3) {
+            String target = rest.get(0);
+            List<String> rangeTokens = rest.subList(1, rest.size());
+            boolean isAll = target.equalsIgnoreCase("all");
+            Kind kind = isAll ? Kind.USAGE_ALL : Kind.USAGE_OTHER;
+            String targetName = isAll ? "all" : target;
+
+            if (rangeTokens.size() == 1) {
+                return parseValidDays(rangeTokens.get(0)) != null
+                        ? new Parsed(kind, targetName, List.copyOf(rangeTokens), null)
+                        : invalid(USAGE_USAGE);
+            }
+            String from = normalizeDate(rangeTokens.get(0));
+            String to = normalizeDate(rangeTokens.get(1));
+            if (from != null && to != null) {
+                return new Parsed(kind, targetName, List.of(from, to), null);
+            }
+            return invalid(USAGE_USAGE);
+        }
+
         return invalid(USAGE_USAGE);
+    }
+
+    private static boolean looksLikeRangeToken(String s) {
+        return DIGITS_ONLY.matcher(s).matches() || ISO_DATE_SHAPE.matcher(s).matches() || MONTH_DAY_SHAPE.matcher(s).matches();
+    }
+
+    /** {@code null} unless {@code s} is all-digits and parses to an integer in {@code 1..31}. */
+    private static Integer parseValidDays(String s) {
+        if (!DIGITS_ONLY.matcher(s).matches()) {
+            return null;
+        }
+        try {
+            int n = Integer.parseInt(s);
+            return n >= 1 && n <= 31 ? n : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Normalises one range date to {@code YYYY-MM-DD}, accepting three spellings (step8g-prompt.md
+     * addendum): {@code YYYY-MM-DD} as-is; {@code YYYYMMDD} (8 digits, no separators); and {@code
+     * MM-DD} or {@code M-D} (month and day only, taken in the current UTC year). Returns {@code
+     * null} for anything else, including a real-looking date that is not a real calendar date
+     * (e.g. day 31 of a 30-day month) and month-day shapes such as {@code 2026-09-01} which is
+     * read as a full ISO date, not a month-day pair.
+     */
+    private static String normalizeDate(String s) {
+        if (ISO_DATE_SHAPE.matcher(s).matches()) {
+            try {
+                return LocalDate.parse(s).toString();
+            } catch (DateTimeParseException e) {
+                return null;
+            }
+        }
+        if (COMPACT_DATE_SHAPE.matcher(s).matches()) {
+            try {
+                return LocalDate.parse(s, DateTimeFormatter.BASIC_ISO_DATE).toString();
+            } catch (DateTimeParseException e) {
+                return null;
+            }
+        }
+        if (MONTH_DAY_SHAPE.matcher(s).matches()) {
+            String[] parts = s.split("-");
+            try {
+                int month = Integer.parseInt(parts[0]);
+                int day = Integer.parseInt(parts[1]);
+                int year = LocalDate.now(ZoneOffset.UTC).getYear();
+                return LocalDate.of(year, month, day).toString();
+            } catch (NumberFormatException | DateTimeException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static Parsed parseLimit(String[] args) {

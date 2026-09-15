@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.4
+
+- `/ashlar usage [player|all] <days>` / `/ashlar usage [player|all] <from> <to>`: a per-day usage report (last N days, N in 1-31, or an explicit inclusive UTC date range, also capped at 31 days) alongside the existing today/total summary, for a player or server-wide. A range date may be written as `YYYY-MM-DD`, `YYYYMMDD`, or `MM-DD`/`M-D` (current UTC year); a reversed `from`/`to` is swapped and a future date clamps to today. The caller's own usage with a range needs only `ashlar.use`; naming another player or `all` still needs `ashlar.monitor`. `UsageStore` keeps a rolling 90-day per-day history per player (pruned on save); an old usage file without it gains one day of history, backfilled from its own last-saved "today" on load.
+
 ## 0.4.3
 
 - Assistant prompt: a request about an existing build (rebuild it, change the roof, use another material) is anchored on that build's own location, never on where the player stands now; only new things or an explicit "here" use the player's position.

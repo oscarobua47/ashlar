@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package net.rcwalter.ashlar.agent;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +61,7 @@ public final class AdminActions {
     /** Dispatches one admin action; unknown actions are logged and ignored, matching the TS handler. */
     public void handle(String action, By by, Target target, List<String> args) {
         switch (action) {
-            case "usage" -> handleUsage(by, target);
+            case "usage" -> handleUsage(by, target, args);
             case "limit" -> handleLimit(by, target, args);
             case "credit" -> handleCredit(by, target, args);
             case "cancel" -> handleCancel(by, target);
@@ -68,7 +71,44 @@ public final class AdminActions {
         }
     }
 
-    public void handleUsage(By by, Target target) {
+    /**
+     * {@code args} empty is the original today/total/limits/credit block (unchanged); a range
+     * ({@code ["7"]} or two {@code YYYY-MM-DD} dates, already normalised by {@link
+     * net.rcwalter.ashlar.command.AshlarArgs} - step8g-prompt.md) instead prints one line per UTC
+     * day plus a range total.
+     */
+    public void handleUsage(By by, Target target, List<String> args) {
+        if (args.isEmpty()) {
+            handleUsageBlock(by, target);
+            return;
+        }
+
+        RangeResult range = parseRange(args);
+        if (range.error() != null) {
+            send.send(by.uuid(), range.error(), SendKind.FINAL);
+            return;
+        }
+
+        if (target == null) {
+            UsageStore.HistoryResult h = store.history(by.uuid(), range.from(), range.to());
+            send.send(by.uuid(), fmtUsageRangeBlock(by.name(), range.from(), range.to(), h), SendKind.FINAL);
+            return;
+        }
+        if (target.name().equalsIgnoreCase("all")) {
+            UsageStore.HistoryResult h = store.historyAll(range.from(), range.to());
+            send.send(by.uuid(), fmtUsageRangeBlock("all", range.from(), range.to(), h), SendKind.FINAL);
+            return;
+        }
+        Optional<UsageStore.NameMatch> resolved = resolveTarget(target);
+        if (resolved.isEmpty()) {
+            send.send(by.uuid(), "Unknown player \"" + target.name() + "\".", SendKind.FINAL);
+            return;
+        }
+        UsageStore.HistoryResult h = store.history(resolved.get().uuid(), range.from(), range.to());
+        send.send(by.uuid(), fmtUsageRangeBlock(resolved.get().name(), range.from(), range.to(), h), SendKind.FINAL);
+    }
+
+    private void handleUsageBlock(By by, Target target) {
         if (target == null) {
             send.send(by.uuid(), fmtUsageBlock(store.summary(by.uuid(), by.name())), SendKind.FINAL);
             return;
@@ -101,6 +141,83 @@ public final class AdminActions {
             return;
         }
         send.send(by.uuid(), fmtUsageBlock(store.summary(resolved.get().uuid(), resolved.get().name())), SendKind.FINAL);
+    }
+
+    /** {@code error} non-null means {@code from}/{@code to} are unset; otherwise an inclusive, already-clamped UTC date range. */
+    private record RangeResult(LocalDate from, LocalDate to, String error) {
+        static RangeResult ok(LocalDate from, LocalDate to) {
+            return new RangeResult(from, to, null);
+        }
+
+        static RangeResult err(String error) {
+            return new RangeResult(null, null, error);
+        }
+    }
+
+    /**
+     * {@code args = ["N"]} (1..31, ending today) or {@code args = [from, to]} (YYYY-MM-DD, already
+     * normalised upstream; swapped if reversed, at most 31 days apart, each date individually
+     * clamped to today when it is in the future).
+     */
+    private RangeResult parseRange(List<String> args) {
+        LocalDate today = LocalDate.parse(store.todayIso());
+        if (args.size() == 1) {
+            Integer n = parsePositiveInt(args.get(0));
+            if (n == null || n < 1 || n > 31) {
+                return RangeResult.err("Range must be 1-31 days (got \"" + args.get(0) + "\").");
+            }
+            return RangeResult.ok(today.minusDays(n - 1), today);
+        }
+        if (args.size() == 2) {
+            LocalDate a = parseIsoDate(args.get(0));
+            LocalDate b = parseIsoDate(args.get(1));
+            if (a == null || b == null) {
+                return RangeResult.err("Dates must be in YYYY-MM-DD form.");
+            }
+            LocalDate from = a.isAfter(b) ? b : a;
+            LocalDate to = a.isAfter(b) ? a : b;
+            if (ChronoUnit.DAYS.between(from, to) + 1 > 31) {
+                return RangeResult.err("Range is too long (max 31 days).");
+            }
+            if (to.isAfter(today)) {
+                to = today;
+            }
+            if (from.isAfter(today)) {
+                from = today;
+            }
+            return RangeResult.ok(from, to);
+        }
+        return RangeResult.err("Usage: usage [player|all] [days | from to].");
+    }
+
+    private static Integer parsePositiveInt(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static LocalDate parseIsoDate(String s) {
+        try {
+            return LocalDate.parse(s);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /** {@code <date>  <requests> req  <tokens> tok  <cost>} per day, then a {@code total:} line summing the range. */
+    private String fmtUsageRangeBlock(String name, LocalDate from, LocalDate to, UsageStore.HistoryResult h) {
+        List<String> lines = new ArrayList<>();
+        lines.add("Usage for " + name + ", " + from + ".." + to + ":");
+        for (UsageStore.DayCounters d : h.days()) {
+            String tokens = UsageStore.fmtTokens(d.inputTokens + d.cachedInputTokens + d.outputTokens);
+            lines.add(d.date + "  " + d.requests + " req  " + tokens + " tok  " + UsageStore.fmtCost(d.cost, currency));
+        }
+        UsageStore.TotalCounters t = h.totals();
+        String totalTokens = UsageStore.fmtTokens(t.inputTokens + t.cachedInputTokens + t.outputTokens);
+        lines.add("total: " + t.requests + " req, " + totalTokens + " tok, " + UsageStore.fmtCost(t.cost, currency));
+        return String.join("\n", lines);
     }
 
     public void handleLimit(By by, Target target, List<String> args) {

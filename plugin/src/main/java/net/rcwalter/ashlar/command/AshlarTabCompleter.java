@@ -24,6 +24,7 @@ public final class AshlarTabCompleter implements TabCompleter {
     private static final List<String> ADMIN_WORDS = List.of("limit", "credit", "pause", "resume", "allow", "deny", "allowed");
     private static final List<String> LIMIT_KINDS = List.of("cost", "tokens", "requests", "reset");
     private static final List<String> CREDIT_ACTIONS = List.of("add", "set", "off");
+    private static final List<String> USAGE_RANGE_WORDS = List.of("7", "30");
 
     private final AllowList allowList;
 
@@ -57,7 +58,7 @@ public final class AshlarTabCompleter implements TabCompleter {
         if (args.length == 2) {
             return switch (keyword) {
                 case "cancel", "allow", "deny" -> admin ? filter(onlineNames(), args[1]) : List.of();
-                case "usage" -> monitor ? filter(withExtra(onlineNames(), "all"), args[1]) : List.of();
+                case "usage" -> filter(usageSecondWordCandidates(use, monitor), args[1]);
                 case "limit" -> admin ? filter(withExtra(onlineNames(), "default"), args[1]) : List.of();
                 case "credit" -> admin ? filter(onlineNames(), args[1]) : List.of();
                 default -> List.of();
@@ -74,7 +75,27 @@ public final class AshlarTabCompleter implements TabCompleter {
         if (keyword.equals("credit") && admin && args.length == 3) {
             return filter(CREDIT_ACTIONS, args[2]);
         }
+        // /ashlar usage <player>|all <TAB>: suggest the day-range shortcuts (step8g-prompt.md).
+        if (keyword.equals("usage") && monitor && args.length == 3) {
+            return filter(USAGE_RANGE_WORDS, args[2]);
+        }
         return List.of();
+    }
+
+    /**
+     * {@code /ashlar usage <TAB>}: player names and {@code all} for a monitor (a named target),
+     * plus {@code 7}/{@code 30} for anyone who can use the assistant (their own usage with a day
+     * range needs no {@code ashlar.monitor} - step8g-prompt.md).
+     */
+    private static List<String> usageSecondWordCandidates(boolean use, boolean monitor) {
+        List<String> candidates = new ArrayList<>();
+        if (monitor) {
+            candidates.addAll(withExtra(onlineNames(), "all"));
+        }
+        if (use) {
+            candidates.addAll(USAGE_RANGE_WORDS);
+        }
+        return candidates;
     }
 
     private static List<String> onlineNames() {

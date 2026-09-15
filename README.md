@@ -193,6 +193,18 @@ Every final reply ends with a footer line, e.g. `(this request: 21.9k tokens, $0
 Players with the `ashlar.admin` permission (default op) get these in-game commands (`/ashlar help` lists the ones the caller may use):
 
 - **`/ashlar usage [player|all]`** - with no argument, the caller's own usage; a player name, theirs; `all` lists every player who has used the assistant, sorted by today's cost (top 20, with a note if more exist). Each report shows today's and all-time requests/tokens/cost, plus the effective per-day limits and which are overrides.
+- **`/ashlar usage [player|all] <days>`** / **`/ashlar usage [player|all] <from> <to>`** - a per-day report instead of the today/total summary: the last *N* days (1-31, ending today) or an explicit inclusive date range (also capped at 31 days; a reversed `from`/`to` is swapped, and a future date is clamped to today). A bare range with no player is the caller's own usage - unlike the target form above, this needs no `ashlar.monitor`, only `ashlar.use`. Dates may be written as `YYYY-MM-DD`, `YYYYMMDD`, or `MM-DD`/`M-D` (day/month in the current UTC year); the two ends of a range may mix spellings. For example, `/ashlar usage 7`:
+  ```
+  Usage for Steve, 2026-09-08..2026-09-14:
+  2026-09-08  0 req  0 tok  $0.00
+  2026-09-09  0 req  0 tok  $0.00
+  2026-09-10  3 req  41.2k tok  $0.02
+  2026-09-11  0 req  0 tok  $0.00
+  2026-09-12  5 req  102.4k tok  $0.05
+  2026-09-13  0 req  0 tok  $0.00
+  2026-09-14  1 req  9.8k tok  $0.01
+  total: 9 req, 153.4k tok, $0.08
+  ```
 - **`/ashlar limit [player] <cost|tokens|requests> <value|off>`** / **`/ashlar limit [player] reset`** - sets (or clears) a per-day cap. With no player, it sets the server default; `off` means unlimited. Precedence: a player's own override, then the server default, then the `agent.limits.*` config value.
 - **`/ashlar pause`** / **`/ashlar resume`** - a global switch; while paused, every new `/ashlar` request is rejected with a message, without touching one already running.
 - **`/ashlar cancel <player>`** - cancels another player's running or queued request (their own `/ashlar cancel` still works too); the target is told who cancelled it.

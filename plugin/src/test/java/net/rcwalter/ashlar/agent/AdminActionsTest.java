@@ -349,6 +349,138 @@ class AdminActionsTest {
         assertTrue(sent.get(1).text().toLowerCase(java.util.Locale.ROOT).contains("resumed"));
     }
 
+    // ---- usage range report (step8g-prompt.md) ----
+
+    private UsageStore newStore(java.time.Instant now) {
+        store = new UsageStore(tempDir.resolve("usage.json"), 0.3, 0.006, 1.2, "USD",
+                new UsageStore.Limits(0, 0, 40), Pricing.parsePeakHours("always"), 0.5, () -> now, 0);
+        return store;
+    }
+
+    @Test
+    void usageSelfLastSevenDaysShowsOneLinePerDayAndATotal() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        s.record(BY.uuid(), BY.name(), new Usage(1000, 0, 100));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of("7"));
+
+        String text = sent.get(0).text();
+        assertTrue(text.contains("Usage for Op, 2026-09-08..2026-09-14:"), "unexpected header: " + text);
+        assertTrue(text.contains("2026-09-14  1 req"), "unexpected day line: " + text);
+        assertTrue(text.contains("2026-09-08  0 req  0 tok  $0.00"), "unexpected zero day: " + text);
+        assertTrue(text.contains("total: 1 req,"), "unexpected total line: " + text);
+        String[] lines = text.split("\n");
+        assertEquals(9, lines.length, "header + 7 days + total: " + text); // 1 header + 7 day rows + 1 total
+    }
+
+    @Test
+    void usageExplicitDateRangeIsRespected() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of("2026-09-01", "2026-09-03"));
+
+        String text = sent.get(0).text();
+        assertTrue(text.contains("Usage for Op, 2026-09-01..2026-09-03:"), "unexpected header: " + text);
+        String[] lines = text.split("\n");
+        assertEquals(5, lines.length, "header + 3 days + total: " + text);
+    }
+
+    @Test
+    void usageReversedDateRangeIsSwapped() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of("2026-09-03", "2026-09-01"));
+
+        assertTrue(sent.get(0).text().contains("Usage for Op, 2026-09-01..2026-09-03:"), "unexpected header: " + sent.get(0).text());
+    }
+
+    @Test
+    void usageDateRangeOverThirtyOneDaysIsAnError() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of("2026-08-01", "2026-09-05"));
+
+        assertTrue(sent.get(0).text().contains("too long"), "unexpected reply: " + sent.get(0).text());
+    }
+
+    @Test
+    void usageFutureDatesClampToToday() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of("2026-09-12", "2026-09-30"));
+
+        assertTrue(sent.get(0).text().contains("Usage for Op, 2026-09-12..2026-09-14:"), "unexpected header: " + sent.get(0).text());
+    }
+
+    @Test
+    void usageBadDaysCountIsAnError() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, null, List.of("40"));
+
+        assertTrue(sent.get(0).text().contains("1-31"), "unexpected reply: " + sent.get(0).text());
+    }
+
+    @Test
+    void usageRangeForNamedPlayerReportsThatPlayersHistory() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        s.record("alex-uuid", "Alex", new Usage(1000, 0, 100));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("Alex", "alex-uuid"), List.of("7"));
+
+        assertTrue(sent.get(0).text().contains("Usage for Alex, 2026-09-08..2026-09-14:"), "unexpected header: " + sent.get(0).text());
+    }
+
+    @Test
+    void usageRangeForUnknownPlayerTellsCaller() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("Nobody", null), List.of("7"));
+
+        assertTrue(sent.get(0).text().contains("Unknown player \"Nobody\""));
+    }
+
+    @Test
+    void usageRangeForAllSumsServerWidePerDay() {
+        java.time.Instant now = java.time.ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant();
+        UsageStore s = newStore(now);
+        s.record("u1", "Cheap", new Usage(100, 0, 10));
+        s.record("u2", "Pricey", new Usage(1_000_000, 0, 1_000_000));
+        List<Sent> sent = newSent();
+        AdminActions admin = new AdminActions(s, uuid -> AdminActions.CancelOutcome.NONE, fakeSend(sent), "USD");
+
+        admin.handle("usage", BY, new AdminActions.Target("all", null), List.of("7"));
+
+        String text = sent.get(0).text();
+        assertTrue(text.contains("Usage for all, 2026-09-08..2026-09-14:"), "unexpected header: " + text);
+        assertTrue(text.contains("2026-09-14  2 req"), "unexpected server-wide day line: " + text);
+        assertTrue(text.contains("total: 2 req,"), "unexpected total line: " + text);
+    }
+
     @Test
     void unknownActionIsIgnoredWithoutSendingAnything() {
         UsageStore s = newStore();

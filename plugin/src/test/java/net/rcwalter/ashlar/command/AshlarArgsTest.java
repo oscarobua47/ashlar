@@ -91,6 +91,128 @@ class AshlarArgsTest {
         assertNotNull(parsed.error());
     }
 
+    // ---- usage range grammar (step8g-prompt.md) ----
+
+    @Test
+    void usageWithBareDaysIsUsageSelfWithRange() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 7"));
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, parsed.kind());
+        assertNull(parsed.targetName());
+        assertEquals(List.of("7"), parsed.args());
+    }
+
+    @Test
+    void usageWithBoundaryDaysIsValid() {
+        assertEquals(List.of("1"), AshlarArgs.parse(words("usage 1")).args());
+        assertEquals(List.of("31"), AshlarArgs.parse(words("usage 31")).args());
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, AshlarArgs.parse(words("usage 1")).kind());
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, AshlarArgs.parse(words("usage 31")).kind());
+    }
+
+    @Test
+    void usageWithBadDaysIsInvalid() {
+        assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(words("usage 0")).kind());
+        assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(words("usage 32")).kind());
+    }
+
+    @Test
+    void usageWithTwoIsoDatesIsUsageSelfWithRange() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 2026-09-01 2026-09-07"));
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, parsed.kind());
+        assertNull(parsed.targetName());
+        assertEquals(List.of("2026-09-01", "2026-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageWithOneDateAndNoPairIsInvalid() {
+        assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(words("usage 2026-09-01")).kind());
+        assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(words("usage 20260901")).kind());
+        assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(words("usage 9-1")).kind());
+    }
+
+    @Test
+    void usageWithPlayerAndDaysIsUsageOtherWithRange() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage Alex 7"));
+        assertEquals(AshlarArgs.Kind.USAGE_OTHER, parsed.kind());
+        assertEquals("Alex", parsed.targetName());
+        assertEquals(List.of("7"), parsed.args());
+    }
+
+    @Test
+    void usageWithAllAndDaysIsUsageAllWithRange() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage all 30"));
+        assertEquals(AshlarArgs.Kind.USAGE_ALL, parsed.kind());
+        assertEquals("all", parsed.targetName());
+        assertEquals(List.of("30"), parsed.args());
+    }
+
+    @Test
+    void usageWithPlayerAndTwoDatesIsUsageOtherWithRange() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage Alex 2026-09-01 2026-09-07"));
+        assertEquals(AshlarArgs.Kind.USAGE_OTHER, parsed.kind());
+        assertEquals("Alex", parsed.targetName());
+        assertEquals(List.of("2026-09-01", "2026-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageWithAllAndTwoDatesIsUsageAllWithRange() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage all 2026-09-01 2026-09-07"));
+        assertEquals(AshlarArgs.Kind.USAGE_ALL, parsed.kind());
+        assertEquals(List.of("2026-09-01", "2026-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageWithPlayerAndBadRangeIsInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage Alex 40"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+        assertNotNull(parsed.error());
+    }
+
+    // -- three date spellings, and normalisation to YYYY-MM-DD (step8g-prompt.md addendum) --
+
+    @Test
+    void usageDatesAcceptCompactYyyymmddFormAndNormalise() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 20260901 20260907"));
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, parsed.kind());
+        assertEquals(List.of("2026-09-01", "2026-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageDatesAcceptMonthDayFormInCurrentUtcYearAndNormalise() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 9-1 09-07"));
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, parsed.kind());
+        int year = java.time.LocalDate.now(java.time.ZoneOffset.UTC).getYear();
+        assertEquals(List.of(year + "-09-01", year + "-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageDatesCanMixSpellingsForFromAndTo() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 2026-09-01 20260907"));
+        assertEquals(AshlarArgs.Kind.USAGE_SELF, parsed.kind());
+        assertEquals(List.of("2026-09-01", "2026-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageDatesWithTargetAcceptAllThreeSpellings() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage Alex 20260901 9-7"));
+        assertEquals(AshlarArgs.Kind.USAGE_OTHER, parsed.kind());
+        int year = java.time.LocalDate.now(java.time.ZoneOffset.UTC).getYear();
+        assertEquals(List.of("2026-09-01", year + "-09-07"), parsed.args());
+    }
+
+    @Test
+    void usageDatesWithSlashesAreInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 2026/09/01 2026/09/07"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+        assertNotNull(parsed.error());
+    }
+
+    @Test
+    void usageDatesWithImpossibleCalendarDateAreInvalid() {
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(words("usage 2026-02-30 2026-02-28"));
+        assertEquals(AshlarArgs.Kind.INVALID, parsed.kind());
+    }
+
     @Test
     void limitSetsCostForPlayer() {
         AshlarArgs.Parsed parsed = AshlarArgs.parse(words("limit Alex cost 5"));

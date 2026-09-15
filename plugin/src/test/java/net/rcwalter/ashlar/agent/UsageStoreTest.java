@@ -377,4 +377,131 @@ class UsageStoreTest {
         assertEquals("$0.00", UsageStore.fmtCredit(-1.5, "USD"));
         assertEquals("$3.20", UsageStore.fmtCredit(3.2, "USD"));
     }
+
+    // ---- day history (step8g-prompt.md) ----
+
+    @Test
+    void recordUpdatesBothTodayAndDaysForTheCurrentDate() {
+        AtomicReference<Instant> now = new AtomicReference<>(ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, ZoneOffset.UTC).toInstant());
+        try (UsageStore store = newStore(now, DEFAULT_ENV_LIMITS)) {
+            store.record("u1", "Alex", new Usage(100, 0, 10));
+
+            now.set(ZonedDateTime.of(2026, 9, 15, 1, 0, 0, 0, ZoneOffset.UTC).toInstant());
+            store.record("u1", "Alex", new Usage(50, 0, 5));
+
+            UsageStore.HistoryResult h = store.history("u1", java.time.LocalDate.of(2026, 9, 14), java.time.LocalDate.of(2026, 9, 15));
+            assertEquals(2, h.days().size());
+            assertEquals("2026-09-14", h.days().get(0).date);
+            assertEquals(1, h.days().get(0).requests);
+            assertEquals(100, h.days().get(0).inputTokens);
+            assertEquals("2026-09-15", h.days().get(1).date);
+            assertEquals(1, h.days().get(1).requests);
+            assertEquals(50, h.days().get(1).inputTokens);
+            assertEquals(2, h.totals().requests);
+            assertEquals(150, h.totals().inputTokens);
+        }
+    }
+
+    @Test
+    void historyFillsMissingDaysWithZeroRows() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            store.record("u1", "Alex", new Usage(100, 0, 10));
+
+            UsageStore.HistoryResult h = store.history("u1", java.time.LocalDate.of(2026, 9, 10), java.time.LocalDate.of(2026, 9, 14));
+            assertEquals(5, h.days().size());
+            assertEquals("2026-09-10", h.days().get(0).date);
+            assertEquals(0, h.days().get(0).requests);
+            assertEquals(0, h.days().get(0).inputTokens);
+            assertEquals(0.0, h.days().get(0).cost);
+            assertEquals("2026-09-14", h.days().get(4).date);
+            assertEquals(1, h.days().get(4).requests);
+            assertEquals(1, h.totals().requests);
+        }
+    }
+
+    @Test
+    void historyForUnknownPlayerIsAllZeroRows() {
+        try (UsageStore store = newStore(PEAK_TIME, DEFAULT_ENV_LIMITS)) {
+            UsageStore.HistoryResult h = store.history("nobody", java.time.LocalDate.of(2026, 9, 10), java.time.LocalDate.of(2026, 9, 12));
+            assertEquals(3, h.days().size());
+            for (UsageStore.DayCounters d : h.days()) {
+                assertEquals(0, d.requests);
+            }
+            assertEquals(0, h.totals().requests);
+        }
+    }
+
+    @Test
+    void historyAllSumsEveryPlayerPerDay() {
+        AtomicReference<Instant> now = new AtomicReference<>(ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, ZoneOffset.UTC).toInstant());
+        try (UsageStore store = newStore(now, DEFAULT_ENV_LIMITS)) {
+            store.record("u1", "Alex", new Usage(100, 0, 10));
+            store.record("u2", "Steve", new Usage(200, 0, 20));
+
+            now.set(ZonedDateTime.of(2026, 9, 15, 1, 0, 0, 0, ZoneOffset.UTC).toInstant());
+            store.record("u1", "Alex", new Usage(50, 0, 5));
+
+            UsageStore.HistoryResult h = store.historyAll(java.time.LocalDate.of(2026, 9, 14), java.time.LocalDate.of(2026, 9, 15));
+            assertEquals(2, h.days().size());
+            assertEquals(2, h.days().get(0).requests); // Alex + Steve on the 14th
+            assertEquals(300, h.days().get(0).inputTokens);
+            assertEquals(1, h.days().get(1).requests); // only Alex on the 15th
+            assertEquals(50, h.days().get(1).inputTokens);
+            assertEquals(3, h.totals().requests);
+            assertEquals(350, h.totals().inputTokens);
+        }
+    }
+
+    @Test
+    void dayHistoryOlderThan90DaysIsPrunedOnSave() throws IOException {
+        Path filePath = filePath();
+        Instant recordTime = ZonedDateTime.of(2026, 1, 1, 12, 0, 0, 0, ZoneOffset.UTC).toInstant();
+        Instant saveTime = ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, ZoneOffset.UTC).toInstant(); // 256 days later
+        try (UsageStore store = new UsageStore(filePath, 0.3, 0.006, 1.2, "USD", DEFAULT_ENV_LIMITS,
+                Pricing.parsePeakHours("always"), 0.5, () -> recordTime, 0)) {
+            store.record("u1", "Alex", new Usage(100, 0, 10));
+        }
+
+        JsonObject raw = JsonParser.parseString(Files.readString(filePath)).getAsJsonObject();
+        assertTrue(raw.getAsJsonObject("players").getAsJsonObject("u1").getAsJsonObject("days").has("2026-01-01"));
+
+        try (UsageStore store2 = new UsageStore(filePath, 0.3, 0.006, 1.2, "USD", DEFAULT_ENV_LIMITS,
+                Pricing.parsePeakHours("always"), 0.5, () -> saveTime, 0)) {
+            store2.setPaused(store2.isPaused()); // force a dirty save without changing state
+        }
+
+        JsonObject raw2 = JsonParser.parseString(Files.readString(filePath)).getAsJsonObject();
+        assertFalse(raw2.getAsJsonObject("players").getAsJsonObject("u1").getAsJsonObject("days").has("2026-01-01"),
+                "a 256-day-old entry must be pruned on save");
+    }
+
+    @Test
+    void migrationBackfillsDaysFromAnOldFormatRecordWithoutDays() throws IOException {
+        Path filePath = filePath();
+        String oldFormatJson = "{"
+                + "\"version\":1,\"paused\":false,\"defaults\":{},"
+                + "\"players\":{\"u1\":{"
+                + "\"name\":\"Alex\",\"limits\":{},"
+                + "\"today\":{\"date\":\"2026-09-14\",\"requests\":3,\"inputTokens\":100,\"cachedInputTokens\":0,\"outputTokens\":10,\"cost\":0.05},"
+                + "\"total\":{\"requests\":3,\"inputTokens\":100,\"cachedInputTokens\":0,\"outputTokens\":10,\"cost\":0.05},"
+                + "\"updatedAt\":123"
+                + "}}}";
+        Files.writeString(filePath, oldFormatJson);
+
+        try (UsageStore store = new UsageStore(filePath, 0.3, 0.006, 1.2, "USD", DEFAULT_ENV_LIMITS,
+                Pricing.parsePeakHours("always"), 0.5, () -> PEAK_TIME, 0)) {
+            UsageStore.HistoryResult h = store.history("u1", java.time.LocalDate.of(2026, 9, 14), java.time.LocalDate.of(2026, 9, 14));
+            assertEquals(1, h.days().size());
+            assertEquals("2026-09-14", h.days().get(0).date);
+            assertEquals(3, h.days().get(0).requests);
+            assertEquals(100, h.days().get(0).inputTokens);
+        }
+    }
+
+    @Test
+    void todayIsoMatchesTheClock() {
+        try (UsageStore store = newStore(ZonedDateTime.of(2026, 9, 14, 12, 0, 0, 0, ZoneOffset.UTC).toInstant(), DEFAULT_ENV_LIMITS)) {
+            assertEquals("2026-09-14", store.todayIso());
+        }
+    }
 }
