@@ -60,6 +60,11 @@ public final class HistoryStore implements History {
     }
 
     @Override
+    public synchronized boolean clear(String uuid) {
+        return players.remove(uuid) != null;
+    }
+
+    @Override
     public synchronized void append(String uuid, List<ChatMessage> exchange) {
         long nowMs = now.get().toEpochMilli();
         PlayerEntry entry = players.get(uuid);

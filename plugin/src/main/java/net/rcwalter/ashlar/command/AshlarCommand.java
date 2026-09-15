@@ -118,6 +118,7 @@ public final class AshlarCommand implements CommandExecutor {
             case REQUEST -> handleRequest(player, parsed.args());
             case CANCEL_SELF -> handleCancelSelf(player);
             case CANCEL_OTHER -> handleCancelOther(player, parsed.targetName());
+            case RESET -> handleReset(player);
             case USAGE_SELF -> handleUsageSelf(player);
             case USAGE_OTHER -> handleUsageOther(player, parsed.targetName());
             case USAGE_ALL -> handleUsageAll(player);
@@ -223,6 +224,15 @@ public final class AshlarCommand implements CommandExecutor {
 
     // -- usage -------------------------------------------------------------
 
+    private void handleReset(Player player) {
+        if (!isEmbedded()) {
+            reply(player, "/ashlar reset is only available in embedded mode.");
+            return;
+        }
+        boolean had = agentService.reset(player.getUniqueId());
+        reply(player, had ? "Forgot our previous conversation." : "Nothing to forget.");
+    }
+
     private void handleUsageSelf(Player player) {
         if (isEmbedded()) {
             agentService.admin("usage", byOf(player), null, List.of());
@@ -317,6 +327,7 @@ public final class AshlarCommand implements CommandExecutor {
 
             new HelpLine("ashlar.use", "/ashlar ask <what you want> - same, for requests that start with a command word"),
             new HelpLine("ashlar.use", "/ashlar cancel - cancel your own running or queued request"),
+            new HelpLine("ashlar.use", "/ashlar reset - forget the previous conversation (start fresh)"),
             new HelpLine("ashlar.admin", "/ashlar cancel <player> - cancel another player's request"),
             new HelpLine("ashlar.use", "/ashlar usage - your own usage today and in total"),
             new HelpLine("ashlar.monitor", "/ashlar usage <player>|all - another player's usage, or everyone's"),
@@ -383,7 +394,7 @@ public final class AshlarCommand implements CommandExecutor {
     /** Whether this subcommand talks to a connected Node process at all. */
     private static boolean needsConnection(AshlarArgs.Kind kind) {
         return switch (kind) {
-            case HELP, ALLOW, DENY, ALLOWED -> false;
+            case HELP, ALLOW, DENY, ALLOWED, RESET -> false;
             default -> true;
         };
     }

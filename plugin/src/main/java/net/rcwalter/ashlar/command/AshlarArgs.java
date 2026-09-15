@@ -34,7 +34,7 @@ import java.util.Locale;
 public final class AshlarArgs {
 
     public enum Kind {
-        REQUEST, CANCEL_SELF, CANCEL_OTHER, USAGE_SELF, USAGE_OTHER, USAGE_ALL,
+        REQUEST, CANCEL_SELF, CANCEL_OTHER, RESET, USAGE_SELF, USAGE_OTHER, USAGE_ALL,
         LIMIT, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, INVALID
     }
 
@@ -59,6 +59,7 @@ public final class AshlarArgs {
 
     public static final String USAGE_TOP = "Usage: /ashlar <what you want> | ask <what you want> | cancel | usage | help";
     static final String USAGE_ASK = "Usage: /ashlar ask <what you want>";
+    static final String USAGE_RESET = "Usage: /ashlar reset";
     static final String USAGE_CANCEL = "Usage: /ashlar cancel | /ashlar cancel <player>";
     static final String USAGE_USAGE = "Usage: /ashlar usage | /ashlar usage <player>|all";
     static final String USAGE_LIMIT =
@@ -102,6 +103,7 @@ public final class AshlarArgs {
             case "allow" -> args.length == 2 ? new Parsed(Kind.ALLOW, args[1], List.of(), null) : invalid(USAGE_ALLOW);
             case "deny" -> args.length == 2 ? new Parsed(Kind.DENY, args[1], List.of(), null) : invalid(USAGE_DENY);
             case "allowed" -> args.length == 1 ? simple(Kind.ALLOWED) : invalid(USAGE_ALLOWED);
+            case "reset" -> args.length == 1 ? simple(Kind.RESET) : invalid(USAGE_RESET);
             case "help" -> simple(Kind.HELP);
             case "simulate" -> parseSimulate(args, consoleSender);
             default -> new Parsed(Kind.REQUEST, null, List.of(args), null);

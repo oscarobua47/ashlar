@@ -319,6 +319,31 @@ class AgentServiceTest {
     }
 
     @Test
+    void historyKeepsOnlyThePlayersTextAndTheFinalReply() {
+        PluginConfig.AgentConfig config = agentConfig(2, 0, 0);
+        ScriptedModelApi model = new ScriptedModelApi(List.of(
+                toolCallsReply(List.of(new ToolCall("call-1", "nope", "{}"))),
+                textReply("Built it at 1,2,3.", new Usage(10, 0, 5))));
+        RecordingOutbox outbox = new RecordingOutbox();
+        UsageStore usageStore = new UsageStore(tempDir.resolve("usage.json"), 0, 0, 0, "USD",
+                new UsageStore.Limits(0, 0, 0), Pricing.parsePeakHours("always"), 0.5, java.time.Instant::now, 0);
+        HistoryStore historyStore = new HistoryStore(6, 30);
+        service = new AgentService(config, new ToolRegistry(List.of()), model, usageStore, historyStore, outbox, LOGGER);
+
+        service.submit(player(PLAYER_1, "Alex"), "build a house");
+        awaitTrue(() -> outbox.forPlayer(PLAYER_1).stream().anyMatch(RecordingOutbox.Sent::finalKind), "the final reply");
+
+        List<ChatMessage> remembered = historyStore.get(PLAYER_1.toString());
+        assertEquals(2, remembered.size(), "tool traffic must not be remembered: " + remembered);
+        assertEquals(ChatMessage.Role.USER, remembered.get(0).role());
+        assertEquals("build a house", remembered.get(0).contentText());
+        assertEquals(ChatMessage.Role.ASSISTANT, remembered.get(1).role());
+        assertEquals("Built it at 1,2,3.", remembered.get(1).contentText());
+        assertTrue(service.reset(PLAYER_1));
+        assertTrue(historyStore.get(PLAYER_1.toString()).isEmpty());
+    }
+
+    @Test
     void progressLinesAreThrottledToOnePer1500MsCoalescingToTheLatest() {
         ScriptedModelApi model = new ScriptedModelApi(List.of(
                 toolCallsReply(List.of(new ToolCall("call-1", "tool_a", "{}"), new ToolCall("call-2", "tool_b", "{}"))),

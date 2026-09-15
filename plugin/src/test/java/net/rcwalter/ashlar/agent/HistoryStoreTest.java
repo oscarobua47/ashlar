@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Port of {@code mcp-server/src/agent/history.test.ts}. */
@@ -125,5 +126,15 @@ class HistoryStoreTest {
         assertEquals("data:image/png;base64,img2", images.get(0).url());
         assertEquals("data:image/png;base64,img3", images.get(1).url());
         assertTrue(images.stream().noneMatch(p -> "data:image/png;base64,img1".equals(p.url())));
+    }
+
+    @Test
+    void clearForgetsAPlayerAndReportsWhetherThereWasAnything() {
+        HistoryStore store = new HistoryStore(6, 30);
+        assertFalse(store.clear("p1"));
+        store.append("p1", java.util.List.of(ChatMessage.user("hi"), ChatMessage.assistantText("hello")));
+        assertEquals(2, store.get("p1").size());
+        assertTrue(store.clear("p1"));
+        assertTrue(store.get("p1").isEmpty());
     }
 }

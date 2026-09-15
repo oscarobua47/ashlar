@@ -16,6 +16,8 @@ All notable changes to this project are documented in this file.
 - Cancellation now reaches a running fill: `/ashlar cancel` stops between tool calls as before, but `onDisable` cancels every in-flight request and gives the executor up to 5 seconds to drain before shutting down.
 - `ChatOut`: the assistant's message-sending logic (progress lines, final replies, monitor echo) is shared between the embedded and external paths instead of living only in the `send_message` RPC handler.
 
+- History between requests keeps only the player's text and the final reply (no tool traffic), keeping follow-up context small; `/ashlar reset` clears it; the system prompt asks the model to make final replies self-sufficient (bounding box, materials, snapshot id).
+
 ### MCP server (`mcp-server/`)
 
 - `--agent` removed: `src/agent/` (the OpenAI-compatible provider, runner, usage/pricing/history stores, admin commands) is deleted along with `tools/agent-sim.mjs`. Running `ashlar-mcp --agent` now prints a message pointing at `agent.mode: embedded` in the plugin's `config.yml` and exits 2, instead of silently doing nothing useful.

@@ -302,4 +302,10 @@ class AshlarArgsTest {
         assertEquals(AshlarArgs.Kind.INVALID, p.kind());
         assertEquals(AshlarArgs.USAGE_SIMULATE, p.error());
     }
+
+    @Test
+    void resetIsItsOwnKind() {
+        assertEquals(AshlarArgs.Kind.RESET, AshlarArgs.parse(new String[]{"reset"}).kind());
+        assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(new String[]{"reset", "now"}).kind());
+    }
 }

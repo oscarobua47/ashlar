@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package net.rcwalter.ashlar.agent;
 
+import net.rcwalter.ashlar.agent.model.ChatMessage;
 import net.rcwalter.ashlar.agent.model.Usage;
 import net.rcwalter.ashlar.config.PluginConfig;
 import net.rcwalter.ashlar.rpc.MainThread;
@@ -157,6 +158,11 @@ public final class AgentService {
      * non-empty" - the state the TS version's separate {@code "queued"} branch handles - cannot
      * actually occur here).
      */
+    /** Forgets the player's remembered conversation; returns whether there was one. */
+    public boolean reset(java.util.UUID uuid) {
+        return historyStore.clear(uuid.toString());
+    }
+
     public boolean cancel(UUID uuid) {
         return cancelOutcome(uuid) != AdminActions.CancelOutcome.NONE;
     }
@@ -262,7 +268,14 @@ public final class AgentService {
             return;
         }
 
-        historyStore.append(player.uuid(), result.exchange());
+        // Remember only what the player said and what the assistant finally
+        // answered. The tool traffic in between (survey text, inspect slices,
+        // images) is the bulk of an exchange and is useless for the next
+        // request - the final reply already carries the coordinates and the
+        // snapshot id a follow-up like "make the roof taller" needs.
+        historyStore.append(player.uuid(), List.of(
+                ChatMessage.user(pending.text()),
+                ChatMessage.assistantText(result.text())));
 
         UsageStore.DayCounters today = lastRecord[0] != null
                 ? lastRecord[0].today()

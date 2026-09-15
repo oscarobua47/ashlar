@@ -13,4 +13,7 @@ public interface History {
 
     /** Appends one exchange's messages (a full player request: user message through final assistant reply) and trims. */
     void append(String uuid, List<ChatMessage> exchange);
+
+    /** Forgets everything remembered for {@code uuid}; returns whether there was anything to forget. */
+    boolean clear(String uuid);
 }
