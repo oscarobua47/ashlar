@@ -40,7 +40,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
-    "test": "node --test dist/",
+    "test": "node --test \"dist/**/*.test.js\"",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build && npm test"
   },
