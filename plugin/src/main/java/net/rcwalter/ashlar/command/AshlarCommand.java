@@ -156,7 +156,7 @@ public final class AshlarCommand implements CommandExecutor {
         int[] inFront = {pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]};
         AgentRunner.PlayerInfo playerInfo = new AgentRunner.PlayerInfo(
                 ConsolePlayer.NAME, ConsolePlayer.ID.toString(), config.world().defaultWorld(),
-                pos, sim.facing(), inFront, "CREATIVE");
+                pos, sim.facing(), inFront, "CREATIVE", null);
         agentService.submit(playerInfo, String.join(" ", sim.text()));
     }
 
@@ -435,7 +435,8 @@ public final class AshlarCommand implements CommandExecutor {
         int[] offset = Facing.offset(facing);
         int[] inFront = {pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]};
         return new AgentRunner.PlayerInfo(player.getName(), player.getUniqueId().toString(),
-                loc.getWorld().getName(), pos, facing, inFront, player.getGameMode().name());
+                loc.getWorld().getName(), pos, facing, inFront, player.getGameMode().name(),
+                PlayerJson.lookingAtText(player));
     }
 
     /** {@code {"name":..., "uuid":...}} for an online player - the caller of the command. */

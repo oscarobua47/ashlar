@@ -165,7 +165,7 @@ class AgentServiceTest {
     }
 
     private static AgentRunner.PlayerInfo player(UUID uuid, String name) {
-        return new AgentRunner.PlayerInfo(name, uuid.toString(), "world", new int[]{0, 70, 0}, "south", new int[]{0, 70, 1}, "SURVIVAL");
+        return new AgentRunner.PlayerInfo(name, uuid.toString(), "world", new int[]{0, 70, 0}, "south", new int[]{0, 70, 1}, "SURVIVAL", null);
     }
 
     private static void await(CountDownLatch latch) {

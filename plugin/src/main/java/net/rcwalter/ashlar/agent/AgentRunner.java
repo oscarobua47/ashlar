@@ -69,7 +69,8 @@ public final class AgentRunner {
     }
 
     /** The subset of the plugin's chat event's player object the runner needs. */
-    public record PlayerInfo(String name, String uuid, String world, int[] pos, String facing, int[] inFront, String gameMode) {
+    public record PlayerInfo(String name, String uuid, String world, int[] pos, String facing, int[] inFront, String gameMode,
+            String lookingAt) {
     }
 
     public record RunRequest(PlayerInfo player, String text, List<ChatMessage> history, BooleanSupplier cancelled,
@@ -92,7 +93,9 @@ public final class AgentRunner {
         int[] inFront = req.player().inFront();
         String contextLine = req.text() + "\n\n[context] player " + req.player().name() + " in world " + req.player().world()
                 + " at pos " + joinInts(pos) + " (ground at y=" + (pos[1] - 1) + ") facing " + req.player().facing()
-                + ", block in front " + joinInts(inFront) + ", gamemode " + req.player().gameMode();
+                + ", block in front " + joinInts(inFront)
+                + (req.player().lookingAt() != null ? ", looking at " + req.player().lookingAt() : ", looking at nothing within 16 blocks")
+                + ", gamemode " + req.player().gameMode();
 
         ChatMessage rawUserMessage = ChatMessage.user(req.text());
         ChatMessage contextUserMessage = ChatMessage.user(contextLine);

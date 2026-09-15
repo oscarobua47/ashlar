@@ -78,7 +78,7 @@ class AgentRunnerTest {
     }
 
     private static AgentRunner.PlayerInfo player() {
-        return new AgentRunner.PlayerInfo("Steve", "p1", "world", new int[]{10, 70, -5}, "east", new int[]{11, 70, -5}, "SURVIVAL");
+        return new AgentRunner.PlayerInfo("Steve", "p1", "world", new int[]{10, 70, -5}, "east", new int[]{11, 70, -5}, "SURVIVAL", "minecraft:stone_bricks at 12,71,-5 (west face)");
     }
 
     private static Tool fakeTool(String name, BiFunction<InvocationContext, JsonObject, CompletableFuture<ToolResult>> impl) {

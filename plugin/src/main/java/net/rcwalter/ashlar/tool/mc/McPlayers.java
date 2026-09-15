@@ -46,9 +46,21 @@ public final class McPlayers implements Tool {
                 lines.add(p.get("name").getAsString() + "  " + p.get("world").getAsString() + "  pos x=" + pos.get(0).getAsInt()
                         + " y=" + pos.get(1).getAsInt() + " z=" + pos.get(2).getAsInt() + "  facing " + p.get("facing").getAsString()
                         + " (block in front: " + front.get(0).getAsInt() + "," + front.get(1).getAsInt() + "," + front.get(2).getAsInt() + ")  "
-                        + p.get("gameMode").getAsString().toLowerCase(Locale.ROOT));
+                        + p.get("gameMode").getAsString().toLowerCase(Locale.ROOT)
+                        + lookingAtSuffix(p));
             }
             return String.join("\n", lines);
         }));
+    }
+
+    private static String lookingAtSuffix(JsonObject p) {
+        JsonElement la = p.get("lookingAt");
+        if (la == null || la.isJsonNull()) {
+            return "";
+        }
+        JsonObject o = la.getAsJsonObject();
+        JsonArray pos = o.getAsJsonArray("pos");
+        return "  looking at " + o.get("block").getAsString() + " at " + pos.get(0).getAsInt() + "," + pos.get(1).getAsInt()
+                + "," + pos.get(2).getAsInt() + " (" + o.get("face").getAsString() + " face)";
     }
 }
