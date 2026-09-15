@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.3
+
+- Assistant prompt: a request about an existing build (rebuild it, change the roof, use another material) is anchored on that build's own location, never on where the player stands now; only new things or an explicit "here" use the player's position.
+- Locally built jars are versioned `<version>-dev`; only the release workflow produces the bare version number.
+
 ## 0.4.2
 
 - Prepaid credit: `/ashlar credit <player> [add|set|off] [amount]` gives operators a way to fund the assistant for a player out of someone else's money rather than the server's own daily budget. Checked before a request starts (like the daily limits) and again after every model turn; when a balance hits zero mid-request the current tool call finishes and the model gets one final, tool-free turn to summarise what was done, what is left, and the snapshot id - the reply gains a line asking the player to get topped up and say "continue". The usage footer and `/ashlar usage` show the balance once it is enabled; players without credit are unaffected.

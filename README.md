@@ -54,7 +54,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.4.2.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.4.3.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
@@ -401,7 +401,7 @@ It auto-detects Claude Desktop's log file per OS (or reads `MC_USAGE_LOG`/`--fil
 
 ```sh
 # plugin (JDK 25 required)
-cd plugin && JAVA_HOME=/opt/homebrew/opt/openjdk@25 ./gradlew build --no-daemon
+cd plugin && JAVA_HOME=/opt/homebrew/opt/openjdk@25 ./gradlew build --no-daemon   # produces build/libs/ashlar-<version>-dev.jar; the release workflow builds the bare version
 JAVA_HOME=/opt/homebrew/opt/openjdk@25 ./gradlew runServer --no-daemon   # local Paper test server in plugin/run
 
 # mcp-server

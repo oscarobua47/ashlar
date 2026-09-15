@@ -23,6 +23,8 @@ jobs:
 
       - name: Build with Gradle (includes unit tests)
         working-directory: plugin
+        env:
+          ASHLAR_RELEASE: "1"
         run: ./gradlew build --no-daemon
 
       - name: Upload plugin jar
