@@ -7,7 +7,7 @@ group = "net.rcwalter"
 // Release builds (the tag-triggered GitHub workflow sets ASHLAR_RELEASE=1) get the bare
 // version; every other build - a developer's local jar - is marked "-dev" so it can never be
 // mistaken for the published artifact of the same number.
-val baseVersion = "0.4.3"
+val baseVersion = "0.4.4"
 version = if (System.getenv("ASHLAR_RELEASE") == "1") baseVersion else "$baseVersion-dev"
 
 java {
