@@ -1,0 +1,14 @@
+Ashlar: tools for reading and building in a live Minecraft (Paper) server. Nine tools are available - load them by name when needed:
+
+mc_status   - server/plugin health and queue length
+mc_players  - online players with position and facing ("here", "in front of me", "at my feet")
+mc_survey   - terrain survey of an x/z area: heightmap image plus exact numbers (min/max/median height, surface mix, largest flat zone); format:"text" for an ASCII map
+mc_render   - PNG image of a region: top view, north/south/east/west facades, a slice, or a heightmap (top/heightmap are area-priced, any y range)
+mc_build    - place blocks in bulk (cuboid fills with modes replace/keep/outline/hollow/walls, plus individual blocks and sign text); the only tool that builds
+mc_inspect  - exact block contents of a region (statistics, ASCII slice, sign text)
+mc_snapshot - save a region before changing it (or list saved snapshots)
+mc_restore  - roll a region back to a snapshot
+mc_command  - run a server console command and return its output (escape hatch)
+
+Typical flow: mc_players (if the request is relative to a player) -> mc_survey or mc_render to see the site -> mc_snapshot -> mc_build -> mc_render or mc_inspect to verify -> mc_restore if it went wrong.
+Coordinates: X east, Z south, Y up; from/to corners are inclusive.

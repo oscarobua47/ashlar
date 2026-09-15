@@ -5,6 +5,7 @@ import { loadAgentConfig } from "./agent/config.js";
 import { startAgentService } from "./agent/service.js";
 import { ConfigError, loadHttpServeConfig, loadPluginConnectionConfig, usageText } from "./config.js";
 import { PluginClient } from "./plugin-client.js";
+import { fetchCatalog, PluginVersionError, type ToolCatalogResult } from "./server.js";
 import { startHttp, type HttpServerHandle } from "./transports/http.js";
 import { startStdio } from "./transports/stdio.js";
 
@@ -59,6 +60,39 @@ async function main(): Promise<void> {
     });
     client.start();
 
+    let catalog;
+    try {
+        catalog = await fetchCatalog(client);
+    } catch (err) {
+        if (err instanceof PluginVersionError) {
+            console.error(err.message);
+            process.exit(2);
+        }
+        throw err;
+    }
+    console.error(
+        `ashlar-mcp[${process.pid}]: tool catalog (${catalog.tools.length}): ${catalog.tools.map(spec => spec.name).join(", ")}`
+    );
+    // Refetch-and-warn only (spec/plan section 4.0): supporting tools/list_changed
+    // notifications, i.e. actually re-registering tools on a live connection, is
+    // out of scope. Errors here (including UNKNOWN_METHOD, e.g. a downgrade) are
+    // logged, not fatal - the process is already up and serving the original catalog.
+    client.onReconnect(() => {
+        void client
+            .request("tool_catalog", {})
+            .then(result => {
+                const refetched = (result as ToolCatalogResult).tools;
+                if (JSON.stringify(refetched) !== JSON.stringify(catalog.tools)) {
+                    console.error(
+                        `ashlar-mcp[${process.pid}]: the plugin reconnected with a different tool catalog (it may have been upgraded); restart ashlar-mcp to pick up the change`
+                    );
+                }
+            })
+            .catch(err => {
+                console.error(`ashlar-mcp[${process.pid}]: failed to refetch the tool catalog after reconnect: ${(err as Error).message}`);
+            });
+    });
+
     let stopTransport: () => Promise<void>;
 
     if (mode === "http") {
@@ -74,10 +108,10 @@ async function main(): Promise<void> {
             }
             throw err;
         }
-        const handle: HttpServerHandle = startHttp(client, httpConfig);
+        const handle: HttpServerHandle = startHttp(client, catalog, httpConfig);
         stopTransport = () => handle.close();
     } else if (mode === "agent") {
-        const service = await startAgentService(client, agentConfig!);
+        const service = await startAgentService(client, agentConfig!, catalog);
         console.error(
             `ashlar-mcp[${process.pid}]: agent mode, model ${agentConfig!.model} via ${agentConfig!.baseUrl}, tools: ${service.toolNames.join(", ")}`
         );
@@ -91,7 +125,7 @@ async function main(): Promise<void> {
             return Promise.resolve();
         };
     } else {
-        const handle = startStdio(client);
+        const handle = startStdio(client, catalog);
         stopTransport = () => handle.close();
     }
 

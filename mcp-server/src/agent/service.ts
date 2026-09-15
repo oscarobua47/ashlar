@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { PluginClient } from "../plugin-client.js";
+import type { Catalog } from "../server.js";
 import { createAdminHandler, type CancelOutcome } from "./admin.js";
 import type { AgentConfig } from "./config.js";
 import { createHistory } from "./history.js";
@@ -77,9 +78,10 @@ export interface AgentService {
  */
 export async function startAgentService(
     pluginClient: PluginClient,
-    cfg: AgentConfig
+    cfg: AgentConfig,
+    catalog: Catalog
 ): Promise<AgentService & { toolNames: string[] }> {
-    const bridge = await createToolBridge(pluginClient, { allowCommand: cfg.allowCommand });
+    const bridge = await createToolBridge(pluginClient, { allowCommand: cfg.allowCommand }, catalog);
     const history = createHistory({ turns: cfg.historyTurns, ttlMinutes: cfg.historyTtlMinutes });
     const usageStore = new UsageStore({
         filePath: cfg.usageFile,

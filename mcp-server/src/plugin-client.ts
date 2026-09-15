@@ -47,6 +47,8 @@ export class PluginClient {
     private connectWaiters: Array<() => void> = [];
     private readonly lastProgressLogAt = new Map<string, number>();
     private readonly eventHandlers: Array<(event: Record<string, unknown>) => void> = [];
+    private readonly reconnectHandlers: Array<() => void> = [];
+    private hasAuthenticatedOnce = false;
 
     constructor(opts: {
         url: string;
@@ -71,6 +73,16 @@ export class PluginClient {
      */
     onEvent(handler: (event: Record<string, unknown>) => void): void {
         this.eventHandlers.push(handler);
+    }
+
+    /**
+     * Registers a handler invoked every time the plugin connection
+     * re-authenticates after the initial connect (i.e. on every reconnect,
+     * not the first one). Used by {@link ../cli.ts} to refetch the tool
+     * catalog and warn if it changed (e.g. the plugin was upgraded).
+     */
+    onReconnect(handler: () => void): void {
+        this.reconnectHandlers.push(handler);
     }
 
     /** Starts the connection loop. Call once at process startup. */
@@ -234,6 +246,16 @@ export class PluginClient {
                 console.error(`${this.logTag} authenticated`);
                 this.sendSubscribe();
                 this.flushConnectWaiters();
+                if (this.hasAuthenticatedOnce) {
+                    for (const handler of this.reconnectHandlers) {
+                        try {
+                            handler();
+                        } catch (err) {
+                            console.error(`${this.logTag} reconnect handler threw: ${(err as Error).message}`);
+                        }
+                    }
+                }
+                this.hasAuthenticatedOnce = true;
             } else {
                 const error = msg.error as { code?: string; message?: string } | undefined;
                 console.error(

@@ -3,7 +3,7 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
 import type { PluginClient } from "../plugin-client.js";
-import { buildServer } from "../server.js";
+import { buildServer, type Catalog } from "../server.js";
 import type { ToolDef } from "./provider.js";
 
 export interface ToolCallResult {
@@ -26,8 +26,12 @@ export interface ToolBridge {
  * connects a fresh `McpServer` (from {@link buildServer}) to an MCP
  * `Client`, and `listTools()`/`callTool()` do the rest.
  */
-export async function createToolBridge(pluginClient: PluginClient, opts: { allowCommand: boolean }): Promise<ToolBridge> {
-    const server = buildServer(pluginClient);
+export async function createToolBridge(
+    pluginClient: PluginClient,
+    opts: { allowCommand: boolean },
+    catalog: Catalog
+): Promise<ToolBridge> {
+    const server = buildServer(pluginClient, catalog);
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "ashlar-agent", version: "0.1.0" });
 

@@ -14,7 +14,7 @@ import {
 
 import type { HttpServeConfig } from "../config.js";
 import type { PluginClient } from "../plugin-client.js";
-import { buildServer } from "../server.js";
+import { buildServer, type Catalog } from "../server.js";
 
 const MCP_PATH = "/mcp";
 const HEALTHZ_PATH = "/healthz";
@@ -73,8 +73,8 @@ export interface HttpServerHandle {
  * check needs, so the token checks here are hand rolled with
  * `crypto.timingSafeEqual`.
  */
-export function startHttp(client: PluginClient, config: HttpServeConfig): HttpServerHandle {
-    const handler = createMcpHandler(() => buildServer(client), { responseMode: "json" });
+export function startHttp(client: PluginClient, catalog: Catalog, config: HttpServeConfig): HttpServerHandle {
+    const handler = createMcpHandler(() => buildServer(client, catalog), { responseMode: "json" });
     const nodeHandler = toNodeHandler(handler);
 
     const validateHost =

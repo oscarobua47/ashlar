@@ -68,7 +68,10 @@ async function main() {
     });
     client.start();
 
-    const bridge = await createToolBridge(client, { allowCommand: agentConfig.allowCommand });
+    // The Node package carries no tool knowledge of its own (step 7.3): fetch the plugin's
+    // tool_catalog once, exactly like ashlar-mcp's own cli.ts, then hand it to createToolBridge.
+    const catalog = await client.request("tool_catalog", {});
+    const bridge = await createToolBridge(client, { allowCommand: agentConfig.allowCommand }, catalog);
     const controller = new AbortController();
 
     try {

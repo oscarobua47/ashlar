@@ -54,4 +54,20 @@ public final class ToolRegistry {
     public List<String> names() {
         return List.copyOf(byName.keySet());
     }
+
+    /**
+     * The server-level instructions text from {@code /tools/instructions.txt}, or {@code null} when
+     * the resource is missing. Read once per call; the file is tiny and this is only hit by
+     * {@code tool_catalog}.
+     */
+    public String instructions() {
+        try (java.io.InputStream in = ToolRegistry.class.getResourceAsStream("/tools/instructions.txt")) {
+            if (in == null) {
+                return null;
+            }
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).strip();
+        } catch (java.io.IOException e) {
+            return null;
+        }
+    }
 }
