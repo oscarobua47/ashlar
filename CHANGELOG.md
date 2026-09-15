@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.0
+
+0.3.0 was not published separately; this release includes it. The in-game assistant now runs inside the plugin: `/ashlar` needs no Node process and no inbound port, just a model API key in `config.yml`.
+
+### Plugin (`plugin/`)
+
+- Embedded agent: a pure-Java agent core (`net.rcwalter.ashlar.agent`, no Bukkit dependency) ported from the Node `--agent` implementation - `ModelClient` (OpenAI-compatible chat-completions over `java.net.http`, retrying 429/5xx with backoff), `Pricing`/`UsageStore` (peak/off-peak pricing, per-player daily limits, atomic debounced persistence), `HistoryStore` (bounded turns, TTL, image redaction) and `AgentRunner` (the tool-calling loop against the plugin's own `ToolRegistry`).
+- `AgentService`: per-player serial request queue plus a global concurrency cap on a virtual-thread executor, progress throttling, per-turn usage accounting (every model call is recorded immediately, including on cancellation or failure), and a cost/token footer on every final reply.
+- New `agent:` config keys: `agent.mode` (`embedded`/`external`/`off`, default `embedded`), `agent.model.*` (provider, credentials, tool-call budget, timeouts, image detail, system prompt file, `mc_command` opt-in), `agent.limits.*` (daily caps, concurrency, history), `agent.pricing.*` (peak/off-peak pricing). Usage, limit overrides and the pause flag persist to `plugins/Ashlar/usage.json`.
+- `AshlarCommand` calls `AgentService` directly in embedded mode (request, cancel, usage, limit, pause, resume) instead of broadcasting chat events; `external` mode keeps the 0.2 event-broadcast path for a connected integrator process; `off` disables `/ashlar` entirely.
+- Console-only `ashlar simulate <x> <y> <z> [facing] <request>`: drives one request through the same code path with a synthetic player position, progress and replies printed to the console - the way to test the assistant without a player online (replaces `tools/agent-sim.mjs`).
+- Cancellation now reaches a running fill: `/ashlar cancel` stops between tool calls as before, but `onDisable` cancels every in-flight request and gives the executor up to 5 seconds to drain before shutting down.
+- `ChatOut`: the assistant's message-sending logic (progress lines, final replies, monitor echo) is shared between the embedded and external paths instead of living only in the `send_message` RPC handler.
+
+### MCP server (`mcp-server/`)
+
+- `--agent` removed: `src/agent/` (the OpenAI-compatible provider, runner, usage/pricing/history stores, admin commands) is deleted along with `tools/agent-sim.mjs`. Running `ashlar-mcp --agent` now prints a message pointing at `agent.mode: embedded` in the plugin's `config.yml` and exits 2, instead of silently doing nothing useful.
+- `@modelcontextprotocol/client` moves back to `devDependencies` - only `tools/e2e.mjs` and the test suite use it now that there is no in-process MCP client driving the agent loop.
+- `--help` no longer documents any `AI_*` variable or `--agent` mode.
+
+### Upgrading from 0.2.0
+
+See the README's ["Upgrading from 0.2"](README.md#upgrading-from-02) section under "In-game assistant": stop the old Node-based assistant process, optionally carry over its usage file to `plugins/Ashlar/usage.json`, and move its environment-variable settings into the new `agent.*` keys in `config.yml`.
+
+### Known limitations (tracked for later)
+
+- `mc_inspect` slices merge by block type, not full state, once a slice has more than 47 distinct types.
+- Blocks that share a Minecraft map color (e.g. stone/stone bricks/cobblestone) can be indistinguishable in `mc_render`/`mc_survey` images.
+- No `/ashlar undo` yet - players have to ask the assistant to restore the snapshot it took.
+- An in-progress build cannot be cancelled mid-fill; `/ashlar cancel` now stops at the next tick slice of a running `mc_build` fill rather than only between whole tool calls, but not inside the slice itself.
+- Snapshots do not capture block entity contents (sign text, container items); `restore` loses them.
+
 ## 0.3.0
 
 The tool layer moves into the plugin: tool descriptions, JSON schemas and result formatting are now owned by the Java side, and the MCP server becomes a thin protocol adapter.

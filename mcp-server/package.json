@@ -1,6 +1,6 @@
 {
   "name": "ashlar-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "MCP server that lets AI clients build in a Minecraft Paper server through the Ashlar plugin",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -47,10 +47,10 @@
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
-    "@modelcontextprotocol/client": "^2.0.0",
     "zod": "^4"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "typescript": "^6",
     "tsx": "^4",
     "@types/node": "^22"

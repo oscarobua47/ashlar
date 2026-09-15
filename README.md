@@ -8,7 +8,7 @@ AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar pl
 
 *Built by Claude through this MCP.*
 
-Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket. Players who have no MCP client at all can instead just type `/ashlar <request>` in chat - see [In-game assistant](#in-game-assistant-no-ai-client-needed) below.
+Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket. Players who have no MCP client at all can instead just type `/ashlar <request>` in chat and get an answer from the plugin's own built-in assistant - no Node process or inbound port needed for that path; see [In-game assistant](#in-game-assistant-no-ai-client-needed) below.
 
 ## How it works
 
@@ -24,10 +24,10 @@ AI client                MCP server                 Paper plugin
                          (ws:// / wss://)
         <---  text/image result  <---  JSON result / progress events
 
-player's /ashlar  --->  plugin chat event  --->  ashlar-mcp --agent  --->  model API  --->  same tools above
+player's /ashlar  --->  plugin's built-in assistant  --->  model API (DeepSeek by default)  --->  same tools above
 ```
 
-The tool layer lives entirely in the plugin, not in the MCP server: `ashlar-mcp` fetches the tool catalog (descriptions, JSON schemas, and the server-level instructions text) from the plugin at startup and just forwards calls, so there is one definition of every tool, reused by any MCP client and by the in-game assistant alike.
+The tool layer lives entirely in the plugin, not in the MCP server: `ashlar-mcp` fetches the tool catalog (descriptions, JSON schemas, and the server-level instructions text) from the plugin at startup and just forwards calls, so there is one definition of every tool, reused by any MCP client and by the in-game assistant alike. The `/ashlar` path needs no Node process and no inbound port at all: the plugin calls the model API directly (an outbound HTTPS connection) and runs the same in-process tool layer the MCP adapter forwards to.
 
 - Coarse-grained tools: one `mc_build` call places up to 500,000 blocks, instead of the AI placing blocks one at a time.
 - All block edits run on the server's main thread, spread across ticks under a per-tick time budget, so a large build does not freeze the server or lag players.
@@ -54,7 +54,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.3.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.4.0.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
@@ -64,7 +64,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 2. Install the MCP server
 
-Requires **Node >= 22** on the machine that runs your AI client. `ashlar-mcp` 0.3 needs plugin 0.3 or newer - it fetches the tool catalog from the plugin at startup and exits with a clear message if the plugin is too old. The MCP server is published to npm as [`ashlar-mcp`](https://www.npmjs.com/package/ashlar-mcp); `npx` downloads it on first use, so there is nothing to clone or build:
+Requires **Node >= 22** on the machine that runs your AI client. `ashlar-mcp` 0.4 needs plugin 0.3 or newer - it fetches the tool catalog from the plugin at startup and exits with a clear message if the plugin is too old. The MCP server is published to npm as [`ashlar-mcp`](https://www.npmjs.com/package/ashlar-mcp); `npx` downloads it on first use, so there is nothing to clone or build:
 
 ```sh
 npx -y ashlar-mcp --stdio    # fails fast with a usage message until MC_PLUGIN_URL/MC_PLUGIN_TOKEN are set
@@ -152,26 +152,29 @@ The model is expected to read this and fix the flagged blocks (or explain the tr
 
 ## In-game assistant (no AI client needed)
 
-Everything above needs an AI client on the player's own machine. `ashlar-mcp --agent` is a second, independent entry point: players type `/ashlar <request>` in chat, and a running `--agent` process answers it through the same nine tools, without anyone needing Claude Desktop, Claude Code, Cursor or any other MCP client installed. This is for the players and friends on your server who do not run an AI client at all - the server owner runs one `--agent` process and pays for the model API; everyone else just types in chat.
+Everything above needs an AI client on the player's own machine. `/ashlar <request>` is the alternative: the plugin runs the assistant itself, inside the same process as everything else, through the same nine tools - without anyone needing Claude Desktop, Claude Code, Cursor, any other MCP client, or a separate Node process. This is for the players and friends on your server who do not run an AI client at all - the server owner sets one API key and pays for the model API; everyone else just types in chat.
 
 ### Setup
 
-1. **Plugin.** `agent.enabled` in `plugins/Ashlar/config.yml` is on by default. Who may type `/ashlar` is decided in this order:
+1. **Plugin only.** Set `agent.model.api-key` in `plugins/Ashlar/config.yml` to a DeepSeek key from [platform.deepseek.com](https://platform.deepseek.com) (the defaults already point at `deepseek-flash`), restart the server, and `/ashlar` works - no other process to run:
+
+   ```yaml
+   agent:
+     mode: embedded          # default; the plugin runs the assistant itself
+     model:
+       api-key: "sk-..."     # required; leave empty and /ashlar replies "not configured"
+   ```
+
+   `agent.mode` has three values:
+   - `embedded` (default) - the plugin runs the assistant itself using `agent.model.*` below; no Node process or inbound port needed.
+   - `external` - forward `/ashlar` requests to a connected `ashlar-mcp`-style process over the plugin's chat events, for integrators; this is the previous 0.2 layout.
+   - `off` - `/ashlar` is disabled entirely.
+2. **Any OpenAI-compatible endpoint** works by setting `agent.model.base-url` and `agent.model.model` instead of the DeepSeek defaults (OpenAI, OpenRouter, a local Ollama), as long as the model supports tool calling. Vision is recommended: without it the assistant cannot look at the images `mc_render`/`mc_survey` return, only their text.
+3. **Who may use it** is decided in this order (unchanged from 0.2):
    - Operators always can.
    - A permissions plugin that has explicitly granted or denied `ashlar.use` wins (e.g. `/lp user <name> permission set ashlar.use true` with LuckPerms; an explicit `false` blocks the player even if they are on the allow list below).
    - Otherwise the plugin's own allow list decides: `/ashlar allow <player>`, `/ashlar deny <player>`, `/ashlar allowed` (operators only; stored in `plugins/Ashlar/allowed-players.yml`). This is enough for a friends' server with no permissions plugin at all.
    - `agent.everyone-can-use: true` opens `/ashlar` to every player (the daily limits and cooldown still apply). Default `false`.
-2. **Run `ashlar-mcp --agent`** somewhere that can reach the plugin - the same machine as the Paper server is simplest, since then `MC_PLUGIN_URL` can point at `127.0.0.1`:
-
-   ```sh
-   MC_PLUGIN_URL=ws://127.0.0.1:8765 \
-   MC_PLUGIN_TOKEN=<the token from config.yml> \
-   AI_API_KEY=<your model API key> \
-   npx -y ashlar-mcp --agent
-   ```
-
-   This can run alongside a `--stdio` or `--http` instance for your own AI client - they are independent processes, and only one `--agent` process should be subscribed at a time.
-3. **Model provider.** The defaults (`AI_BASE_URL`, `AI_MODEL`) already point at DeepSeek's `deepseek-flash`, which accepts the images the tools return - get `AI_API_KEY` from [platform.deepseek.com](https://platform.deepseek.com). Any OpenAI-compatible chat-completions endpoint works by setting `AI_BASE_URL` and `AI_MODEL` instead (OpenAI, OpenRouter, a local Ollama), as long as the model supports tool calling. Vision is optional but recommended: without it the assistant cannot look at the images `mc_render`/`mc_survey` return, only their text.
 
 ### Using it
 
@@ -183,62 +186,63 @@ Everything above needs an AI client on the player's own machine. `ashlar-mcp --a
 
 The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). Follow-up requests remember the recent conversation, so "make the roof taller" works without repeating the whole description. Replies come back in whatever language the request was written in. Players with the `ashlar.monitor` permission (default op) see a compact echo of every other player's request and final reply - `"<name> asked: ..."` and `[Ashlar -> <name>]`-prefixed replies, but none of the progress lines; turn it off with `agent.echo-to-monitors: false`.
 
+From the server console (no player needed), `ashlar simulate <x> <y> <z> [facing] <request>` drives one request through the same code path, with progress and the final reply printed to the console instead of chat - the way to test the assistant without a player online:
+
+```
+ashlar simulate 100 64 -200 south build a small stone cottage
+```
+
 ### Usage, cost and limits
 
-Every final reply ends with a footer line, e.g. `(this request: 21.9k tokens, $0.0061 | today: $0.04 of $1.00)` - `of $1.00` is omitted when there is no cost limit, and it shows tokens instead of cost when every `AI_PRICE_*` is `0` (a free/local model). Usage, per-player limit overrides and a global pause flag are persisted to `AI_USAGE_FILE` (default `./ashlar-usage.json`, next to wherever `ashlar-mcp --agent` runs) so they survive a restart.
+Every final reply ends with a footer line, e.g. `(this request: 21.9k tokens, $0.0061 | today: $0.04 of $1.00)` - `of $1.00` is omitted when there is no cost limit, and it shows tokens instead of cost when every `agent.pricing.*` price is `0` (a free/local model). Usage, per-player limit overrides and a global pause flag are persisted to `plugins/Ashlar/usage.json` so they survive a restart.
 
 Players with the `ashlar.admin` permission (default op) get these in-game commands (`/ashlar help` lists the ones the caller may use):
 
 - **`/ashlar usage [player|all]`** - with no argument, the caller's own usage; a player name, theirs; `all` lists every player who has used the assistant, sorted by today's cost (top 20, with a note if more exist). Each report shows today's and all-time requests/tokens/cost, plus the effective per-day limits and which are overrides.
-- **`/ashlar limit [player] <cost|tokens|requests> <value|off>`** / **`/ashlar limit [player] reset`** - sets (or clears) a per-day cap. With no player, it sets the server default; `off` means unlimited. Precedence: a player's own override, then the server default, then the `AI_MAX_*_PER_DAY` env value.
+- **`/ashlar limit [player] <cost|tokens|requests> <value|off>`** / **`/ashlar limit [player] reset`** - sets (or clears) a per-day cap. With no player, it sets the server default; `off` means unlimited. Precedence: a player's own override, then the server default, then the `agent.limits.*` config value.
 - **`/ashlar pause`** / **`/ashlar resume`** - a global switch; while paused, every new `/ashlar` request is rejected with a message, without touching one already running.
 - **`/ashlar cancel <player>`** - cancels another player's running or queued request (their own `/ashlar cancel` still works too); the target is told who cancelled it.
-- **`/ashlar allow <player>`** / **`/ashlar deny <player>`** / **`/ashlar allowed`** - the plugin's own allow list (see Setup); handled inside the plugin, no `--agent` process needed.
+- **`/ashlar allow <player>`** / **`/ashlar deny <player>`** / **`/ashlar allowed`** - the plugin's own allow list (see Setup).
 
-`AI_*` environment variables (`--agent` mode only):
+`agent.limits.*` and `agent.pricing.*` in `plugins/Ashlar/config.yml` (embedded mode only):
 
-| Variable | Default | Meaning |
+| Key | Default | Meaning |
 |---|---|---|
-| `AI_BASE_URL` | `https://api.deepseek.com` | OpenAI-compatible base URL; `/chat/completions` is appended. |
-| `AI_API_KEY` | - (required) | Bearer token for the model API. |
-| `AI_MODEL` | `deepseek-flash` | Model name. |
-| `AI_MAX_TOOL_CALLS` | `25` | Max tool calls per player request before forcing a final answer. |
-| `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY` | `40` | Per-player daily request cap, reset at UTC midnight; `0` = unlimited. Overridable per-player via `/ashlar limit`. |
-| `AI_MAX_TOKENS_PER_PLAYER_PER_DAY` | `0` | Per-player daily token cap (input + cached + output); `0` = unlimited. Overridable per-player. |
-| `AI_MAX_COST_PER_PLAYER_PER_DAY` | `0` | Per-player daily cost cap, in `AI_CURRENCY`; `0` = unlimited. Overridable per-player. |
-| `AI_ALLOW_COMMAND` | `0` | Set to `1` to include `mc_command` in the assistant's tool list. |
-| `AI_MAX_CONCURRENT` | `2` | Requests running at once across all players. |
-| `AI_HISTORY_TURNS` | `6` | User/assistant exchanges remembered per player. |
-| `AI_HISTORY_TTL_MINUTES` | `30` | Idle minutes after which a player's history is dropped. |
-| `AI_IMAGE_DETAIL` | `high` | Image detail passed through on image parts: `low`/`high`/`auto`. |
-| `AI_SYSTEM_PROMPT_FILE` | - (none) | Optional path to a text file appended to the built-in system prompt. |
-| `AI_REQUEST_TIMEOUT_MS` | `120000` | Per model call timeout, in milliseconds. |
-| `AI_USAGE_FILE` | `./ashlar-usage.json` | Where per-player usage, limit overrides and the pause flag are persisted. |
-| `AI_PRICE_INPUT` | `0.30` | Price per 1M uncached input tokens, at peak price (verified DeepSeek `deepseek-flash` rate, 2026-09-14). |
-| `AI_PRICE_CACHED_INPUT` | `0.006` | Price per 1M cached input tokens, at peak price. |
-| `AI_PRICE_OUTPUT` | `1.20` | Price per 1M output tokens, at peak price. |
-| `AI_CURRENCY` | `USD` | Label only: `USD` shows as `$`, anything else as a `<code> ` prefix. |
-| `AI_PEAK_HOURS` | `mon-fri 01:00-04:00,06:00-10:00` | UTC windows in which `AI_PRICE_*` apply in full - DeepSeek's own peak schedule. `always` disables the off-peak discount, for providers that do not offer one. |
-| `AI_OFF_PEAK_MULTIPLIER` | `0.5` | Price multiplier applied outside `AI_PEAK_HOURS`. |
+| `agent.model.max-tool-calls` | `25` | Max tool calls per player request before forcing a final answer. |
+| `agent.limits.max-requests-per-player-per-day` | `40` | Per-player daily request cap, reset at UTC midnight; `0` = unlimited. Overridable per-player via `/ashlar limit`. |
+| `agent.limits.max-tokens-per-player-per-day` | `0` | Per-player daily token cap (input + cached + output); `0` = unlimited. Overridable per-player. |
+| `agent.limits.max-cost-per-player-per-day` | `0` | Per-player daily cost cap, in `agent.pricing.currency`; `0` = unlimited. Overridable per-player. |
+| `agent.model.allow-command` | `false` | Whether `mc_command` is included in the assistant's tool list. |
+| `agent.limits.max-concurrent` | `2` | Requests running at once across all players. |
+| `agent.limits.history-turns` | `6` | User/assistant exchanges remembered per player. |
+| `agent.limits.history-ttl-minutes` | `30` | Idle minutes after which a player's history is dropped. |
+| `agent.model.image-detail` | `"high"` | Image detail passed through on image parts: `low`/`high`/`auto`. |
+| `agent.model.system-prompt-file` | `""` (none) | Optional path to a text file appended to the built-in system prompt. |
+| `agent.model.request-timeout-ms` | `120000` | Per model call timeout, in milliseconds. |
+| `agent.pricing.input` | `0.30` | Price per 1M uncached input tokens, at peak price (verified DeepSeek `deepseek-flash` rate, 2026-09-14). |
+| `agent.pricing.cached-input` | `0.006` | Price per 1M cached input tokens, at peak price. |
+| `agent.pricing.output` | `1.20` | Price per 1M output tokens, at peak price. |
+| `agent.pricing.currency` | `"USD"` | Label only: `USD` shows as `$`, anything else as a `<code> ` prefix. |
+| `agent.pricing.peak-hours` | `"mon-fri 01:00-04:00,06:00-10:00"` | UTC windows in which `agent.pricing.*` prices apply in full - DeepSeek's own peak schedule. `always` disables the off-peak discount, for providers that do not offer one. |
+| `agent.pricing.off-peak-multiplier` | `0.5` | Price multiplier applied outside `agent.pricing.peak-hours`. |
 
-A cottage-sized request (survey, snapshot, build, two renders, a final reply - about 6 model calls) ran roughly 130k prompt tokens, dominated by the tool descriptions and the images sent back on each call; budget accordingly. DeepSeek pricing makes this cents per request.
+A small hut (survey, snapshot, build, a couple of renders, a final reply - about a dozen model calls) ran roughly 320k prompt tokens, dominated by the tool descriptions and the images sent back on each call, for about $0.05 at DeepSeek's peak price (half that off-peak); budget `agent.limits.max-cost-per-player-per-day` accordingly - a cap of `1` (one dollar) covers roughly 20 such requests at peak price.
 
 ### Safety
 
-- `mc_command` is never offered to the model unless the operator sets `AI_ALLOW_COMMAND=1`.
-- `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY`, `AI_MAX_TOKENS_PER_PLAYER_PER_DAY` and `AI_MAX_COST_PER_PLAYER_PER_DAY` cap what one player can spend per day; operators (`ashlar.admin`) can tighten or loosen any of them per player from in-game chat, or pause the assistant entirely.
+- `mc_command` is never offered to the model unless the operator sets `agent.model.allow-command: true`.
+- `agent.limits.max-requests-per-player-per-day`, `agent.limits.max-tokens-per-player-per-day` and `agent.limits.max-cost-per-player-per-day` cap what one player can spend per day; operators (`ashlar.admin`) can tighten or loosen any of them per player from in-game chat, or pause the assistant entirely.
 - The plugin's `agent.cooldown-seconds` and `agent.max-message-length` throttle and bound individual `/ashlar` requests before they even reach the assistant.
 - Use `world.build-region` (see [Configuration reference](#configuration-reference)) to fence off where the assistant is allowed to build, the same way you would for a human builder.
 - The assistant snapshots the region before building, so a bad result can be rolled back with `mc_restore` - ask it to restore, or use `mc_restore` yourself.
-- `AI_SYSTEM_PROMPT_FILE` adds house rules to the built-in system prompt, e.g. a file containing a line like `Never build within 50 blocks of spawn.`
+- `agent.model.system-prompt-file` adds house rules to the built-in system prompt, e.g. a file containing a line like `Never build within 50 blocks of spawn.`
 
-### Testing without a player
+### Upgrading from 0.2
 
-Drive one request through the same code path without a player online or `/ashlar` itself, from a checkout (after `npm run build`):
-
-```sh
-node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facing south
-```
+- Stop the old Node-based assistant process - the flag that used to start it no longer exists and now exits immediately with a message pointing at `agent.mode: embedded`.
+- If you want to keep your usage counters, copy the old usage file (next to wherever that process used to run) to `plugins/Ashlar/usage.json` (same format).
+- Move the old process's provider/limit/pricing environment-variable values into the matching `agent.model.*`/`agent.limits.*`/`agent.pricing.*` keys in `plugins/Ashlar/config.yml` - see the table above and [Configuration reference](#configuration-reference) for the exact key names.
+- If you still want a separate process driving `/ashlar` (e.g. a custom integration), set `agent.mode: external` instead of `embedded` - that is the old 0.2 behaviour.
 
 ## Compatibility
 
@@ -249,7 +253,8 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 | Java | 25 required (Paper 26.x's hard requirement) |
 | Node | >= 22 required (MCP server uses the built-in `WebSocket` global) |
 | MCP clients | Any MCP SDK v2 client: Claude Desktop, Claude Code, Cursor, etc. |
-| `ashlar-mcp` <-> plugin | `ashlar-mcp` 0.3 requires plugin >= 0.3.0 (fetches the tool catalog via `tool_catalog` at startup; exits with a clear message otherwise); plugin 0.3 still serves every RPC an `ashlar-mcp` 0.2 client uses, so an older `ashlar-mcp` keeps working against a newer plugin. |
+| `ashlar-mcp` <-> plugin | `ashlar-mcp` 0.4 requires plugin >= 0.3.0 (fetches the tool catalog via `tool_catalog` at startup; exits with a clear message otherwise); plugin 0.3+ still serves every RPC an `ashlar-mcp` 0.2 client uses, so an older `ashlar-mcp` keeps working against a newer plugin. |
+| In-game assistant | Plugin only (no Node) once `agent.model.api-key` is set. |
 
 **Not supported:** Minecraft 1.21.x and older (different Paper API version), Folia (single main-thread scheduling model assumed throughout), Bedrock Edition.
 
@@ -263,7 +268,7 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 - Disable `run-command.enabled` if you do not need the `mc_command` escape hatch - it runs arbitrary console commands with full operator privileges.
 - Every executed operation is appended to `plugins/Ashlar/operations.log` (IP, method, summary, blocks changed) when `logging.log-operations` is on, as an audit trail.
 - `limits.*` bound how much a single call can touch (blocks, chunks, read volume); `world.allowed-worlds` and the optional `world.build-region` bound where it can happen. Configure these to match what you actually want an AI to be able to do.
-- Running `ashlar-mcp --agent` turns in-game chat into a control channel: anyone with the `ashlar.use` permission can make it call every tool the assistant has, including `mc_command` if `AI_ALLOW_COMMAND=1`. Grant `ashlar.use` (or an allow-list entry) deliberately, the same way you would grant an operator permission, and keep `agent.everyone-can-use` off on a public server.
+- The built-in assistant turns chat into a control channel for whoever may use `/ashlar`: anyone with the `ashlar.use` permission can make it call every tool the assistant has, including `mc_command` if `agent.model.allow-command: true`. Grant `ashlar.use` (or an allow-list entry) deliberately, the same way you would grant an operator permission, and keep `agent.everyone-can-use` off on a public server. The model API key in `config.yml` (`agent.model.api-key`) should be treated like the server token - anyone who can read it can run up your model API bill.
 
 ## Configuration reference
 
@@ -291,7 +296,27 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 | `run-command.enabled` | `true` | Whether the `run_command`/`mc_command` escape hatch is available at all. |
 | `engine.connect-blocks` | `true` | Whether writes get a shape-only connection pass (panes/fences/walls/bars/stairs connect to neighbours). Overridable per-request via `mc_build`'s `connect` field. |
 | `engine.support-warnings` | `true` | Whether writes are checked afterward for unsupported attached blocks (reported as warnings, nothing is fixed automatically). No per-request override. |
-| `agent.enabled` | `true` | Whether `/ashlar` is accepted at all; disabled rejects the command outright. |
+| `agent.mode` | `"embedded"` | `embedded` runs the assistant inside the plugin; `external` forwards `/ashlar` to a connected `ashlar-mcp`-style process (0.2 behaviour); `off` disables `/ashlar` entirely. |
+| `agent.model.base-url` | `"https://api.deepseek.com"` | OpenAI-compatible base URL; `/chat/completions` is appended. Embedded mode only. |
+| `agent.model.api-key` | `""` | Bearer token for the model API. Required in embedded mode - empty means `/ashlar` replies "not configured" instead of the plugin refusing to start. |
+| `agent.model.model` | `"deepseek-flash"` | Model name sent in each request. Embedded mode only. |
+| `agent.model.max-tool-calls` | `25` | Max tool calls per player request before forcing a final answer. Embedded mode only. |
+| `agent.model.request-timeout-ms` | `120000` | Per model API call timeout, in milliseconds. Embedded mode only. |
+| `agent.model.image-detail` | `"high"` | Image detail passed through on image parts: `low`/`high`/`auto`. Embedded mode only. |
+| `agent.model.system-prompt-file` | `""` | Optional path to a text file appended to the built-in system prompt. Embedded mode only. |
+| `agent.model.allow-command` | `false` | Whether `mc_command` is offered to the model as a tool. Embedded mode only. |
+| `agent.limits.max-requests-per-player-per-day` | `40` | Per-player daily request cap, reset at UTC midnight; `0` = unlimited. Overridable per-player via `/ashlar limit`. Embedded mode only. |
+| `agent.limits.max-tokens-per-player-per-day` | `0` | Per-player daily token cap (input + cached + output); `0` = unlimited. Overridable per-player. Embedded mode only. |
+| `agent.limits.max-cost-per-player-per-day` | `0` | Per-player daily cost cap, in `agent.pricing.currency`; `0` = unlimited. Overridable per-player. Embedded mode only. |
+| `agent.limits.max-concurrent` | `2` | Requests running at once across all players. Embedded mode only. |
+| `agent.limits.history-turns` | `6` | User/assistant exchanges remembered per player. Embedded mode only. |
+| `agent.limits.history-ttl-minutes` | `30` | Idle minutes after which a player's history is dropped. Embedded mode only. |
+| `agent.pricing.input` | `0.30` | Price per 1M uncached input tokens, at peak price. Embedded mode only. |
+| `agent.pricing.cached-input` | `0.006` | Price per 1M cached input tokens, at peak price. Embedded mode only. |
+| `agent.pricing.output` | `1.20` | Price per 1M output tokens, at peak price. Embedded mode only. |
+| `agent.pricing.currency` | `"USD"` | Label only: `USD` shows as `$`, anything else as a `<code> ` prefix. Embedded mode only. |
+| `agent.pricing.peak-hours` | `"mon-fri 01:00-04:00,06:00-10:00"` | UTC windows in which `agent.pricing.*` prices apply in full; `always` disables the off-peak discount. Embedded mode only. |
+| `agent.pricing.off-peak-multiplier` | `0.5` | Price multiplier applied outside `agent.pricing.peak-hours`. Embedded mode only. |
 | `agent.cooldown-seconds` | `5` | Minimum seconds between two `/ashlar` requests from the same player. |
 | `agent.max-message-length` | `500` | Longest `/ashlar` request text accepted, in characters. |
 | `agent.everyone-can-use` | `false` | Whether every player may use `/ashlar` without being an operator, permission-granted, or on the allow list. |
@@ -310,27 +335,8 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 | `MCP_HTTP_PORT` | `--http` only | `3000` | Port to bind. |
 | `MCP_HTTP_TOKEN` | `--http` only | - | Bearer token MCP clients must present. Required, >= 16 characters. |
 | `MCP_ALLOWED_HOSTS` | `--http` only, when not bound to localhost | - | Comma-separated hostnames accepted in Host/Origin headers. Required once `MCP_HTTP_HOST` is not `localhost`/`127.0.0.1`/`::1`. |
-| `AI_BASE_URL` | `--agent` only | `https://api.deepseek.com` | OpenAI-compatible base URL; `/chat/completions` is appended. |
-| `AI_API_KEY` | `--agent` only | - | Bearer token for the model API. Required in `--agent` mode. |
-| `AI_MODEL` | `--agent` only | `deepseek-flash` | Model name. |
-| `AI_MAX_TOOL_CALLS` | `--agent` only | `25` | Max tool calls per player request before forcing a final answer. |
-| `AI_MAX_REQUESTS_PER_PLAYER_PER_DAY` | `--agent` only | `40` | Per-player daily request cap, reset at UTC midnight; `0` = unlimited. Overridable per-player via `/ashlar limit`. |
-| `AI_MAX_TOKENS_PER_PLAYER_PER_DAY` | `--agent` only | `0` | Per-player daily token cap; `0` = unlimited. Overridable per-player. |
-| `AI_MAX_COST_PER_PLAYER_PER_DAY` | `--agent` only | `0` | Per-player daily cost cap, in `AI_CURRENCY`; `0` = unlimited. Overridable per-player. |
-| `AI_ALLOW_COMMAND` | `--agent` only | `0` | Set to `1` to include `mc_command` in the assistant's tool list. |
-| `AI_MAX_CONCURRENT` | `--agent` only | `2` | Requests running at once across all players. |
-| `AI_HISTORY_TURNS` | `--agent` only | `6` | User/assistant exchanges remembered per player. |
-| `AI_HISTORY_TTL_MINUTES` | `--agent` only | `30` | Idle minutes after which a player's history is dropped. |
-| `AI_IMAGE_DETAIL` | `--agent` only | `high` | Image detail passed through on image parts: `low`/`high`/`auto`. |
-| `AI_SYSTEM_PROMPT_FILE` | `--agent` only | - | Optional path to a text file appended to the built-in system prompt. |
-| `AI_REQUEST_TIMEOUT_MS` | `--agent` only | `120000` | Per model call timeout, in milliseconds. |
-| `AI_USAGE_FILE` | `--agent` only | `./ashlar-usage.json` | Where per-player usage, limit overrides and the pause flag are persisted. |
-| `AI_PRICE_INPUT` | `--agent` only | `0.30` | Price per 1M uncached input tokens, at peak price. |
-| `AI_PRICE_CACHED_INPUT` | `--agent` only | `0.006` | Price per 1M cached input tokens, at peak price. |
-| `AI_PRICE_OUTPUT` | `--agent` only | `1.20` | Price per 1M output tokens, at peak price. |
-| `AI_CURRENCY` | `--agent` only | `USD` | Label only: `USD` shows as `$`, anything else as a `<code> ` prefix. |
-| `AI_PEAK_HOURS` | `--agent` only | `mon-fri 01:00-04:00,06:00-10:00` | UTC windows in which `AI_PRICE_*` apply in full; `always` disables the off-peak discount. |
-| `AI_OFF_PEAK_MULTIPLIER` | `--agent` only | `0.5` | Price multiplier applied outside `AI_PEAK_HOURS`. |
+
+The in-game assistant has no environment variables of its own any more - see the `agent.*` keys in the plugin table above.
 
 ## Troubleshooting
 
@@ -354,12 +360,16 @@ node tools/agent-sim.mjs "build a small stone cottage" --pos 100,64,-200 --facin
 **Cause:** physics is off by design (so intentional overhangs and floating platforms are possible); unsupported blocks are not auto-corrected.
 **Fix:** read the `WARNINGS` block in `mc_build`'s response - it lists exactly which blocks lack support and why.
 
-**Symptom:** `/ashlar` says the assistant is not connected right now.
-**Cause:** no `ashlar-mcp --agent` process is currently subscribed to the plugin (not started, crashed, or lost its connection).
-**Fix:** start/restart `--agent` and check its stderr for `subscribe ok`; if it is not there, check `MC_PLUGIN_URL`/`MC_PLUGIN_TOKEN` the same way you would for `--stdio`/`--http`.
+**Symptom:** `/ashlar` says the assistant is not configured.
+**Cause:** `agent.mode` is `embedded` (the default) but `agent.model.api-key` in `config.yml` is empty.
+**Fix:** set `agent.model.api-key` to a real key and restart.
+
+**Symptom:** the console says `Ashlar agent: mode=external` but nothing answers `/ashlar`.
+**Cause:** `agent.mode: external` forwards requests to a connected external process instead of running the assistant inside the plugin; none is connected.
+**Fix:** either connect an `ashlar-mcp`-style external process that subscribes to the plugin's chat events, or set `agent.mode: embedded` (the normal setup for most servers).
 
 **Symptom:** the model's reply says it cannot see the image, or answers as if it never looked at the survey/render.
-**Cause:** `AI_MODEL` does not support vision, so the images sent alongside `mc_render`/`mc_survey` results are effectively invisible to it.
+**Cause:** `agent.model.model` does not support vision, so the images sent alongside `mc_render`/`mc_survey` results are effectively invisible to it.
 **Fix:** switch to a vision-capable model, or accept that the assistant is working from the text-only numbers in `mc_survey`'s response.
 
 **Symptom:** need to see the MCP server's logs for any of the above.
@@ -406,10 +416,9 @@ The tool layer lives entirely under `plugin/`: each `mc_*` tool is a Java class 
 ## Roadmap
 
 **v0.4:**
-- In-game assistant runs inside the plugin - no Node process needed for `/ashlar` at all.
 - `/ashlar undo` - a dedicated command instead of asking the assistant to restore its snapshot.
 - Mid-build cancellation: today `/ashlar cancel` only takes effect between tool calls, not inside a single `mc_build` fill.
-- A native Anthropic-format provider for `--agent`, alongside the current OpenAI-compatible chat-completions one.
+- A native Anthropic-format provider for the embedded assistant, alongside the current OpenAI-compatible chat-completions one.
 
 **v0.5:**
 - Event bus for world/player events, and per-token scopes (a token can be limited to a subset of tools/worlds instead of all-or-nothing).

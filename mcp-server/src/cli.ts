@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { loadAgentConfig } from "./agent/config.js";
-import { startAgentService } from "./agent/service.js";
 import { ConfigError, loadHttpServeConfig, loadPluginConnectionConfig, usageText } from "./config.js";
 import { PluginClient } from "./plugin-client.js";
 import { fetchCatalog, PluginVersionError, type ToolCatalogResult } from "./server.js";
 import { startHttp, type HttpServerHandle } from "./transports/http.js";
 import { startStdio } from "./transports/stdio.js";
 
-function parseMode(argv: string[]): "stdio" | "http" | "agent" {
+function parseMode(argv: string[]): "stdio" | "http" {
     if (argv.includes("--http")) return "http";
-    if (argv.includes("--agent")) return "agent";
     return "stdio"; // --stdio, or no flag: default
 }
 
 async function main(): Promise<void> {
     const argv = process.argv.slice(2);
+    if (argv.includes("--agent")) {
+        console.error(
+            "the in-game assistant now runs inside the plugin; set agent.mode: embedded in plugins/Ashlar/config.yml and remove --agent"
+        );
+        process.exit(2);
+    }
     if (argv.includes("--help") || argv.includes("-h")) {
         process.stdout.write(usageText());
         process.exit(0);
@@ -37,26 +40,10 @@ async function main(): Promise<void> {
         throw err;
     }
 
-    let agentConfig;
-    if (mode === "agent") {
-        try {
-            agentConfig = loadAgentConfig();
-        } catch (err) {
-            if (err instanceof ConfigError) {
-                console.error(`ashlar-mcp[${process.pid}]: ${err.message}`);
-                console.error("");
-                console.error(usageText());
-                process.exit(2);
-            }
-            throw err;
-        }
-    }
-
     const client = new PluginClient({
         url: pluginConfig.pluginUrl,
         token: pluginConfig.pluginToken,
-        defaultTimeoutMs: pluginConfig.requestTimeoutMs,
-        subscribeEvents: mode === "agent" ? ["chat"] : undefined
+        defaultTimeoutMs: pluginConfig.requestTimeoutMs
     });
     client.start();
 
@@ -110,20 +97,6 @@ async function main(): Promise<void> {
         }
         const handle: HttpServerHandle = startHttp(client, catalog, httpConfig);
         stopTransport = () => handle.close();
-    } else if (mode === "agent") {
-        const service = await startAgentService(client, agentConfig!, catalog);
-        console.error(
-            `ashlar-mcp[${process.pid}]: agent mode, model ${agentConfig!.model} via ${agentConfig!.baseUrl}, tools: ${service.toolNames.join(", ")}`
-        );
-        console.error(
-            `ashlar-mcp[${process.pid}]: usage file ${agentConfig!.usageFile}, prices (${agentConfig!.currency} per 1M) ` +
-                `input=${agentConfig!.priceInput} cached=${agentConfig!.priceCachedInput} output=${agentConfig!.priceOutput}, ` +
-                `off-peak x${agentConfig!.offPeakMultiplier}`
-        );
-        stopTransport = () => {
-            service.close();
-            return Promise.resolve();
-        };
     } else {
         const handle = startStdio(client, catalog);
         stopTransport = () => handle.close();

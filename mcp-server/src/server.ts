@@ -8,7 +8,7 @@ import type { ContentBlock } from "./tools/helpers.js";
 import { logUsage } from "./usage-log.js";
 
 const SERVER_NAME = "ashlar-mcp";
-export const SERVER_VERSION = "0.3.0";
+export const SERVER_VERSION = "0.4.0";
 export const MIN_PLUGIN_VERSION = "0.3.0";
 
 /**
@@ -47,7 +47,7 @@ export interface ToolCallRpcResult {
  * Thrown by {@link fetchCatalog} when the plugin rejects `tool_catalog` with
  * `UNKNOWN_METHOD` - i.e. it predates step 7.2b and has no tool_catalog RPC
  * at all. `message` is the exact, actionable text printed to stderr in every
- * mode (--stdio, --http, --agent) before exiting 2.
+ * mode (--stdio, --http) before exiting 2.
  */
 export class PluginVersionError extends Error {
     constructor() {
