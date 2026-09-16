@@ -54,7 +54,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.4.4.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.4.5.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
@@ -261,7 +261,8 @@ A small hut (survey, snapshot, build, a couple of renders, a final reply - about
 
 | Component | Status |
 |---|---|
-| Paper 26.2 | Tested (build 123) |
+| Paper 26.2 | Tested (build 124) |
+| Paper 26.3 | Tested (build 5, alpha channel - the same jar, `api-version` stays 26.2) |
 | Paper 26.x | Expected to work (same major API line) |
 | Java | 25 required (Paper 26.x's hard requirement) |
 | Node | >= 22 required (MCP server uses the built-in `WebSocket` global) |
