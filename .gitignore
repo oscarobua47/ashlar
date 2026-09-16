@@ -19,3 +19,4 @@ mcp-server/tools/out/
 
 # private notes, never published
 docs/private/
+plugin/run-worlds-*/

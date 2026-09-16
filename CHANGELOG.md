@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.5
+
+- Paper 26.3 support (tested on build 5). The plugin loaded fine but crashed the server on the first read: 26.3's alpha builds run the vanilla chunk system, which throws when a chunk ticket is removed in the same tick the chunk was loaded. Finished tasks now keep their chunk tickets for at least one second (`TickBudgetExecutor.MIN_TICKET_HOLD_TICKS`); 26.2 is unaffected, and the new poplar/wool-stairs/straw-bed blocks need no plugin changes.
+- Connection pass no longer knocks down sand: refreshing a fence/pane/wall next to an unsupported gravity block, or next to water that had somewhere to flow, scheduled the physics tick that "no physics" was supposed to avoid - it showed up whenever a player stood nearby (the chunk ticked), and the longer ticket hold above made it show up always. Such a cell is now left unrefreshed (verified on the test server: unsupported sand next to a fence stays; fences next to supported sand still connect).
+- Unsupported gravity blocks (sand, gravel, concrete powder, anvils with nothing solid below) are listed in `mc_build`'s support warnings so the model fixes them; `mc_restore` does not report them (natural terrain is full of gravel over cave air).
+
 ## 0.4.4
 
 - `/ashlar usage [player|all] <days>` / `/ashlar usage [player|all] <from> <to>`: a per-day usage report (last N days, N in 1-31, or an explicit inclusive UTC date range, also capped at 31 days) alongside the existing today/total summary, for a player or server-wide. A range date may be written as `YYYY-MM-DD`, `YYYYMMDD`, or `MM-DD`/`M-D` (current UTC year); a reversed `from`/`to` is swapped and a future date clamps to today. The caller's own usage with a range needs only `ashlar.use`; naming another player or `all` still needs `ashlar.monitor`. `UsageStore` keeps a rolling 90-day per-day history per player (pruned on save); an old usage file without it gains one day of history, backfilled from its own last-saved "today" on load.

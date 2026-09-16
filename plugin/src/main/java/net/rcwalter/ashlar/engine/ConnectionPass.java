@@ -61,7 +61,11 @@ import java.util.List;
  * all, but since that approach turned out to be a no-op, the air round trip
  * is required instead, and briefly turning a chest to air would destroy its
  * inventory. This extra skip is a deviation beyond the prompt's explicit
- * gravity/liquid list, added for safety; see the step4d report.
+ * gravity/liquid list, added for safety; see the step4d report. Skipping
+ * those cells is still not enough on its own, because the physics=true
+ * write of any <em>other</em> cell notifies them too: see {@link
+ * #neighboursStayPut}, which skips a refresh entirely when a neighbouring
+ * gravity block or liquid would actually move because of it.
  */
 final class ConnectionPass {
 
@@ -72,6 +76,11 @@ final class ConnectionPass {
 
     private static final int[] DX = {1, -1, 0, 0};
     private static final int[] DZ = {0, 0, 1, -1};
+
+    /** The six face neighbours checked by {@link #neighboursStayPut}. */
+    private static final int[] NX = {1, -1, 0, 0, 0, 0};
+    private static final int[] NY = {0, 0, 0, 0, 1, -1};
+    private static final int[] NZ = {0, 0, 1, -1, 0, 0};
 
     private final World world;
     private final List<int[]> positions;
@@ -151,12 +160,60 @@ final class ConnectionPass {
         return true;
     }
 
-    /** Clears {@code (x,y,z)} to air (physics=false) then writes its current data back (physics=true). */
+    /**
+     * Clears {@code (x,y,z)} to air (physics=false) then writes its current data back
+     * (physics=true) - unless a block next to it would be moved by that physics write.
+     */
     private void refresh(int x, int y, int z) {
+        if (!neighboursStayPut(x, y, z)) {
+            return;
+        }
         Block block = world.getBlockAt(x, y, z);
         BlockData target = block.getBlockData();
         block.setBlockData(AIR, false);
         block.setBlockData(target, true);
+    }
+
+    /**
+     * Whether the physics=true write in {@link #refresh} is safe for the six neighbours of
+     * {@code (x,y,z)}. That write fires {@code updateShape} on every neighbour; for sand,
+     * gravel, concrete powder and the like that schedules a fall, and for water/lava a
+     * fluid tick - both run as soon as the chunk ticks (a player nearby, or the executor's
+     * post-task ticket hold). Skipping gravity/liquid cells in the neighbour phase is not
+     * enough: verified on the test server (force-loaded chunk, sand and a fence written in
+     * one batch), the fence's own refresh made the unsupported sand fall. So a cell is only
+     * refreshed when no neighbouring gravity block is unsupported and no neighbouring liquid
+     * has anywhere to flow; a supported sand block or an enclosed pond is unaffected by the
+     * scheduled tick, and their neighbours still get their shape.
+     */
+    private boolean neighboursStayPut(int x, int y, int z) {
+        for (int i = 0; i < NX.length; i++) {
+            int nx = x + NX[i];
+            int ny = y + NY[i];
+            int nz = z + NZ[i];
+            Material m = world.getBlockAt(nx, ny, nz).getType();
+            if (m.hasGravity()) {
+                if (isFree(nx, ny - 1, nz)) {
+                    return false;
+                }
+            } else if (isLiquid(m)) {
+                if (isFree(nx, ny - 1, nz) || isFree(nx + 1, ny, nz) || isFree(nx - 1, ny, nz)
+                        || isFree(nx, ny, nz + 1) || isFree(nx, ny, nz - 1)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether sand could fall into, or water flow into, {@code (x,y,z)}: air, or anything
+     * neither solid nor liquid (grass, flowers, snow layers - vanilla's "replaceable" set is
+     * a subset of that, so this errs towards skipping a refresh).
+     */
+    private boolean isFree(int x, int y, int z) {
+        Material m = world.getBlockAt(x, y, z).getType();
+        return m.isAir() || (!m.isSolid() && !isLiquid(m));
     }
 
     private void refreshNeighborIfSafe(int x, int y, int z) {

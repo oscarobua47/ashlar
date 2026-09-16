@@ -54,7 +54,7 @@ public final class RestoreTask extends BuildTask {
         this.data = data;
         this.paletteBlocks = paletteBlocks;
         this.connectionPass = new ConnectionPass(world, connectablePositions, connect);
-        this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings);
+        this.supportCheck = new SupportCheck(world, supportPositions, neighbourPositions.positions(), supportWarnings, false);
     }
 
     @Override
@@ -100,7 +100,7 @@ public final class RestoreTask extends BuildTask {
                     if (ConnectionPass.isConnectable(target)) {
                         connectablePositions.add(new int[]{cursorX, cursorY, cursorZ});
                     }
-                    if (SupportCheck.needsCheck(target)) {
+                    if (SupportCheck.needsCheck(target, false)) {
                         supportPositions.add(new int[]{cursorX, cursorY, cursorZ});
                     }
                 }

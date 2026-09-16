@@ -96,7 +96,7 @@ public abstract class BuildTask {
         physicsWrites++;
     }
 
-    /** How many ticks the executor keeps the task's chunk tickets after completion: 200 (10 s) when liquids were placed with physics, else 0. */
+    /** Extra ticks the executor keeps the task's chunk tickets after completion: 200 (10 s) when liquids were placed with physics, else 0 (the executor still applies its own one-second minimum). */
     public long ticketHoldTicks() {
         return physicsWrites > 0 ? 200 : 0;
     }

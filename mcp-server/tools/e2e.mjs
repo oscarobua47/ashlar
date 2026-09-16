@@ -591,21 +591,45 @@ async function main() {
     check("Signs: line contains the front text", /Made by.*Ashlar/.test(signInspectText));
 
     // --- step4d Fix 2 regression: sand next to a fence must still not fall -----
-    section("mc_build (regression: sand next to a fence in the same batch)");
+    // The chunk must actually tick for this to prove anything: a scheduled sand fall only
+    // runs in a ticking chunk (a player nearby, or the executor's post-task ticket hold),
+    // which is how the original version of this check passed for months while the
+    // fence's own refresh was knocking the sand down whenever a player stood nearby.
+    section("mc_build (regression: unsupported sand next to a fence in the same batch, ticking chunk)");
     const SAND_X = 490;
     const SAND_Y = 90;
     const SAND_Z = 490;
+    const forceload = await client.callTool({
+        name: "mc_command",
+        arguments: { command: `forceload add ${SAND_X} ${SAND_Z} ${SAND_X + 8} ${SAND_Z}` }
+    });
+    check("forceload add not an error", !forceload.isError);
+    // Clear the strip first so every block below counts as freshly written even on a reused world.
+    await client.callTool({
+        name: "mc_build",
+        arguments: { fills: [{ from: [SAND_X - 1, SAND_Y - 1, SAND_Z], to: [SAND_X + 7, SAND_Y, SAND_Z], block: "minecraft:air" }] }
+    });
     const sandBuild = await client.callTool({
         name: "mc_build",
         arguments: {
+            fills: [
+                // Supported case for the second half of this check: a stone base under that sand only.
+                { from: [SAND_X + 6, SAND_Y - 1, SAND_Z], to: [SAND_X + 6, SAND_Y - 1, SAND_Z], block: "minecraft:stone" }
+            ],
             blocks: [
                 { pos: [SAND_X, SAND_Y, SAND_Z], block: "minecraft:oak_fence" },
-                { pos: [SAND_X + 1, SAND_Y, SAND_Z], block: "minecraft:sand" }
+                { pos: [SAND_X + 1, SAND_Y, SAND_Z], block: "minecraft:sand" },
+                // Two fences next to supported sand: the refresh must still run there, so they connect to each other.
+                { pos: [SAND_X + 4, SAND_Y, SAND_Z], block: "minecraft:oak_fence" },
+                { pos: [SAND_X + 5, SAND_Y, SAND_Z], block: "minecraft:oak_fence" },
+                { pos: [SAND_X + 6, SAND_Y, SAND_Z], block: "minecraft:sand" }
             ]
         }
     });
     console.log(textOf(sandBuild));
     check("mc_build sand+fence not an error", !sandBuild.isError);
+    check("unsupported sand is reported as a support warning", /WARNINGS[\s\S]*minecraft:sand[\s\S]*nothing solid below/.test(textOf(sandBuild)));
+    await sleep(1500); // a scheduled sand fall runs 2 ticks after the update; give it plenty.
 
     const sandAtOriginal = await client.callTool({
         name: "mc_inspect",
@@ -614,6 +638,17 @@ async function main() {
     const sandAtOriginalText = textOf(sandAtOriginal);
     console.log(sandAtOriginalText);
     check("sand is still at its placed position after the connection pass", /minecraft:sand/.test(sandAtOriginalText));
+
+    const fenceBySupportedSand = await client.callTool({
+        name: "mc_inspect",
+        arguments: { from: [SAND_X + 4, SAND_Y, SAND_Z], to: [SAND_X + 6, SAND_Y, SAND_Z] }
+    });
+    const fenceBySupportedSandText = textOf(fenceBySupportedSand);
+    console.log(fenceBySupportedSandText);
+    check("fences next to SUPPORTED sand are still refreshed (they connect to each other)",
+        /oak_fence\[east=true/.test(fenceBySupportedSandText) && /oak_fence\[east=false,[a-z=,]*west=true\]/.test(fenceBySupportedSandText));
+    check("supported sand stays too", /minecraft:sand/.test(fenceBySupportedSandText));
+    await client.callTool({ name: "mc_command", arguments: { command: "forceload remove all" } });
 
     const sandBelowOriginal = await client.callTool({
         name: "mc_inspect",

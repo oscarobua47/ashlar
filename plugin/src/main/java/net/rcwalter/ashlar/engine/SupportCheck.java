@@ -90,6 +90,7 @@ final class SupportCheck {
     private final List<int[]> positions;
     private final List<int[]> neighbourPositions;
     private final boolean enabled;
+    private final boolean flagGravity;
     private final List<Warning> warnings = new ArrayList<>();
     private final Set<Long> seen = new HashSet<>();
 
@@ -98,10 +99,16 @@ final class SupportCheck {
     private int neighbourIndex = 0;
 
     SupportCheck(World world, List<int[]> positions, List<int[]> neighbourPositions, boolean enabled) {
+        this(world, positions, neighbourPositions, enabled, true);
+    }
+
+    /** {@code flagGravity}: whether unsupported gravity blocks are reported; see {@link #needsCheck(BlockData, boolean)}. */
+    SupportCheck(World world, List<int[]> positions, List<int[]> neighbourPositions, boolean enabled, boolean flagGravity) {
         this.world = world;
         this.positions = positions;
         this.neighbourPositions = neighbourPositions;
         this.enabled = enabled;
+        this.flagGravity = flagGravity;
     }
 
     /**
@@ -110,7 +117,16 @@ final class SupportCheck {
      * proportional to how many support-sensitive blocks a batch actually places, not its size.
      */
     static boolean needsCheck(BlockData data) {
-        return data instanceof Switch || wallAttachedFacing(data) != null || needsAbove(data) || needsBelow(data);
+        return needsCheck(data, true);
+    }
+
+    /**
+     * As {@link #needsCheck(BlockData)}; {@code flagGravity=false} leaves sand/gravel/concrete
+     * powder out. {@link RestoreTask} uses that: a snapshot puts back terrain exactly as it was,
+     * and natural terrain is full of gravel hanging over cave air that nobody asked to be told about.
+     */
+    static boolean needsCheck(BlockData data, boolean flagGravity) {
+        return data instanceof Switch || wallAttachedFacing(data) != null || needsAbove(data) || needsBelow(data, flagGravity);
     }
 
     /**
@@ -213,7 +229,7 @@ final class SupportCheck {
         if (needsAbove(data)) {
             return checkAbove(x, y, z, data);
         }
-        if (needsBelow(data)) {
+        if (needsBelow(data, flagGravity)) {
             return checkBelow(x, y, z, data);
         }
         return null;
@@ -303,7 +319,7 @@ final class SupportCheck {
     // case (Rule 4) checked only once the block below is confirmed solid.
     // ------------------------------------------------------------------
 
-    private static boolean needsBelow(BlockData data) {
+    private static boolean needsBelow(BlockData data, boolean flagGravity) {
         // The upper half of any two-tall block (a door, or a two-tall plant such as tall_grass/
         // large_fern/sunflower/lilac/rose_bush/peony - Bukkit exposes no dedicated "two-tall plant"
         // interface, only the shared Bisected one) rests on its own lower half, not on the ground;
@@ -316,6 +332,9 @@ final class SupportCheck {
         Material m = data.getMaterial();
         if (isStandingTorch(m)) {
             return true;
+        }
+        if (m.hasGravity()) {
+            return flagGravity; // sand, gravel, concrete powder, anvils: physics is off, but any later update drops them.
         }
         if (data instanceof Sign) {
             return true; // standing sign only; WallSign is a distinct interface handled by Rule 1.

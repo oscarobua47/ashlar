@@ -45,6 +45,9 @@ public final class TickBudgetExecutor {
     // Main-thread-only state: only ever read/written from tick() and the private
     // helpers it calls, all of which run on the main thread.
     private QueuedTask current;
+    /** Minimum ticks a finished task's chunk tickets are kept; see {@link #releaseGuardLater}. */
+    static final long MIN_TICKET_HOLD_TICKS = 20;
+
     private ChunkTicketGuard currentGuard;
     private long currentStartedAtNanos;
 
@@ -157,16 +160,9 @@ public final class TickBudgetExecutor {
 
     private void completeCurrent() {
         QueuedTask qt = current;
-        long hold = qt.task().ticketHoldTicks();
-        if (hold > 0 && currentGuard != null) {
-            // Liquids placed with physics need their chunks to keep ticking for a
-            // while so the scheduled fluid updates actually spread (BuildTask#physicsWrites).
-            ChunkTicketGuard guard = currentGuard;
-            currentGuard = null;
-            Bukkit.getScheduler().runTaskLater(plugin, guard::release, hold);
-        } else {
-            releaseGuard();
-        }
+        // Liquids placed with physics need their chunks to keep ticking for a
+        // while so the scheduled fluid updates actually spread (BuildTask#physicsWrites).
+        releaseGuardLater(qt.task().ticketHoldTicks());
         current = null;
         // queuedMs: submit -> task actually starting. elapsedMs: execution time only
         // (plan.md 2.6 follow-up fix; previously elapsedMs included queue wait).
@@ -178,7 +174,7 @@ public final class TickBudgetExecutor {
 
     private void failCurrent(Throwable cause) {
         QueuedTask qt = current;
-        releaseGuard();
+        releaseGuardLater(0);
         current = null;
         if (qt != null) {
             qt.future().completeExceptionally(new RpcError(ErrorCode.INTERNAL, "build task failed: " + cause.getMessage()));
@@ -194,11 +190,29 @@ public final class TickBudgetExecutor {
      */
     private void cancelCurrent() {
         QueuedTask qt = current;
-        releaseGuard();
+        releaseGuardLater(0);
         current = null;
         qt.future().completeExceptionally(new RpcError(ErrorCode.CANCELLED, "operation cancelled"));
     }
 
+    /**
+     * Releases the current task's chunk tickets after {@code max(hold, MIN_TICKET_HOLD_TICKS)}
+     * ticks. Tickets are never dropped in the tick a task ends in: the task may have
+     * sync-loaded a chunk this very tick, and removing the ticket before the server has
+     * finished the load crashes Paper 26.3 (vanilla chunk system, verified on build 5:
+     * {@code ChunkHolder.updateFutures -> ChunkResult$Fail.orElseThrow}). Paper 26.2
+     * tolerated it; a one-second grace period is harmless on both.
+     */
+    private void releaseGuardLater(long hold) {
+        if (currentGuard == null) {
+            return;
+        }
+        ChunkTicketGuard guard = currentGuard;
+        currentGuard = null;
+        Bukkit.getScheduler().runTaskLater(plugin, guard::release, Math.max(hold, MIN_TICKET_HOLD_TICKS));
+    }
+
+    /** Immediate release, only for {@link #shutdown()} (the scheduler no longer runs our tasks once the plugin is disabled). */
     private void releaseGuard() {
         if (currentGuard != null) {
             currentGuard.release();
