@@ -81,7 +81,7 @@
               ]
             },
             "filter": {
-              "description": "Only replace cells whose current block matches this state string (unspecified properties act as a wildcard), e.g. \"minecraft:air\" to build only into empty space.",
+              "description": "Only replace cells whose current block matches this state string (unspecified properties act as a wildcard), e.g. \"minecraft:air\" to build only into empty space - useful for repairing a crater or hole without disturbing the surrounding undamaged terrain: fill the bounding box with `filter: \"minecraft:air\"` so only the missing air pockets are replaced.",
               "type": "string"
             }
           },

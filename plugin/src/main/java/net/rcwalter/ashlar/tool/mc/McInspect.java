@@ -27,6 +27,8 @@ import static net.rcwalter.ashlar.tool.mc.JsonUtil.intArray;
 public final class McInspect implements Tool {
 
     private static final long MAX_VOLUME = 200_000;
+    private static final long MAX_COLUMNS = 1024;
+    private static final List<String> FORMATS = List.of("stats", "columns");
 
     private final ToolSpec spec = ToolSpec.load("mc_inspect");
     private final RpcHandler readRegionHandler;
@@ -48,10 +50,18 @@ public final class McInspect implements Tool {
         }
     }
 
+    /** Client-side pre-check for {@code format:"columns"}'s 1024-column cap, exposed for unit testing. */
+    static void checkColumns(long columns) {
+        if (columns > MAX_COLUMNS) {
+            throw new ToolArgError("mc_inspect format: \"columns\" region has " + columns
+                    + " columns, exceeding the 1024-column limit. Reduce the x/z range.");
+        }
+    }
+
     record SliceArg(String axis, int at) {
     }
 
-    record Args(String world, int[] from, int[] to, SliceArg slice) {
+    record Args(String world, int[] from, int[] to, SliceArg slice, String format) {
         static Args parse(JsonObject o) {
             String world = ArgParse.optString(o, "world");
             int[] from = ArgParse.requireCoords3(o, "from");
@@ -63,7 +73,11 @@ public final class McInspect implements Tool {
                 int at = ArgParse.requireInt(s, "at");
                 slice = new SliceArg(axis, at);
             }
-            return new Args(world, from, to, slice);
+            String format = ArgParse.optEnum(o, "format", FORMATS, "stats");
+            if (format.equals("columns") && slice != null) {
+                throw new ToolArgError("`slice` and `format: \"columns\"` are exclusive");
+            }
+            return new Args(world, from, to, slice, format);
         }
     }
 
@@ -75,6 +89,10 @@ public final class McInspect implements Tool {
             int x2 = Math.max(a.from()[0], a.to()[0]), y2 = Math.max(a.from()[1], a.to()[1]), z2 = Math.max(a.from()[2], a.to()[2]);
             long volume = (long) (x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1);
             checkVolume(volume);
+            if (a.format().equals("columns")) {
+                long columns = (long) (x2 - x1 + 1) * (z2 - z1 + 1);
+                checkColumns(columns);
+            }
 
             JsonObject params = new JsonObject();
             if (a.world() != null) {
@@ -105,9 +123,13 @@ public final class McInspect implements Tool {
                         ? r.get("world").getAsString() : null;
                 String worldName = worldFromResult != null ? worldFromResult : (a.world() != null ? a.world() : "(default)");
 
-                return a.slice() != null
-                        ? ToolText.inspectSliceText(decoded, new SliceText.SliceSpec(a.slice().axis(), a.slice().at()), signs, signsTruncated)
-                        : ToolText.inspectStatsText(decoded, worldName, signs, signsTruncated);
+                if (a.slice() != null) {
+                    return ToolText.inspectSliceText(decoded, new SliceText.SliceSpec(a.slice().axis(), a.slice().at()), signs, signsTruncated);
+                }
+                if (a.format().equals("columns")) {
+                    return ToolText.inspectColumnsText(decoded, worldName, signs, signsTruncated);
+                }
+                return ToolText.inspectStatsText(decoded, worldName, signs, signsTruncated);
             });
         });
     }

@@ -378,6 +378,67 @@ async function main() {
     check("mc_inspect (slice) not an error", !inspectSliceResult.isError);
     check("mc_inspect (slice) contains a legend", /Legend:/.test(inspectSliceText));
 
+    // --- mc_inspect: format:"columns" over the tower's hollow interior ------
+    // Row z=BASE_Z+29 (strictly between the box's z borders 25/34) restricted to y=[66,69]
+    // (strictly between the box's bottom/top caps 65/70): x=BASE_X+25 is the box's west wall
+    // (part of the hollow ring, solid stone_bricks top to bottom), x=BASE_X+26..29 are interior
+    // (hollowed out, all air).
+    section('mc_inspect (format: "columns", tower hollow interior)');
+    const columnsResult = await client.callTool({
+        name: "mc_inspect",
+        arguments: {
+            from: [BASE_X + 25, 66, BASE_Z + 29],
+            to: [BASE_X + 29, 69, BASE_Z + 29],
+            format: "columns"
+        }
+    });
+    const columnsText = textOf(columnsResult);
+    console.log(columnsText);
+    check("mc_inspect (columns) not an error", !columnsResult.isError);
+    check(
+        "mc_inspect (columns) header reports 5 columns and the runs-bottom-to-top wording",
+        columnsText.includes(
+            `x=[${BASE_X + 25}..${BASE_X + 29}] y=[66..69] z=[${BASE_Z + 29}..${BASE_Z + 29}] (5x4x1 = 20 blocks), 5 columns, runs bottom to top (ids without the minecraft: prefix):`
+        )
+    );
+    check(
+        "mc_inspect (columns) west-wall column is one solid stone_bricks run (the hollow ring)",
+        columnsText.includes(`${BASE_X + 25},${BASE_Z + 29}: 66-69 stone_bricks`)
+    );
+    for (let x = BASE_X + 26; x <= BASE_X + 29; x++) {
+        check(`mc_inspect (columns) interior column x=${x} is one all-air run`, columnsText.includes(`${x},${BASE_Z + 29}: 66-69 air`));
+    }
+
+    // --- mc_inspect: format:"columns" errors ---------------------------------
+    section('mc_inspect (error: slice and format:"columns" are exclusive)');
+    const columnsAndSlice = await client.callTool({
+        name: "mc_inspect",
+        arguments: {
+            from: [BASE_X + 25, 66, BASE_Z + 25],
+            to: [BASE_X + 34, 69, BASE_Z + 34],
+            format: "columns",
+            slice: { axis: "y", at: 66 }
+        }
+    });
+    console.log(textOf(columnsAndSlice));
+    check('slice + format:"columns" call isError', columnsAndSlice.isError === true);
+    check(
+        'slice + format:"columns" message names the exclusivity',
+        /`slice` and `format: "columns"` are exclusive/.test(textOf(columnsAndSlice))
+    );
+
+    section('mc_inspect (error: format:"columns" over the 1024-column cap)');
+    const tooManyColumns = await client.callTool({
+        name: "mc_inspect",
+        arguments: { from: [0, 0, 0], to: [39, 0, 29], format: "columns" }
+    });
+    console.log(textOf(tooManyColumns));
+    check('format:"columns" cap-exceeded call isError', tooManyColumns.isError === true);
+    check(
+        'format:"columns" cap-exceeded message names the 1024-column limit',
+        /1200 columns, exceeding the 1024-column limit/.test(textOf(tooManyColumns))
+    );
+
     // --- mc_restore -----------------------------------------------------------
     section("mc_restore");
     if (snapshotId) {

@@ -66,4 +66,41 @@ class McInspectTest {
         assertEquals("mc_inspect region volume 200001 exceeds the 200,000-block limit. Reduce the from/to range or split it into several calls.",
                 e.getMessage());
     }
+
+    @Test
+    void formatDefaultsToStats() {
+        McInspect.Args a = McInspect.Args.parse(obj("{\"from\":[0,60,0],\"to\":[10,70,10]}"));
+        assertEquals("stats", a.format());
+    }
+
+    @Test
+    void formatColumnsParses() {
+        McInspect.Args a = McInspect.Args.parse(obj("{\"from\":[0,60,0],\"to\":[10,70,10],\"format\":\"columns\"}"));
+        assertEquals("columns", a.format());
+    }
+
+    @Test
+    void invalidFormatThrows() {
+        assertThrows(ToolArgError.class,
+                () -> McInspect.Args.parse(obj("{\"from\":[0,60,0],\"to\":[10,70,10],\"format\":\"bogus\"}")));
+    }
+
+    @Test
+    void formatColumnsWithSliceThrowsExclusivityError() {
+        ToolArgError e = assertThrows(ToolArgError.class, () -> McInspect.Args.parse(
+                obj("{\"from\":[0,60,0],\"to\":[10,70,10],\"format\":\"columns\",\"slice\":{\"axis\":\"y\",\"at\":65}}")));
+        assertEquals("`slice` and `format: \"columns\"` are exclusive", e.getMessage());
+    }
+
+    @Test
+    void columnsWithinCapDoesNotThrow() {
+        McInspect.checkColumns(1024);
+    }
+
+    @Test
+    void columnsOverCapThrows() {
+        ToolArgError e = assertThrows(ToolArgError.class, () -> McInspect.checkColumns(1025));
+        assertEquals("mc_inspect format: \"columns\" region has 1025 columns, exceeding the 1024-column limit. Reduce the x/z range.",
+                e.getMessage());
+    }
 }

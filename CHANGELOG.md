@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.6
+
+- `mc_inspect` gains `format: "columns"`: an exact bottom-to-top block-run list for every column in the region, one line per column (`x,z: y1-y2 block | y3-y4 block | ...`, ids without the `minecraft:` prefix), capped at 1024 columns and exclusive with `slice`. Lets the in-game assistant read a damaged area (a crater, a hole, a gap in a wall) in one call instead of one `mc_inspect` slice per layer plus repeated single-column probes.
+- Assistant prompt: repairing terrain now calls for exactly one read over the damaged area (`mc_survey` with `matrix: true` for surface-only damage, `mc_inspect format: "columns"` when there may be overhangs or the damage is inside a structure) followed by one `mc_build`, instead of inspecting layer by layer or widening the search area.
+
 ## 0.4.5
 
 - Paper 26.3 support (tested on build 5). The plugin loaded fine but crashed the server on the first read: 26.3's alpha builds run the vanilla chunk system, which throws when a chunk ticket is removed in the same tick the chunk was loaded. Finished tasks now keep their chunk tickets for at least one second (`TickBudgetExecutor.MIN_TICKET_HOLD_TICKS`); 26.2 is unaffected, and the new poplar/wool-stairs/straw-bed blocks need no plugin changes.

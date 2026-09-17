@@ -64,6 +64,11 @@ public final class ToolText {
         return appendSigns(SliceText.renderSlice(decoded, spec), signs, signsTruncated);
     }
 
+    /** With {@code format:"columns"}: the per-column run table plus the optional Signs: section. */
+    public static String inspectColumnsText(BlockGrid decoded, String world, List<SignEntry> signs, boolean signsTruncated) {
+        return appendSigns(ColumnsText.renderColumns(decoded, world), signs, signsTruncated);
+    }
+
     private static String appendSigns(String body, List<SignEntry> signs, boolean truncated) {
         String signsSection = renderSigns(signs, truncated);
         return signsSection != null ? body + "\n\n" + signsSection : body;

@@ -67,7 +67,7 @@
         ]
       },
       "matrix": {
-        "description": "Whether to include the numeric height matrix (one number per block, about one token each), appended after the image/map. In format:\"text\" it is included by default for areas up to 40x40 (1600 cells) and omitted above that unless set true. In the default format:\"image\" it is always omitted unless set true (the image already conveys relief; set true when you need exact per-block numbers for a larger area).",
+        "description": "Whether to include the numeric height matrix (one number per block, about one token each), appended after the image/map. In format:\"text\" it is included by default for areas up to 40x40 (1600 cells) and omitted above that unless set true. In the default format:\"image\" it is always omitted unless set true (the image already conveys relief; set true when you need exact per-block numbers for a larger area). Use `matrix: true` over a small area for repairs (filling a hole to the surrounding height).",
         "type": "boolean"
       }
     },
