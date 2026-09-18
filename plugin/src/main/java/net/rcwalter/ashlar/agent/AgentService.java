@@ -4,6 +4,7 @@ package net.rcwalter.ashlar.agent;
 import net.rcwalter.ashlar.agent.model.ChatMessage;
 import net.rcwalter.ashlar.agent.model.Usage;
 import net.rcwalter.ashlar.config.PluginConfig;
+import net.rcwalter.ashlar.i18n.Messages;
 import net.rcwalter.ashlar.rpc.MainThread;
 import net.rcwalter.ashlar.tool.ToolRegistry;
 
@@ -27,6 +28,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -75,9 +77,24 @@ public final class AgentService {
     private final Semaphore concurrency;
     private final ConcurrentHashMap<UUID, PlayerQueue> playerQueues = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final Messages messages = Messages.instance();
 
+    /** Equivalent to the eight-arg constructor with {@code languageForUuid = uuid -> "en"} (every admin reply in English). */
     public AgentService(PluginConfig.AgentConfig config, ToolRegistry toolRegistry, ModelApi modelApi,
                          UsageStore usageStore, HistoryStore historyStore, Outbox outbox, Logger logger) {
+        this(config, toolRegistry, modelApi, usageStore, historyStore, outbox, logger, uuid -> Messages.DEFAULT_LANGUAGE);
+    }
+
+    /**
+     * @param languageForUuid resolves the effective chat language for an admin reply's recipient
+     *                        (step8i-prompt.md); safe to call Bukkit from (e.g. {@code
+     *                        Bukkit.getPlayer(uuid).locale()}) because {@link #admin} - the only
+     *                        entry point that reaches it - is documented as main-thread-only, same
+     *                        as {@link #submit}/{@link #cancel}.
+     */
+    public AgentService(PluginConfig.AgentConfig config, ToolRegistry toolRegistry, ModelApi modelApi,
+                         UsageStore usageStore, HistoryStore historyStore, Outbox outbox, Logger logger,
+                         Function<String, String> languageForUuid) {
         this.config = config;
         this.usageStore = usageStore;
         this.historyStore = historyStore;
@@ -96,7 +113,7 @@ public final class AgentService {
         this.adminActions = new AdminActions(usageStore,
                 uuid -> cancelOutcome(UUID.fromString(uuid)),
                 (uuid, text, kind) -> outbox.send(UUID.fromString(uuid), text, kind == AdminActions.SendKind.FINAL),
-                config.pricing().currency());
+                config.pricing().currency(), languageForUuid);
     }
 
     private static Optional<String> readSystemPromptExtra(String path, Logger logger) {
@@ -117,14 +134,14 @@ public final class AgentService {
     public void submit(AgentRunner.PlayerInfo player, String text) {
         UUID uuid = UUID.fromString(player.uuid());
         if (closed.get()) {
-            outbox.send(uuid, "The assistant is shutting down.", true);
+            outbox.send(uuid, messages.get(player.language(), "agent.shutting_down"), true);
             return;
         }
         if (usageStore.isPaused()) {
-            outbox.send(uuid, "The assistant is paused by an operator.", true);
+            outbox.send(uuid, messages.get(player.language(), "agent.paused"), true);
             return;
         }
-        UsageStore.CheckResult check = usageStore.checkAllowed(player.uuid());
+        UsageStore.CheckResult check = usageStore.checkAllowed(player.uuid(), player.language());
         if (!check.ok()) {
             outbox.send(uuid, check.reason(), true);
             return;
@@ -143,7 +160,7 @@ public final class AgentService {
             }
         }
         if (!startNow) {
-            outbox.send(uuid, "Queued behind your previous request.", false);
+            outbox.send(uuid, messages.get(player.language(), "agent.queued"), false);
             return;
         }
         executor.execute(() -> runPending(uuid, pq, pending));
@@ -203,7 +220,7 @@ public final class AgentService {
         try {
             concurrency.acquire();
             acquired = true;
-            outbox.send(uuid, "Working on it...", false);
+            outbox.send(uuid, messages.get(pending.player().language(), "agent.working"), false);
             processOne(uuid, pending);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -253,19 +270,19 @@ public final class AgentService {
                     () -> usageStore.creditOf(player.uuid()).map(c -> c.balance() <= 0).orElse(false)));
         } catch (CancelledException e) {
             progress.cancelPending();
-            outbox.send(uuid, "Cancelled.", true);
+            outbox.send(uuid, messages.get(player.language(), "agent.cancelled"), true);
             return;
         } catch (RuntimeException e) {
             progress.cancelPending();
             logger.log(Level.SEVERE, e, () -> "[agent-service] request for " + player.name() + " failed");
             String message = e.getMessage() != null ? e.getMessage() : e.toString();
-            outbox.send(uuid, "Something went wrong: " + truncate(message, ERROR_MESSAGE_MAX_LENGTH), true);
+            outbox.send(uuid, messages.get(player.language(), "agent.error", truncate(message, ERROR_MESSAGE_MAX_LENGTH)), true);
             return;
         }
         progress.cancelPending();
 
         if (pending.cancelled().get() || "Cancelled.".equals(result.text())) {
-            outbox.send(uuid, "Cancelled.", true);
+            outbox.send(uuid, messages.get(player.language(), "agent.cancelled"), true);
             return;
         }
 
@@ -281,12 +298,12 @@ public final class AgentService {
         UsageStore.DayCounters today = lastRecord[0] != null
                 ? lastRecord[0].today()
                 : usageStore.summary(player.uuid(), player.name()).today();
-        String footer = formatUsageFooter(requestCost[0], requestUsage[0], today, player.uuid());
+        String footer = formatUsageFooter(requestCost[0], requestUsage[0], today, player.uuid(), player.language());
         String finalText = result.text() + "\n" + footer;
 
         boolean creditUsedUp = usageStore.creditOf(player.uuid()).map(c -> c.balance() <= 0).orElse(false);
         if (creditUsedUp) {
-            finalText += "\nCredit used up - ask an operator to top up, then say \"continue\".";
+            finalText += "\n" + messages.get(player.language(), "agent.credit_used_up");
         }
 
         for (String chunk : chunkText(finalText, CHUNK_MAX_LENGTH)) {
@@ -295,25 +312,30 @@ public final class AgentService {
     }
 
     /** The {@code (this request: ... | today: ...)} footer, mirroring {@code service.ts}'s {@code formatUsageFooter}. */
-    private String formatUsageFooter(double requestCost, Usage requestUsage, UsageStore.DayCounters today, String uuid) {
+    private String formatUsageFooter(double requestCost, Usage requestUsage, UsageStore.DayCounters today, String uuid, String language) {
         long requestTokens = requestUsage.inputTokens() + requestUsage.cachedInputTokens() + requestUsage.outputTokens();
         long todayTokens = today.inputTokens + today.cachedInputTokens + today.outputTokens;
         PluginConfig.AgentConfig.PricingConfig pricing = config.pricing();
         boolean pricesAreZero = pricing.input() == 0 && pricing.cachedInput() == 0 && pricing.output() == 0;
         String body;
         if (pricesAreZero) {
-            body = "(this request: " + UsageStore.fmtTokens(requestTokens) + " tokens | today: "
-                    + UsageStore.fmtTokens(todayTokens) + " tokens";
+            body = messages.get(language, "agent.footer.zero_price",
+                    UsageStore.fmtTokens(requestTokens), UsageStore.fmtTokens(todayTokens));
         } else {
             UsageStore.LimitValue costLimit = usageStore.effectiveLimit(uuid, UsageStore.LimitKind.COST);
-            String ofPart = costLimit.isOff() ? "" : " of " + UsageStore.fmtCost(costLimit.amount(), pricing.currency());
-            body = "(this request: " + UsageStore.fmtTokens(requestTokens) + " tokens, "
-                    + UsageStore.fmtCost(requestCost, pricing.currency()) + " | today: "
-                    + UsageStore.fmtCost(today.cost, pricing.currency()) + ofPart;
+            if (costLimit.isOff()) {
+                body = messages.get(language, "agent.footer.priced_unlimited",
+                        UsageStore.fmtTokens(requestTokens), UsageStore.fmtCost(requestCost, pricing.currency()),
+                        UsageStore.fmtCost(today.cost, pricing.currency()));
+            } else {
+                body = messages.get(language, "agent.footer.priced_limited",
+                        UsageStore.fmtTokens(requestTokens), UsageStore.fmtCost(requestCost, pricing.currency()),
+                        UsageStore.fmtCost(today.cost, pricing.currency()), UsageStore.fmtCost(costLimit.amount(), pricing.currency()));
+            }
         }
         Optional<UsageStore.Credit> credit = usageStore.creditOf(uuid);
         if (credit.isPresent()) {
-            body += " | credit: " + UsageStore.fmtCredit(credit.get().balance(), pricing.currency()) + " left";
+            body += messages.get(language, "agent.footer.credit_suffix", UsageStore.fmtCredit(credit.get().balance(), pricing.currency()));
         }
         return body + ")";
     }

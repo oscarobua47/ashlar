@@ -10,6 +10,7 @@ import net.rcwalter.ashlar.agent.model.ContentPart;
 import net.rcwalter.ashlar.agent.model.ToolCall;
 import net.rcwalter.ashlar.agent.model.ToolDef;
 import net.rcwalter.ashlar.agent.model.Usage;
+import net.rcwalter.ashlar.i18n.Messages;
 import net.rcwalter.ashlar.rpc.InvocationContext;
 import net.rcwalter.ashlar.tool.ContentBlock;
 import net.rcwalter.ashlar.tool.Tool;
@@ -68,9 +69,21 @@ public final class AgentRunner {
         this.systemPromptExtra = systemPromptExtra;
     }
 
-    /** The subset of the plugin's chat event's player object the runner needs. */
+    /**
+     * The subset of the plugin's chat event's player object the runner needs. {@code language} is
+     * the effective chat language for this request (step8i-prompt.md), resolved once by the caller
+     * - on the main thread, where a real {@code Player} (or the console) is in hand - via {@code
+     * Messages.forPlayer}/{@code forConsole}; nothing downstream needs to touch Bukkit again for
+     * it. The eight-arg constructor below defaults it to {@code Messages.DEFAULT_LANGUAGE}, so
+     * every existing caller/test (which has no language to give) keeps compiling and behaving
+     * exactly as before.
+     */
     public record PlayerInfo(String name, String uuid, String world, int[] pos, String facing, int[] inFront, String gameMode,
-            String lookingAt) {
+            String lookingAt, String language) {
+        public PlayerInfo(String name, String uuid, String world, int[] pos, String facing, int[] inFront, String gameMode,
+                String lookingAt) {
+            this(name, uuid, world, pos, facing, inFront, gameMode, lookingAt, Messages.DEFAULT_LANGUAGE);
+        }
     }
 
     public record RunRequest(PlayerInfo player, String text, List<ChatMessage> history, BooleanSupplier cancelled,

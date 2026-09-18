@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.7
+
+- New top-level `language` config key (`en`/`zh_CN`/`auto`, default `en`): everything the plugin itself says in chat - `/ashlar` usage/help lines, permission/cooldown/"not configured" messages, progress lines, the usage footer, and every `/ashlar usage`/`limit`/`credit`/`pause`/`resume`/`cancel` reply - can now be shown in Simplified Chinese instead of English. `auto` follows each player's own client language (falling back to English for anything not shipped) with the console always in English; `ashlar simulate` uses the configured language like a player would. The AI's own replies were already following the player's request language and are unaffected; logs, RPC errors, tool descriptions/results and config.yml comments stay English-only. Ships a Chinese README (`README.zh-CN.md`, linked from the top of both READMEs).
+
 ## 0.4.6
 
 - `mc_inspect` gains `format: "columns"`: an exact bottom-to-top block-run list for every column in the region, one line per column (`x,z: y1-y2 block | y3-y4 block | ...`, ids without the `minecraft:` prefix), capped at 1024 columns and exclusive with `slice`. Lets the in-game assistant read a damaged area (a crater, a hole, a gap in a wall) in one call instead of one `mc_inspect` slice per layer plus repeated single-column probes.

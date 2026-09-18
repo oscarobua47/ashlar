@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Unit tests for {@code agent.*} config parsing (docs/private/prompts/step8b-prompt.md &sect;1).
@@ -91,5 +92,22 @@ class PluginConfigTest {
     void validatePeakHoursFallsBackToTheDefaultOnAParseFailure() {
         assertEquals(PluginConfig.DEFAULT_PEAK_HOURS, PluginConfig.validatePeakHours("not a schedule", LOGGER));
         assertEquals(PluginConfig.DEFAULT_PEAK_HOURS, PluginConfig.validatePeakHours("mon-fri 25:00-26:00", LOGGER));
+    }
+
+    // ---- language (step8i-prompt.md) ----
+
+    @Test
+    void validateLanguageAcceptsTheThreeKnownValues() throws ConfigException {
+        assertEquals("en", PluginConfig.validateLanguage("en"));
+        assertEquals("zh_CN", PluginConfig.validateLanguage("zh_CN"));
+        assertEquals("auto", PluginConfig.validateLanguage("auto"));
+    }
+
+    @Test
+    void validateLanguageRejectsAnythingElse() {
+        assertThrows(ConfigException.class, () -> PluginConfig.validateLanguage("English"));
+        assertThrows(ConfigException.class, () -> PluginConfig.validateLanguage("zh"));
+        assertThrows(ConfigException.class, () -> PluginConfig.validateLanguage(""));
+        assertThrows(ConfigException.class, () -> PluginConfig.validateLanguage(null));
     }
 }

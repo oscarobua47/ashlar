@@ -12,6 +12,7 @@ import net.rcwalter.ashlar.agent.AgentRunner;
 import net.rcwalter.ashlar.agent.AgentService;
 import net.rcwalter.ashlar.agent.ConsolePlayer;
 import net.rcwalter.ashlar.config.PluginConfig;
+import net.rcwalter.ashlar.i18n.Messages;
 import net.rcwalter.ashlar.net.WsServer;
 import net.rcwalter.ashlar.player.Facing;
 import net.rcwalter.ashlar.player.Monitors;
@@ -47,15 +48,13 @@ public final class AshlarCommand implements CommandExecutor {
 
     private static final Component PREFIX = Component.text("[Ashlar] ", NamedTextColor.GOLD);
 
-    private static final String NOT_CONFIGURED =
-            "The AI assistant is not configured (agent.model.api-key is empty).";
-
     private final PluginConfig config;
     private final WsServer wsServer;
     private final Cooldown cooldown;
     private final AllowList allowList;
     private final AgentService agentService;
     private final AtomicLong requestCounter = new AtomicLong();
+    private final Messages messages = Messages.instance();
 
     public AshlarCommand(PluginConfig config, WsServer wsServer, Cooldown cooldown, AllowList allowList,
                           AgentService agentService) {
@@ -70,11 +69,12 @@ public final class AshlarCommand implements CommandExecutor {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         boolean consoleSender = !(sender instanceof Player);
         if (args.length == 0) {
-            reply(sender, AshlarArgs.USAGE_TOP);
+            reply(sender, msg(sender, "command.grammar.top"));
             return true;
         }
 
-        AshlarArgs.Parsed parsed = AshlarArgs.parse(args, consoleSender);
+        String language = effectiveLanguage(sender);
+        AshlarArgs.Parsed parsed = AshlarArgs.parse(args, consoleSender, language);
 
         if (parsed.kind() == AshlarArgs.Kind.SIMULATE) {
             handleSimulate(sender, parsed.simulate());
@@ -84,14 +84,14 @@ public final class AshlarCommand implements CommandExecutor {
             if (parsed.kind() == AshlarArgs.Kind.INVALID && args[0].equalsIgnoreCase("simulate")) {
                 reply(sender, parsed.error());
             } else {
-                reply(sender, "This command can only be used by a player.");
+                reply(sender, msg(sender, "command.player_only"));
             }
             return true;
         }
 
         Player player = (Player) sender;
         if (!hasAccess(player, args, parsed)) {
-            reply(player, "You do not have permission to do that.");
+            reply(player, msg(player, "command.no_permission"));
             return true;
         }
         if (parsed.kind() == AshlarArgs.Kind.INVALID) {
@@ -101,16 +101,16 @@ public final class AshlarCommand implements CommandExecutor {
 
         PluginConfig.AgentConfig.Mode mode = config.agent().mode();
         if (mode == PluginConfig.AgentConfig.Mode.OFF && parsed.kind() != AshlarArgs.Kind.HELP) {
-            reply(player, "The AI assistant is disabled on this server.");
+            reply(player, msg(player, "agent.disabled"));
             return true;
         }
         if (mode == PluginConfig.AgentConfig.Mode.EXTERNAL && needsConnection(parsed.kind())
                 && !wsServer.hasSubscriber("chat")) {
-            reply(player, "The AI assistant is not connected right now.");
+            reply(player, msg(player, "agent.not_connected"));
             return true;
         }
         if (mode == PluginConfig.AgentConfig.Mode.EMBEDDED && needsConnection(parsed.kind()) && agentService == null) {
-            reply(player, NOT_CONFIGURED);
+            reply(player, msg(player, "agent.not_configured"));
             return true;
         }
 
@@ -142,15 +142,15 @@ public final class AshlarCommand implements CommandExecutor {
     private void handleSimulate(CommandSender sender, AshlarArgs.Simulate sim) {
         PluginConfig.AgentConfig.Mode mode = config.agent().mode();
         if (mode == PluginConfig.AgentConfig.Mode.OFF) {
-            reply(sender, "The AI assistant is disabled on this server.");
+            reply(sender, msg(sender, "agent.disabled"));
             return;
         }
         if (mode != PluginConfig.AgentConfig.Mode.EMBEDDED) {
-            reply(sender, "ashlar simulate requires agent.mode: embedded.");
+            reply(sender, msg(sender, "command.request.simulate_requires_embedded"));
             return;
         }
         if (agentService == null) {
-            reply(sender, NOT_CONFIGURED);
+            reply(sender, msg(sender, "agent.not_configured"));
             return;
         }
         int[] pos = {sim.x(), sim.y(), sim.z()};
@@ -158,7 +158,7 @@ public final class AshlarCommand implements CommandExecutor {
         int[] inFront = {pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]};
         AgentRunner.PlayerInfo playerInfo = new AgentRunner.PlayerInfo(
                 ConsolePlayer.NAME, ConsolePlayer.ID.toString(), config.world().defaultWorld(),
-                pos, sim.facing(), inFront, "CREATIVE", null);
+                pos, sim.facing(), inFront, "CREATIVE", null, effectiveLanguage(sender));
         agentService.submit(playerInfo, String.join(" ", sim.text()));
     }
 
@@ -168,14 +168,14 @@ public final class AshlarCommand implements CommandExecutor {
         String text = String.join(" ", words);
         int maxLength = config.agent().maxMessageLength();
         if (text.length() > maxLength) {
-            reply(player, "Request too long (max " + maxLength + " characters).");
+            reply(player, msg(player, "command.request.too_long", maxLength));
             return;
         }
 
         long remainingMillis = cooldown.remainingMillis(player.getUniqueId());
         if (remainingMillis > 0) {
             long remainingSeconds = (remainingMillis + 999) / 1000;
-            reply(player, "Please wait " + remainingSeconds + " s before the next request.");
+            reply(player, msg(player, "command.request.cooldown", remainingSeconds));
             return;
         }
 
@@ -194,7 +194,7 @@ public final class AshlarCommand implements CommandExecutor {
         event.add("player", PlayerJson.describe(player));
         event.addProperty("text", text);
         wsServer.broadcastEvent("chat", event);
-        reply(player, "Sent to the AI assistant. Replies will appear here.");
+        reply(player, msg(player, "command.request.sent"));
     }
 
     // -- cancel ----------------------------------------------------------
@@ -204,7 +204,7 @@ public final class AshlarCommand implements CommandExecutor {
 
         if (isEmbedded()) {
             boolean cancelled = agentService.cancel(player.getUniqueId());
-            reply(player, cancelled ? "Cancel requested." : "Nothing to cancel.");
+            reply(player, msg(player, cancelled ? "command.cancel.requested" : "command.cancel.nothing"));
             return;
         }
 
@@ -212,7 +212,7 @@ public final class AshlarCommand implements CommandExecutor {
         event.addProperty("event", "chat_cancel");
         event.add("player", actorJson(player));
         wsServer.broadcastEvent("chat", event);
-        reply(player, "Cancel requested.");
+        reply(player, msg(player, "command.cancel.requested"));
     }
 
     private void handleCancelOther(Player player, String targetName) {
@@ -221,18 +221,18 @@ public final class AshlarCommand implements CommandExecutor {
             return;
         }
         broadcastAdmin(player, "cancel", targetJson(targetName), List.of());
-        reply(player, "Cancel requested for " + targetName + ".");
+        reply(player, msg(player, "command.cancel.requested_for", targetName));
     }
 
     // -- usage -------------------------------------------------------------
 
     private void handleReset(Player player) {
         if (!isEmbedded()) {
-            reply(player, "/ashlar reset is only available in embedded mode.");
+            reply(player, msg(player, "command.reset.embedded_only"));
             return;
         }
         boolean had = agentService.reset(player.getUniqueId());
-        reply(player, had ? "Forgot our previous conversation." : "Nothing to forget.");
+        reply(player, msg(player, had ? "command.reset.done" : "command.reset.nothing"));
     }
 
     private void handleUsageSelf(Player player, List<String> rangeArgs) {
@@ -241,7 +241,7 @@ public final class AshlarCommand implements CommandExecutor {
             return;
         }
         broadcastAdmin(player, "usage", JsonNull.INSTANCE, rangeArgs);
-        reply(player, "Usage request sent.");
+        reply(player, msg(player, "command.usage.sent"));
     }
 
     private void handleUsageOther(Player player, String targetName, List<String> rangeArgs) {
@@ -250,7 +250,7 @@ public final class AshlarCommand implements CommandExecutor {
             return;
         }
         broadcastAdmin(player, "usage", targetJson(targetName), rangeArgs);
-        reply(player, "Usage request sent.");
+        reply(player, msg(player, "command.usage.sent"));
     }
 
     private void handleUsageAll(Player player, List<String> rangeArgs) {
@@ -262,7 +262,7 @@ public final class AshlarCommand implements CommandExecutor {
         target.addProperty("name", "all");
         target.add("uuid", JsonNull.INSTANCE);
         broadcastAdmin(player, "usage", target, rangeArgs);
-        reply(player, "Usage request sent.");
+        reply(player, msg(player, "command.usage.sent"));
     }
 
     // -- limit / pause / resume ---------------------------------------------
@@ -274,7 +274,7 @@ public final class AshlarCommand implements CommandExecutor {
             return;
         }
         broadcastAdmin(player, "limit", isDefault ? JsonNull.INSTANCE : targetJson(targetName), limitArgs);
-        reply(player, "Limit change sent.");
+        reply(player, msg(player, "command.limit.sent"));
     }
 
     /**
@@ -284,11 +284,11 @@ public final class AshlarCommand implements CommandExecutor {
      */
     private void handleCredit(Player player, String targetName, List<String> creditArgs) {
         if (!isEmbedded()) {
-            reply(player, "Credit is managed by the external agent.");
+            reply(player, msg(player, "command.credit.external"));
             return;
         }
         if (agentService == null) {
-            reply(player, NOT_CONFIGURED);
+            reply(player, msg(player, "agent.not_configured"));
             return;
         }
         agentService.admin("credit", byOf(player), targetOf(targetName), creditArgs);
@@ -300,7 +300,7 @@ public final class AshlarCommand implements CommandExecutor {
             return;
         }
         broadcastAdmin(player, "pause", JsonNull.INSTANCE, List.of());
-        reply(player, "Pause requested.");
+        reply(player, msg(player, "command.pause.sent"));
     }
 
     private void handleResume(Player player) {
@@ -309,71 +309,72 @@ public final class AshlarCommand implements CommandExecutor {
             return;
         }
         broadcastAdmin(player, "resume", JsonNull.INSTANCE, List.of());
-        reply(player, "Resume requested.");
+        reply(player, msg(player, "command.resume.sent"));
     }
 
     // -- allow / deny / allowed: plugin-local, no event to Node -------------
 
     private void handleAllow(Player player, String targetName) {
         if (allowList.add(targetName)) {
-            reply(player, "Added " + targetName + " to the allow list.");
+            reply(player, msg(player, "command.allow.added", targetName));
         } else {
-            reply(player, targetName + " is already on the allow list.");
+            reply(player, msg(player, "command.allow.already", targetName));
         }
     }
 
     private void handleDeny(Player player, String targetName) {
         if (allowList.remove(targetName)) {
-            reply(player, "Removed " + targetName + ".");
+            reply(player, msg(player, "command.deny.removed", targetName));
         } else {
-            reply(player, targetName + " was not on the allow list.");
+            reply(player, msg(player, "command.deny.not_found", targetName));
         }
     }
 
     private void handleAllowed(Player player) {
         List<String> names = allowList.names();
         if (names.isEmpty()) {
-            reply(player, "The allow list is empty.");
+            reply(player, msg(player, "command.allowed.empty"));
         } else {
-            reply(player, "Allow list: " + String.join(", ", names));
+            reply(player, msg(player, "command.allowed.list", String.join(", ", names)));
         }
     }
 
     // -- help ----------------------------------------------------------------
 
     private static final List<HelpLine> HELP_LINES = List.of(
-            new HelpLine("ashlar.use", "/ashlar <what you want> - ask the assistant to build or change something"),
+            new HelpLine("ashlar.use", "help.request"),
 
-            new HelpLine("ashlar.use", "/ashlar ask <what you want> - same, for requests that start with a command word"),
-            new HelpLine("ashlar.use", "/ashlar cancel - cancel your own running or queued request"),
-            new HelpLine("ashlar.use", "/ashlar reset - forget the previous conversation (start fresh)"),
-            new HelpLine("ashlar.admin", "/ashlar cancel <player> - cancel another player's request"),
-            new HelpLine("ashlar.use", "/ashlar usage [<days>|<from> <to>] - your own usage today/total, or a per-day report (dates: YYYY-MM-DD, YYYYMMDD, or MM-DD)"),
-            new HelpLine("ashlar.monitor", "/ashlar usage <player>|all [<days>|<from> <to>] - another player's usage, or everyone's, optionally as a per-day report"),
-            new HelpLine("ashlar.admin", "/ashlar limit <player>|default <cost|tokens|requests> <number>|off - set a daily cap"),
-            new HelpLine("ashlar.admin", "/ashlar limit <player>|default reset - remove the override"),
-            new HelpLine("ashlar.admin", "/ashlar credit <player> - show a player's prepaid credit balance"),
-            new HelpLine("ashlar.admin", "/ashlar credit <player> <add|set> <number>|off - manage a player's prepaid credit"),
-            new HelpLine("ashlar.admin", "/ashlar pause - stop the assistant from accepting requests"),
-            new HelpLine("ashlar.admin", "/ashlar resume - let the assistant accept requests again"),
-            new HelpLine("ashlar.admin", "/ashlar allow <player> - let a player use /ashlar without a permission"),
-            new HelpLine("ashlar.admin", "/ashlar deny <player> - remove a player from the allow list"),
-            new HelpLine("ashlar.admin", "/ashlar allowed - list players on the allow list")
+            new HelpLine("ashlar.use", "help.ask"),
+            new HelpLine("ashlar.use", "help.cancel_self"),
+            new HelpLine("ashlar.use", "help.reset"),
+            new HelpLine("ashlar.admin", "help.cancel_other"),
+            new HelpLine("ashlar.use", "help.usage_self"),
+            new HelpLine("ashlar.monitor", "help.usage_other"),
+            new HelpLine("ashlar.admin", "help.limit_set"),
+            new HelpLine("ashlar.admin", "help.limit_reset"),
+            new HelpLine("ashlar.admin", "help.credit_show"),
+            new HelpLine("ashlar.admin", "help.credit_set"),
+            new HelpLine("ashlar.admin", "help.pause"),
+            new HelpLine("ashlar.admin", "help.resume"),
+            new HelpLine("ashlar.admin", "help.allow"),
+            new HelpLine("ashlar.admin", "help.deny"),
+            new HelpLine("ashlar.admin", "help.allowed")
     );
 
-    private record HelpLine(String permission, String text) {
+    /** {@code key} is a {@code lang/*.yml} message key (step8i-prompt.md), not literal text. */
+    private record HelpLine(String permission, String key) {
     }
 
     private void handleHelp(Player player) {
         boolean any = false;
         for (HelpLine line : HELP_LINES) {
             if (player.hasPermission(line.permission())) {
-                reply(player, line.text());
+                reply(player, msg(player, line.key()));
                 any = true;
             }
         }
         if (!any) {
-            reply(player, "You do not have permission to do that.");
+            reply(player, msg(player, "command.no_permission"));
         }
     }
 
@@ -522,5 +523,24 @@ public final class AshlarCommand implements CommandExecutor {
     /** Same "[Ashlar] " gold prefix as the {@code send_message} RPC. */
     private static void reply(CommandSender sender, String line) {
         sender.sendMessage(PREFIX.append(Component.text(line, NamedTextColor.WHITE)));
+    }
+
+    // -- i18n (step8i-prompt.md) ------------------------------------------------
+
+    /**
+     * {@code sender}'s effective chat language, per {@code language:} in {@code config.yml}: a
+     * console sender (including {@code ashlar simulate}) resolves via {@link
+     * Messages#forConsole}, a real player via {@link Messages#forPlayer} and their own {@link
+     * Player#locale()} (called here, on the main thread - every {@code onCommand} call is).
+     */
+    private String effectiveLanguage(CommandSender sender) {
+        return sender instanceof Player player
+                ? Messages.forPlayer(config.language(), player.locale())
+                : Messages.forConsole(config.language());
+    }
+
+    /** Looks up {@code key} in {@code sender}'s effective language, substituting {@code args}. */
+    private String msg(CommandSender sender, String key, Object... args) {
+        return messages.get(effectiveLanguage(sender), key, args);
     }
 }

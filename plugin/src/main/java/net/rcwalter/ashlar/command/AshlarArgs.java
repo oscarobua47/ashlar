@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package net.rcwalter.ashlar.command;
 
+import net.rcwalter.ashlar.i18n.Messages;
+
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -8,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -87,6 +90,28 @@ public final class AshlarArgs {
 
     private static final List<String> FACINGS = List.of("south", "west", "north", "east");
 
+    /**
+     * Maps each {@code USAGE_*} English constant above to its {@code lang/*.yml} key, so {@link
+     * #parse(String[], boolean, String)} can translate an {@link Kind#INVALID} grammar line without
+     * this class ever building player-facing text itself (step8i-prompt.md): the constants stay
+     * exactly as they were (still what {@link #parse(String[], boolean)} - used by every existing
+     * test - returns), and translation is purely an additional lookup on top.
+     */
+    private static final Map<String, String> GRAMMAR_KEYS = Map.ofEntries(
+            Map.entry(USAGE_TOP, "command.grammar.top"),
+            Map.entry(USAGE_ASK, "command.grammar.ask"),
+            Map.entry(USAGE_RESET, "command.grammar.reset"),
+            Map.entry(USAGE_CANCEL, "command.grammar.cancel"),
+            Map.entry(USAGE_USAGE, "command.grammar.usage"),
+            Map.entry(USAGE_LIMIT, "command.grammar.limit"),
+            Map.entry(USAGE_CREDIT, "command.grammar.credit"),
+            Map.entry(USAGE_PAUSE, "command.grammar.pause"),
+            Map.entry(USAGE_RESUME, "command.grammar.resume"),
+            Map.entry(USAGE_ALLOW, "command.grammar.allow"),
+            Map.entry(USAGE_DENY, "command.grammar.deny"),
+            Map.entry(USAGE_ALLOWED, "command.grammar.allowed"),
+            Map.entry(USAGE_SIMULATE, "command.grammar.simulate"));
+
     private AshlarArgs() {
     }
 
@@ -101,6 +126,28 @@ public final class AshlarArgs {
      *                      other keyword parses the same regardless.
      */
     public static Parsed parse(String[] args, boolean consoleSender) {
+        return parse(args, consoleSender, Messages.DEFAULT_LANGUAGE);
+    }
+
+    /**
+     * Same grammar as {@link #parse(String[], boolean)}, but an {@link Kind#INVALID} result's
+     * {@link Parsed#error()} is translated into {@code language} (step8i-prompt.md) via {@link
+     * #GRAMMAR_KEYS}. {@code language = "en"} (what the two-arg overload uses) is a no-op lookup,
+     * so every existing caller/test keeps seeing exactly the {@code USAGE_*} constant text.
+     */
+    public static Parsed parse(String[] args, boolean consoleSender, String language) {
+        Parsed base = parseInternal(args, consoleSender);
+        if (base.kind() != Kind.INVALID || Messages.DEFAULT_LANGUAGE.equals(language)) {
+            return base;
+        }
+        String key = GRAMMAR_KEYS.get(base.error());
+        if (key == null) {
+            return base;
+        }
+        return new Parsed(base.kind(), base.targetName(), base.args(), Messages.instance().get(language, key), base.simulate());
+    }
+
+    private static Parsed parseInternal(String[] args, boolean consoleSender) {
         if (args.length == 0) {
             return invalid(USAGE_TOP);
         }

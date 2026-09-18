@@ -12,6 +12,17 @@
 #     directly to the public internet without one.
 # =============================================================================
 
+# Language for everything the plugin itself says in chat (/ashlar usage/help lines, progress
+# lines, the usage footer, limit/credit/pause messages, ...). Does not affect the AI's own replies,
+# which already follow whatever language the player wrote in, or anything logged/sent over RPC.
+#   en     = English (default).
+#   zh_CN  = Simplified Chinese.
+#   auto   = each player's own client language (falls back to English for anything not shipped
+#            above); the console (including `ashlar simulate`) always sees English under "auto",
+#            since it has no client locale to read.
+# Picked up on the next restart; changing it does not require a full reconfigure.
+language: en
+
 server:
   # Interface to bind the WebSocket server to. "0.0.0.0" listens on all
   # interfaces; use "127.0.0.1" if the MCP Server runs on the same host.

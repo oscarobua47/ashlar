@@ -25,7 +25,8 @@ public record PluginConfig(
         LoggingConfig logging,
         RunCommandConfig runCommand,
         EngineConfig engine,
-        AgentConfig agent
+        AgentConfig agent,
+        String language
 ) {
 
     public record ServerConfig(String host, int port, String token, List<String> allowedIps) {
@@ -128,6 +129,8 @@ public record PluginConfig(
     private static final Pattern IPV6_LOOSE = Pattern.compile("^[0-9a-fA-F:]+$");
 
     public static PluginConfig load(FileConfiguration fc, Logger logger) throws ConfigException {
+        String language = validateLanguage(fc.getString("language", "en"));
+
         String token = fc.getString("server.token", "");
         if (token == null || token.trim().length() < 16) {
             throw new ConfigException(
@@ -227,10 +230,24 @@ public record PluginConfig(
                         new AgentConfig.LimitsConfig(limitsMaxRequests, limitsMaxTokens, limitsMaxCost,
                                 limitsMaxConcurrent, limitsHistoryTurns, limitsHistoryTtlMinutes),
                         new AgentConfig.PricingConfig(pricingInput, pricingCachedInput, pricingOutput, pricingCurrency,
-                                pricingPeakHours, pricingOffPeakMultiplier)));
+                                pricingPeakHours, pricingOffPeakMultiplier)),
+                language);
     }
 
     static final String DEFAULT_PEAK_HOURS = "mon-fri 01:00-04:00,06:00-10:00";
+
+    /**
+     * {@code language}: {@code en}/{@code zh_CN}/{@code auto} (step8i-prompt.md), case-sensitive -
+     * unlike most config values this is fatal on an invalid value rather than falling back with a
+     * warning, since a typo here would otherwise silently ship the wrong language to every player.
+     */
+    static String validateLanguage(String raw) throws ConfigException {
+        if ("en".equals(raw) || "zh_CN".equals(raw) || "auto".equals(raw)) {
+            return raw;
+        }
+        throw new ConfigException(
+                "'language' must be one of en, zh_CN, auto (got '" + raw + "').");
+    }
 
     private static long positiveOrDefault(FileConfiguration fc, String path, long fallback, Logger logger) {
         return positiveOrDefaultValue(fc.getLong(path, fallback), fallback, path, logger);

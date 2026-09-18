@@ -8,7 +8,7 @@ import type { ContentBlock } from "./tools/helpers.js";
 import { logUsage } from "./usage-log.js";
 
 const SERVER_NAME = "ashlar-mcp";
-export const SERVER_VERSION = "0.4.6";
+export const SERVER_VERSION = "0.4.7";
 export const MIN_PLUGIN_VERSION = "0.3.0";
 
 /**

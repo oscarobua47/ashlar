@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import net.rcwalter.ashlar.agent.model.Usage;
+import net.rcwalter.ashlar.i18n.Messages;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -631,32 +632,42 @@ public final class UsageStore implements AutoCloseable {
      * limit newly being reached.
      */
     public CheckResult checkAllowed(String uuid) {
+        return checkAllowed(uuid, Messages.DEFAULT_LANGUAGE);
+    }
+
+    /**
+     * Same as {@link #checkAllowed(String)}, but the rejection reason (if any) is translated into
+     * {@code language} (step8i-prompt.md); {@code language = "en"} produces byte-identical text to
+     * the single-argument overload above.
+     */
+    public CheckResult checkAllowed(String uuid, String language) {
         PlayerRecord rec = players.get(uuid);
         if (rec != null) {
             rollover(rec);
         }
         DayCounters today = rec != null ? rec.today : freshDay(todayStr());
+        Messages messages = Messages.instance();
 
         LimitValue requestsLimit = effectiveLimit(uuid, LimitKind.REQUESTS);
         if (!requestsLimit.isOff() && today.requests >= requestsLimit.amount()) {
-            return CheckResult.rejected("daily request limit (" + formatNumber(requestsLimit.amount()) + ") reached");
+            return CheckResult.rejected(messages.get(language, "usage.limit.requests", formatNumber(requestsLimit.amount())));
         }
 
         LimitValue tokensLimit = effectiveLimit(uuid, LimitKind.TOKENS);
         if (!tokensLimit.isOff()) {
             long usedTokens = today.inputTokens + today.cachedInputTokens + today.outputTokens;
             if (usedTokens >= tokensLimit.amount()) {
-                return CheckResult.rejected("daily token limit (" + fmtTokens(tokensLimit.amount()) + ") reached");
+                return CheckResult.rejected(messages.get(language, "usage.limit.tokens", fmtTokens(tokensLimit.amount())));
             }
         }
 
         LimitValue costLimit = effectiveLimit(uuid, LimitKind.COST);
         if (!costLimit.isOff() && today.cost >= costLimit.amount()) {
-            return CheckResult.rejected("daily cost limit (" + fmtCost(costLimit.amount(), currency) + ") reached");
+            return CheckResult.rejected(messages.get(language, "usage.limit.cost", fmtCost(costLimit.amount(), currency)));
         }
 
         if (rec != null && rec.credit != null && rec.credit.enabled() && rec.credit.balance() <= 0) {
-            return CheckResult.rejected("out of credit (" + fmtCredit(rec.credit.balance(), currency) + " left) - ask an operator to top up");
+            return CheckResult.rejected(messages.get(language, "usage.limit.credit", fmtCredit(rec.credit.balance(), currency)));
         }
 
         return CheckResult.allowed();

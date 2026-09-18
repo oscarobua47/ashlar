@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package net.rcwalter.ashlar.agent;
 
+import net.rcwalter.ashlar.i18n.Messages;
+
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
@@ -8,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -17,6 +20,14 @@ import java.util.logging.Logger;
  * mcp-server/src/agent/admin.ts}'s {@code createAdminHandler}. Kept Bukkit-free: {@link #cancel}
  * and {@link #send} are supplied as small functional interfaces so the caller (the Bukkit-facing
  * wiring, a later step) does not need this class to know about sessions or players.
+ *
+ * <p>{@link #languageForUuid} (step8i-prompt.md) is the same idea: a {@code uuid -> language}
+ * lookup supplied by the caller, so this class can send {@code by} and {@code target} each their
+ * own effective language (relevant only when {@code language: auto}) without importing anything
+ * Bukkit itself. It is safe for that function to call {@code Bukkit.getPlayer(uuid).locale()}
+ * because every public method here ({@link #handle} and the {@code handleX} methods it dispatches
+ * to) is documented - and, in {@code AgentService}/{@code AshlarCommand}, only ever called - from
+ * the main thread.
  */
 public final class AdminActions {
 
@@ -50,12 +61,27 @@ public final class AdminActions {
     private final Cancel cancel;
     private final Send send;
     private final String currency;
+    private final Function<String, String> languageForUuid;
+    private final Messages messages = Messages.instance();
 
     public AdminActions(UsageStore store, Cancel cancel, Send send, String currency) {
+        this(store, cancel, send, currency, uuid -> Messages.DEFAULT_LANGUAGE);
+    }
+
+    public AdminActions(UsageStore store, Cancel cancel, Send send, String currency, Function<String, String> languageForUuid) {
         this.store = store;
         this.cancel = cancel;
         this.send = send;
         this.currency = currency;
+        this.languageForUuid = languageForUuid;
+    }
+
+    private String lang(String uuid) {
+        return languageForUuid.apply(uuid);
+    }
+
+    private String msg(String uuid, String key, Object... args) {
+        return messages.get(lang(uuid), key, args);
     }
 
     /** Dispatches one admin action; unknown actions are logged and ignored, matching the TS handler. */
@@ -83,7 +109,7 @@ public final class AdminActions {
             return;
         }
 
-        RangeResult range = parseRange(args);
+        RangeResult range = parseRange(by, args);
         if (range.error() != null) {
             send.send(by.uuid(), range.error(), SendKind.FINAL);
             return;
@@ -91,45 +117,45 @@ public final class AdminActions {
 
         if (target == null) {
             UsageStore.HistoryResult h = store.history(by.uuid(), range.from(), range.to());
-            send.send(by.uuid(), fmtUsageRangeBlock(by.name(), range.from(), range.to(), h), SendKind.FINAL);
+            send.send(by.uuid(), fmtUsageRangeBlock(by.uuid(), by.name(), range.from(), range.to(), h), SendKind.FINAL);
             return;
         }
         if (target.name().equalsIgnoreCase("all")) {
             UsageStore.HistoryResult h = store.historyAll(range.from(), range.to());
-            send.send(by.uuid(), fmtUsageRangeBlock("all", range.from(), range.to(), h), SendKind.FINAL);
+            send.send(by.uuid(), fmtUsageRangeBlock(by.uuid(), "all", range.from(), range.to(), h), SendKind.FINAL);
             return;
         }
         Optional<UsageStore.NameMatch> resolved = resolveTarget(target);
         if (resolved.isEmpty()) {
-            send.send(by.uuid(), "Unknown player \"" + target.name() + "\".", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.unknown_player", target.name()), SendKind.FINAL);
             return;
         }
         UsageStore.HistoryResult h = store.history(resolved.get().uuid(), range.from(), range.to());
-        send.send(by.uuid(), fmtUsageRangeBlock(resolved.get().name(), range.from(), range.to(), h), SendKind.FINAL);
+        send.send(by.uuid(), fmtUsageRangeBlock(by.uuid(), resolved.get().name(), range.from(), range.to(), h), SendKind.FINAL);
     }
 
     private void handleUsageBlock(By by, Target target) {
         if (target == null) {
-            send.send(by.uuid(), fmtUsageBlock(store.summary(by.uuid(), by.name())), SendKind.FINAL);
+            send.send(by.uuid(), fmtUsageBlock(by.uuid(), store.summary(by.uuid(), by.name())), SendKind.FINAL);
             return;
         }
 
         if (target.name().equalsIgnoreCase("all")) {
             List<UsageStore.UsageSummary> all = store.summaryAll();
             if (all.isEmpty()) {
-                send.send(by.uuid(), "No usage recorded yet.", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.usage.all.none"), SendKind.FINAL);
                 return;
             }
             int shownCount = Math.min(MAX_USAGE_ALL_LINES, all.size());
             List<String> lines = new ArrayList<>();
-            lines.add("Usage today, by player (sorted by cost):");
+            lines.add(msg(by.uuid(), "admin.usage.all.header"));
             for (int i = 0; i < shownCount; i++) {
                 UsageStore.UsageSummary s = all.get(i);
                 String tokens = UsageStore.fmtTokens(s.today().inputTokens + s.today().cachedInputTokens + s.today().outputTokens);
-                lines.add(s.name() + ": " + s.today().requests + " requests, " + tokens + " tokens, " + UsageStore.fmtCost(s.today().cost, currency));
+                lines.add(msg(by.uuid(), "admin.usage.all.line", s.name(), s.today().requests, tokens, UsageStore.fmtCost(s.today().cost, currency)));
             }
             if (all.size() > MAX_USAGE_ALL_LINES) {
-                lines.add("... and " + (all.size() - MAX_USAGE_ALL_LINES) + " more (showing top " + MAX_USAGE_ALL_LINES + ")");
+                lines.add(msg(by.uuid(), "admin.usage.all.more", all.size() - MAX_USAGE_ALL_LINES, MAX_USAGE_ALL_LINES));
             }
             send.send(by.uuid(), String.join("\n", lines), SendKind.FINAL);
             return;
@@ -137,10 +163,10 @@ public final class AdminActions {
 
         Optional<UsageStore.NameMatch> resolved = resolveTarget(target);
         if (resolved.isEmpty()) {
-            send.send(by.uuid(), "Unknown player \"" + target.name() + "\".", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.unknown_player", target.name()), SendKind.FINAL);
             return;
         }
-        send.send(by.uuid(), fmtUsageBlock(store.summary(resolved.get().uuid(), resolved.get().name())), SendKind.FINAL);
+        send.send(by.uuid(), fmtUsageBlock(by.uuid(), store.summary(resolved.get().uuid(), resolved.get().name())), SendKind.FINAL);
     }
 
     /** {@code error} non-null means {@code from}/{@code to} are unset; otherwise an inclusive, already-clamped UTC date range. */
@@ -159,12 +185,12 @@ public final class AdminActions {
      * normalised upstream; swapped if reversed, at most 31 days apart, each date individually
      * clamped to today when it is in the future).
      */
-    private RangeResult parseRange(List<String> args) {
+    private RangeResult parseRange(By by, List<String> args) {
         LocalDate today = LocalDate.parse(store.todayIso());
         if (args.size() == 1) {
             Integer n = parsePositiveInt(args.get(0));
             if (n == null || n < 1 || n > 31) {
-                return RangeResult.err("Range must be 1-31 days (got \"" + args.get(0) + "\").");
+                return RangeResult.err(msg(by.uuid(), "admin.usage.range.bad_days", args.get(0)));
             }
             return RangeResult.ok(today.minusDays(n - 1), today);
         }
@@ -172,12 +198,12 @@ public final class AdminActions {
             LocalDate a = parseIsoDate(args.get(0));
             LocalDate b = parseIsoDate(args.get(1));
             if (a == null || b == null) {
-                return RangeResult.err("Dates must be in YYYY-MM-DD form.");
+                return RangeResult.err(msg(by.uuid(), "admin.usage.range.bad_dates"));
             }
             LocalDate from = a.isAfter(b) ? b : a;
             LocalDate to = a.isAfter(b) ? a : b;
             if (ChronoUnit.DAYS.between(from, to) + 1 > 31) {
-                return RangeResult.err("Range is too long (max 31 days).");
+                return RangeResult.err(msg(by.uuid(), "admin.usage.range.too_long"));
             }
             if (to.isAfter(today)) {
                 to = today;
@@ -187,7 +213,7 @@ public final class AdminActions {
             }
             return RangeResult.ok(from, to);
         }
-        return RangeResult.err("Usage: usage [player|all] [days | from to].");
+        return RangeResult.err(msg(by.uuid(), "admin.usage.range.bad_args"));
     }
 
     private static Integer parsePositiveInt(String s) {
@@ -207,16 +233,16 @@ public final class AdminActions {
     }
 
     /** {@code <date>  <requests> req  <tokens> tok  <cost>} per day, then a {@code total:} line summing the range. */
-    private String fmtUsageRangeBlock(String name, LocalDate from, LocalDate to, UsageStore.HistoryResult h) {
+    private String fmtUsageRangeBlock(String forUuid, String name, LocalDate from, LocalDate to, UsageStore.HistoryResult h) {
         List<String> lines = new ArrayList<>();
-        lines.add("Usage for " + name + ", " + from + ".." + to + ":");
+        lines.add(msg(forUuid, "admin.usage.range.header", name, from, to));
         for (UsageStore.DayCounters d : h.days()) {
             String tokens = UsageStore.fmtTokens(d.inputTokens + d.cachedInputTokens + d.outputTokens);
-            lines.add(d.date + "  " + d.requests + " req  " + tokens + " tok  " + UsageStore.fmtCost(d.cost, currency));
+            lines.add(msg(forUuid, "admin.usage.range.day", d.date, d.requests, tokens, UsageStore.fmtCost(d.cost, currency)));
         }
         UsageStore.TotalCounters t = h.totals();
         String totalTokens = UsageStore.fmtTokens(t.inputTokens + t.cachedInputTokens + t.outputTokens);
-        lines.add("total: " + t.requests + " req, " + totalTokens + " tok, " + UsageStore.fmtCost(t.cost, currency));
+        lines.add(msg(forUuid, "admin.usage.range.total", t.requests, totalTokens, UsageStore.fmtCost(t.cost, currency)));
         return String.join("\n", lines);
     }
 
@@ -226,12 +252,12 @@ public final class AdminActions {
         String nameForCreate;
         if (target == null) {
             uuidOrNull = null;
-            who = "the server default";
+            who = msg(by.uuid(), "admin.limit.default_target");
             nameForCreate = null;
         } else {
             Optional<UsageStore.NameMatch> resolved = resolveTarget(target);
             if (resolved.isEmpty()) {
-                send.send(by.uuid(), "Unknown player \"" + target.name() + "\".", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.unknown_player", target.name()), SendKind.FINAL);
                 return;
             }
             uuidOrNull = resolved.get().uuid();
@@ -241,13 +267,13 @@ public final class AdminActions {
 
         if (!args.isEmpty() && "reset".equals(args.get(0))) {
             store.resetLimits(uuidOrNull);
-            send.send(by.uuid(), "Reset limits for " + who + ": " + fmtLimitsLine(store.effectiveLimits(uuidOrNull), null), SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.limit.reset", who, fmtLimitsLine(by.uuid(), store.effectiveLimits(uuidOrNull), null)), SendKind.FINAL);
             return;
         }
 
         String kindRaw = !args.isEmpty() ? args.get(0) : null;
         if (!"cost".equals(kindRaw) && !"tokens".equals(kindRaw) && !"requests".equals(kindRaw)) {
-            send.send(by.uuid(), "Unknown limit kind \"" + (kindRaw != null ? kindRaw : "") + "\". Use cost, tokens, requests, or reset.", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.limit.unknown_kind", kindRaw != null ? kindRaw : ""), SendKind.FINAL);
             return;
         }
         UsageStore.LimitKind kind = UsageStore.LimitKind.fromWire(kindRaw);
@@ -259,25 +285,25 @@ public final class AdminActions {
         } else {
             Double n = parseDouble(rawValue);
             if (n == null || !Double.isFinite(n) || n <= 0) {
-                send.send(by.uuid(), "Limit value must be a positive number or \"off\" (got \"" + (rawValue != null ? rawValue : "") + "\").", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.limit.bad_value", rawValue != null ? rawValue : ""), SendKind.FINAL);
                 return;
             }
             value = UsageStore.LimitValue.of(n);
         }
 
         store.setLimit(uuidOrNull, kind, value, nameForCreate);
-        send.send(by.uuid(), "Set limits for " + who + ": " + fmtLimitsLine(store.effectiveLimits(uuidOrNull), null), SendKind.FINAL);
+        send.send(by.uuid(), msg(by.uuid(), "admin.limit.set", who, fmtLimitsLine(by.uuid(), store.effectiveLimits(uuidOrNull), null)), SendKind.FINAL);
     }
 
     /** {@code credit <player>} shows the balance; {@code credit <player> add|set|off [amount]} manages it. */
     public void handleCredit(By by, Target target, List<String> args) {
         if (target == null) {
-            send.send(by.uuid(), "credit needs a target player.", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.credit.needs_target"), SendKind.FINAL);
             return;
         }
         Optional<UsageStore.NameMatch> resolved = resolveTarget(target);
         if (resolved.isEmpty()) {
-            send.send(by.uuid(), "Unknown player \"" + target.name() + "\".", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.unknown_player", target.name()), SendKind.FINAL);
             return;
         }
         String uuid = resolved.get().uuid();
@@ -286,9 +312,9 @@ public final class AdminActions {
         if (args.isEmpty()) {
             Optional<UsageStore.Credit> credit = store.creditOf(uuid);
             if (credit.isEmpty()) {
-                send.send(by.uuid(), name + " has no credit limit.", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.credit.none", name), SendKind.FINAL);
             } else {
-                send.send(by.uuid(), "Credit for " + name + ": " + UsageStore.fmtCredit(credit.get().balance(), currency) + " left", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.credit.show", name, UsageStore.fmtCredit(credit.get().balance(), currency)), SendKind.FINAL);
             }
             return;
         }
@@ -298,50 +324,49 @@ public final class AdminActions {
         switch (action) {
             case "off" -> {
                 store.disableCredit(uuid);
-                send.send(by.uuid(), "Credit disabled for " + name + ".", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.credit.disabled", name), SendKind.FINAL);
             }
             case "add" -> {
                 Double n = parseDouble(rawAmount);
                 if (n == null || !Double.isFinite(n)) {
-                    send.send(by.uuid(), "Amount must be a number (got \"" + (rawAmount != null ? rawAmount : "") + "\").", SendKind.FINAL);
+                    send.send(by.uuid(), msg(by.uuid(), "admin.credit.bad_number", rawAmount != null ? rawAmount : ""), SendKind.FINAL);
                     return;
                 }
                 double newBalance = store.addCredit(uuid, name, n);
-                send.send(by.uuid(), "Credit for " + name + ": " + UsageStore.fmtCredit(newBalance, currency)
-                        + " (added " + UsageStore.fmtCost(n, currency) + ")", SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.credit.added", name, UsageStore.fmtCredit(newBalance, currency), UsageStore.fmtCost(n, currency)), SendKind.FINAL);
             }
             case "set" -> {
                 Double n = parseDouble(rawAmount);
                 if (n == null || !Double.isFinite(n) || n <= 0) {
-                    send.send(by.uuid(), "Amount must be a positive number (got \"" + (rawAmount != null ? rawAmount : "") + "\").", SendKind.FINAL);
+                    send.send(by.uuid(), msg(by.uuid(), "admin.credit.bad_positive", rawAmount != null ? rawAmount : ""), SendKind.FINAL);
                     return;
                 }
                 store.setCredit(uuid, name, n);
-                send.send(by.uuid(), "Credit for " + name + ": " + UsageStore.fmtCredit(n, currency), SendKind.FINAL);
+                send.send(by.uuid(), msg(by.uuid(), "admin.credit.set", name, UsageStore.fmtCredit(n, currency)), SendKind.FINAL);
             }
-            default -> send.send(by.uuid(), "Unknown credit action \"" + action + "\". Use add, set, or off.", SendKind.FINAL);
+            default -> send.send(by.uuid(), msg(by.uuid(), "admin.credit.unknown_action", action), SendKind.FINAL);
         }
     }
 
     public void handleCancel(By by, Target target) {
         if (target == null) {
-            send.send(by.uuid(), "cancel needs a target player.", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.cancel.needs_target"), SendKind.FINAL);
             return;
         }
         String uuid = target.uuid() != null ? target.uuid() : store.findByName(target.name()).map(UsageStore.NameMatch::uuid).orElse(null);
         CancelOutcome outcome = uuid != null ? cancel.cancel(uuid) : CancelOutcome.NONE;
         if (outcome == CancelOutcome.NONE) {
-            send.send(by.uuid(), target.name() + " has no request running.", SendKind.FINAL);
+            send.send(by.uuid(), msg(by.uuid(), "admin.cancel.none", target.name()), SendKind.FINAL);
             return;
         }
-        send.send(by.uuid(), "Cancelled " + target.name() + "'s request.", SendKind.FINAL);
-        send.send(uuid, "Your request was cancelled by " + by.name() + ".", SendKind.FINAL);
+        send.send(by.uuid(), msg(by.uuid(), "admin.cancel.done", target.name()), SendKind.FINAL);
+        send.send(uuid, msg(uuid, "admin.cancel.notified", by.name()), SendKind.FINAL);
     }
 
     public void handlePauseResume(By by, boolean resume) {
         store.setPaused(!resume);
-        String message = resume ? "Assistant resumed." : "Assistant paused. New requests are rejected until /ashlar resume.";
-        send.send(by.uuid(), message, SendKind.FINAL);
+        String key = resume ? "admin.resume.done" : "admin.pause.done";
+        send.send(by.uuid(), msg(by.uuid(), key), SendKind.FINAL);
     }
 
     /**
@@ -356,39 +381,39 @@ public final class AdminActions {
         return store.findByName(target.name());
     }
 
-    private String fmtUsageBlock(UsageStore.UsageSummary s) {
+    private String fmtUsageBlock(String forUuid, UsageStore.UsageSummary s) {
         String todayTokens = UsageStore.fmtTokens(s.today().inputTokens + s.today().cachedInputTokens + s.today().outputTokens);
         String totalTokens = UsageStore.fmtTokens(s.total().inputTokens + s.total().cachedInputTokens + s.total().outputTokens);
         List<String> lines = new ArrayList<>(List.of(
-                "Usage for " + s.name() + ":",
-                "today: " + s.today().requests + " requests, " + todayTokens + " tokens, " + UsageStore.fmtCost(s.today().cost, currency),
-                "total: " + s.total().requests + " requests, " + totalTokens + " tokens, " + UsageStore.fmtCost(s.total().cost, currency),
-                "limits: " + fmtLimitsLine(s.limits(), s.overrides())));
+                msg(forUuid, "admin.usage.block.header", s.name()),
+                msg(forUuid, "admin.usage.block.today", s.today().requests, todayTokens, UsageStore.fmtCost(s.today().cost, currency)),
+                msg(forUuid, "admin.usage.block.total", s.total().requests, totalTokens, UsageStore.fmtCost(s.total().cost, currency)),
+                msg(forUuid, "admin.usage.block.limits", fmtLimitsLine(forUuid, s.limits(), s.overrides()))));
         if (s.credit().isPresent()) {
-            lines.add("credit: " + UsageStore.fmtCredit(s.credit().get().balance(), currency) + " left");
+            lines.add(msg(forUuid, "admin.usage.block.credit", UsageStore.fmtCredit(s.credit().get().balance(), currency)));
         }
         return String.join("\n", lines);
     }
 
-    private String fmtLimitValue(UsageStore.LimitKind kind, UsageStore.LimitValue value) {
+    private String fmtLimitValue(String forUuid, UsageStore.LimitKind kind, UsageStore.LimitValue value) {
         if (value.isOff()) {
-            return "unlimited " + kind.wire();
+            return msg(forUuid, "admin.limit.value.unlimited", kind.wire());
         }
         if (kind == UsageStore.LimitKind.COST) {
-            return UsageStore.fmtCost(value.amount(), currency) + "/day";
+            return msg(forUuid, "admin.limit.value.cost", UsageStore.fmtCost(value.amount(), currency));
         }
         if (kind == UsageStore.LimitKind.TOKENS) {
-            return UsageStore.fmtTokens(value.amount()) + " tokens/day";
+            return msg(forUuid, "admin.limit.value.tokens", UsageStore.fmtTokens(value.amount()));
         }
-        return formatWholeNumber(value.amount()) + " requests/day";
+        return msg(forUuid, "admin.limit.value.requests", formatWholeNumber(value.amount()));
     }
 
-    private String fmtLimitsLine(Map<UsageStore.LimitKind, UsageStore.LimitValue> limits, Map<UsageStore.LimitKind, Boolean> overrides) {
+    private String fmtLimitsLine(String forUuid, Map<UsageStore.LimitKind, UsageStore.LimitValue> limits, Map<UsageStore.LimitKind, Boolean> overrides) {
         List<String> parts = new ArrayList<>();
         for (UsageStore.LimitKind kind : LIMIT_KINDS) {
-            String text = fmtLimitValue(kind, limits.get(kind));
+            String text = fmtLimitValue(forUuid, kind, limits.get(kind));
             boolean isOverride = overrides != null && Boolean.TRUE.equals(overrides.get(kind));
-            parts.add(isOverride ? text + " (override)" : text);
+            parts.add(isOverride ? msg(forUuid, "admin.limit.value.override", text) : text);
         }
         return String.join(", ", parts);
     }

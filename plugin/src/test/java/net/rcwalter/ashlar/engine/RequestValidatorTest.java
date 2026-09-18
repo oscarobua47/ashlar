@@ -46,7 +46,8 @@ class RequestValidatorTest {
                         new PluginConfig.AgentConfig.ModelConfig("http://localhost", "", "test-model", 25, 120_000,
                                 "high", "", false),
                         new PluginConfig.AgentConfig.LimitsConfig(40, 0, 0, 2, 6, 30),
-                        new PluginConfig.AgentConfig.PricingConfig(0.30, 0.006, 1.20, "USD", "always", 0.5)));
+                        new PluginConfig.AgentConfig.PricingConfig(0.30, 0.006, 1.20, "USD", "always", 0.5)),
+                "en");
     }
 
     private static JsonObject params(String json) {

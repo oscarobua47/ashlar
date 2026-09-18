@@ -2,6 +2,8 @@
 
 # Ashlar
 
+**English** | [简体中文](README.zh-CN.md)
+
 AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar plus one URL.
 
 ![Temple built by Claude through this MCP](docs/images/showcase-temple.jpg)
@@ -54,7 +56,7 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 
 ### 1. Install the plugin
 
-1. Download `ashlar-0.4.6.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
+1. Download `ashlar-0.4.7.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
    - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
@@ -269,6 +271,7 @@ A small hut (survey, snapshot, build, a couple of renders, a final reply - about
 | MCP clients | Any MCP SDK v2 client: Claude Desktop, Claude Code, Cursor, etc. |
 | `ashlar-mcp` <-> plugin | `ashlar-mcp` 0.4 requires plugin >= 0.3.0 (fetches the tool catalog via `tool_catalog` at startup; exits with a clear message otherwise); plugin 0.3+ still serves every RPC an `ashlar-mcp` 0.2 client uses, so an older `ashlar-mcp` keeps working against a newer plugin. |
 | In-game assistant | Plugin only (no Node) once `agent.model.api-key` is set. |
+| Language | Plugin chat text: English or Simplified Chinese (`language` in `config.yml`), or each player's own client language (`auto`). The AI's own replies always follow whatever language the request was written in, regardless of this setting. |
 
 **Not supported:** Minecraft 1.21.x and older (different Paper API version), Folia (single main-thread scheduling model assumed throughout), Bedrock Edition.
 
@@ -290,6 +293,7 @@ A small hut (survey, snapshot, build, a couple of renders, a final reply - about
 
 | Key | Default | Meaning |
 |---|---|---|
+| `language` | `"en"` | Language for everything the plugin itself says in chat (usage/help lines, progress lines, the usage footer, limit/credit/pause messages); does not affect the AI's own replies. `en`, `zh_CN`, or `auto` (each player's own client language, console always English). |
 | `server.host` | `"0.0.0.0"` | Interface the WebSocket server binds to. |
 | `server.port` | `8765` | TCP port for the WebSocket server. |
 | `server.token` | `""` | Required auth token; must be >= 16 characters or the plugin refuses to start. |

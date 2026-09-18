@@ -15,6 +15,7 @@ import net.rcwalter.ashlar.command.AshlarTabCompleter;
 import net.rcwalter.ashlar.command.Cooldown;
 import net.rcwalter.ashlar.config.ConfigException;
 import net.rcwalter.ashlar.config.PluginConfig;
+import net.rcwalter.ashlar.i18n.Messages;
 import net.rcwalter.ashlar.player.ChatOut;
 import net.rcwalter.ashlar.engine.FillService;
 import net.rcwalter.ashlar.engine.HealthService;
@@ -223,8 +224,18 @@ public final class AshlarPlugin extends JavaPlugin {
                         Pricing.parsePeakHours(pricingCfg.peakHours()), pricingCfg.offPeakMultiplier());
                 HistoryStore historyStore = new HistoryStore(config.agent().limits().historyTurns(),
                         config.agent().limits().historyTtlMinutes());
+                // Resolves the effective chat language for one admin-reply recipient
+                // (step8i-prompt.md): only ever invoked from AdminActions.handle, which is
+                // itself only ever called from the main thread (AshlarCommand.onCommand), so
+                // this Bukkit call (org.bukkit.entity.Player#locale()) is safe here.
+                java.util.function.Function<String, String> languageForUuid = uuid -> {
+                    org.bukkit.entity.Player online = getServer().getPlayer(java.util.UUID.fromString(uuid));
+                    return online != null
+                            ? Messages.forPlayer(config.language(), online.locale())
+                            : Messages.forConsole(config.language());
+                };
                 this.agentService = new AgentService(config.agent(), toolRegistry, modelClient, usageStore,
-                        historyStore, chatOut, getLogger());
+                        historyStore, chatOut, getLogger(), languageForUuid);
             }
             getLogger().info("Ashlar agent: mode=embedded model=" + modelCfg.model()
                     + " base-url=" + modelCfg.baseUrl()
