@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ashlar - 面向 Minecraft Paper 服务器的 AI 建造工具</title>
+<meta name="description" content="Ashlar 是一个 Paper 插件加一个 MCP 服务器：让 Claude、ChatGPT 或任何 MCP 客户端在你的 Minecraft 世界里勘查、建造、检查，或者在游戏里直接输入 /ashlar。一个 jar，一个 URL。">
+<link rel="icon" href="/assets/favicon.png">
+<link rel="alternate" hreflang="en" href="https://ashlar.wujm.cc/">
+<link rel="alternate" hreflang="zh-CN" href="https://ashlar.wujm.cc/zh/">
+<meta property="og:title" content="Ashlar - 面向 Minecraft Paper 服务器的 AI 建造工具">
+<meta property="og:description" content="一个 jar 加一个 URL：AI 客户端在你的世界里勘查、建造、检查。或者在游戏里输入 /ashlar。">
+<meta property="og:image" content="https://ashlar.wujm.cc/assets/showcase-temple.jpg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="/zh/"><img src="/assets/icon.png" alt=""> Ashlar</a>
+    <nav>
+      <a href="#how">工作原理</a>
+      <a href="#tools">工具</a>
+      <a href="#install">安装</a>
+      <a href="#ingame">游戏内助手</a>
+      <a href="https://github.com/rcwalter24/ashlar">GitHub</a>
+      <a class="lang" href="/" lang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>面向 Minecraft Paper 服务器的 AI 建造工具</h1>
+    <p class="lead">不需要 SSH，不需要局域网世界：一个 jar 加一个 URL。把 Claude、ChatGPT 或任何 MCP 客户端指向你的服务器，它就能勘查地形、建造、查看结果、回滚。或者让玩家在游戏里直接输入 <code>/ashlar</code>。</p>
+    <div class="cta">
+      <a class="btn primary" id="dl" href="https://github.com/rcwalter24/ashlar/releases/latest">下载插件</a>
+      <a class="btn" href="https://github.com/rcwalter24/ashlar/blob/main/README.zh-CN.md">中文文档</a>
+      <span class="muted small" id="ver"></span>
+    </div>
+    <div class="badges">
+      <span>Paper 26.2 / 26.3</span><span>Java 25</span><span>MCP SDK v2</span><span>AGPL-3.0</span><span>中文 &amp; English</span>
+    </div>
+    <figure class="showcase">
+      <img src="/assets/showcase-temple.jpg" alt="Claude 通过 Ashlar 建造的石头神庙" width="1400" height="787">
+      <figcaption>Claude 通过 Ashlar、凭一条聊天消息建成。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>工作原理</h2>
+    <p class="lead">工具层完全在插件里。MCP 服务器只是一个薄适配器：启动时从插件拉取工具目录，然后转发调用——所以每个 AI 客户端和游戏内助手用的是完全相同的九个工具。</p>
+    <div class="flow">
+      <div class="card"><h3>AI 客户端</h3><p>Claude Desktop、Claude Code、OpenCode、Cursor——任何支持 MCP（stdio 或 HTTP）的客户端。</p></div>
+      <div class="arrow">&rarr;</div>
+      <div class="card"><h3><code>ashlar-mcp</code></h3><p>由 <code>npx -y ashlar-mcp</code> 启动的 Node 进程，通过 WebSocket 连到插件；自身不含任何 Ashlar 逻辑。</p></div>
+      <div class="arrow">&rarr;</div>
+      <div class="card"><h3>Paper 插件</h3><p>先完整校验每个请求，再在主线程上按每 tick 的时间预算写方块——50 万方块的建造进行中，服务器照常运行。</p></div>
+    </div>
+    <p class="muted small" style="margin-top:14px"><code>/ashlar</code> 这条路径跳过前两个环节：插件自己通过出站 HTTPS 调用模型 API——不需要 Node，不需要开放入站端口。</p>
+  </div>
+</section>
+
+<section id="tools">
+  <div class="wrap">
+    <h2>九个工具</h2>
+    <p class="lead">典型流程：<code>mc_players</code> &rarr; <code>mc_survey</code> 或 <code>mc_render</code> 看现场 &rarr; <code>mc_snapshot</code> &rarr; <code>mc_build</code> &rarr; <code>mc_render</code>/<code>mc_inspect</code> 检查 &rarr; 不满意就 <code>mc_restore</code>。</p>
+    <div class="tools">
+      <div class="tool"><code>mc_status</code><p>服务器和插件状态、队列长度。</p></div>
+      <div class="tool"><code>mc_players</code><p>在线玩家的位置、朝向和正在看的方块——"这里"、"我面前"、"那堵墙"。</p></div>
+      <div class="tool"><code>mc_survey</code><p>地形勘查：高度图图片加精确数字（最低/最高/中位高度、地表材质构成、最大平地）。</p></div>
+      <div class="tool"><code>mc_render</code><p>区域的 PNG 图：俯视、任一立面、剖面或高度图——让模型看到自己建了什么。</p></div>
+      <div class="tool"><code>mc_build</code><p>批量放置：长方体填充（replace/keep/outline/hollow/walls）、单个方块、告示牌文字、流动的水。唯一会改动世界的工具。</p></div>
+      <div class="tool"><code>mc_inspect</code><p>区域内精确的方块内容：统计、ASCII 剖面、逐列游程、告示牌文字。</p></div>
+      <div class="tool"><code>mc_snapshot</code><p>动手之前先保存区域。</p></div>
+      <div class="tool"><code>mc_restore</code><p>把区域回滚到某个快照。</p></div>
+      <div class="tool"><code>mc_command</code><p>执行控制台命令并返回输出。除非服主明确开启，否则不会提供给游戏内助手。</p></div>
+    </div>
+    <div class="grid two" style="margin-top:20px">
+      <div class="card">
+        <h3>为模型设计，不只是 API</h3>
+        <p>写入时关闭物理，建到一半不会有东西掉落或脱落；建完后的连接处理让栅栏、玻璃板、墙和楼梯像手放的一样正确连接；任何缺少支撑的方块都会作为警告反馈给模型，模型要先修好再说"完成"。</p>
+      </div>
+      <div class="card">
+        <h3>处处有边界</h3>
+        <p>每个请求在入队之前就完整校验：方块上限、区块上限、允许的世界、可选的建造区域。建造按 tick 预算执行，大填充花的是 tick 数而不是 TPS。快照让每次改动都可撤销。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>三步安装</h2>
+    <div class="grid three" style="margin-bottom:24px">
+      <div class="card step"><span class="n">1</span><h3>安装插件</h3><p>把 <code>ashlar-*.jar</code> 放进 Paper 26.2+（Java 25）服务器的 <code>plugins/</code>，启动一次，然后在 <code>plugins/Ashlar/config.yml</code> 里设置 <code>server.token</code>，并开放 WebSocket 端口（默认 8765）。</p></div>
+      <div class="card step"><span class="n">2</span><h3>客户端有 Node</h3><p>运行 AI 客户端的那台机器上要有 Node 22 或更新。不需要手动安装任何东西：客户端会用 <code>npx -y ashlar-mcp</code> 启动 MCP 服务器。</p></div>
+      <div class="card step"><span class="n">3</span><h3>连接客户端</h3><p>把插件的 URL 和 token 填进客户端的 MCP 配置。在下面选你的客户端。</p></div>
+    </div>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="desktop">Claude Desktop</button>
+      <button role="tab" aria-selected="false" data-tab="code">Claude Code</button>
+      <button role="tab" aria-selected="false" data-tab="opencode">OpenCode</button>
+      <button role="tab" aria-selected="false" data-tab="http">远程 / HTTP</button>
+    </div>
+    <div class="panel" data-panel="desktop">
+<pre><code>{
+  "mcpServers": {
+    "ashlar": {
+      "command": "/absolute/path/to/npx",
+      "args": ["-y", "ashlar-mcp", "--stdio"],
+      "env": {
+        "MC_PLUGIN_URL": "ws://&lt;你的服务器 IP&gt;:8765",
+        "MC_PLUGIN_TOKEN": "&lt;config.yml 里的 token&gt;"
+      }
+    }
+  }
+}</code></pre>
+      <p class="small muted">设置 &rarr; Developer &rarr; Edit Config。<code>npx</code> 要写绝对路径；连接器的工具访问选"Tools already loaded"。</p>
+    </div>
+    <div class="panel" data-panel="code" hidden>
+<pre><code>claude mcp add --scope user --transport stdio ashlar \
+  -e MC_PLUGIN_URL=ws://&lt;你的服务器 IP&gt;:8765 \
+  -e MC_PLUGIN_TOKEN=&lt;config.yml 里的 token&gt; \
+  -- npx -y ashlar-mcp --stdio</code></pre>
+    </div>
+    <div class="panel" data-panel="opencode" hidden>
+<pre><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ashlar": {
+      "type": "local",
+      "command": ["npx", "-y", "ashlar-mcp", "--stdio"],
+      "environment": {
+        "MC_PLUGIN_URL": "ws://&lt;你的服务器 IP&gt;:8765",
+        "MC_PLUGIN_TOKEN": "&lt;config.yml 里的 token&gt;"
+      },
+      "timeout": 120000,
+      "enabled": true
+    }
+  }
+}</code></pre>
+      <p class="small muted">写在项目的 <code>opencode.json</code> 或全局的 <code>~/.config/opencode/opencode.json</code>。里面带着 token，项目级文件别提交进 git。</p>
+    </div>
+    <div class="panel" data-panel="http" hidden>
+<pre><code>MC_PLUGIN_URL=ws://127.0.0.1:8765 \
+MC_PLUGIN_TOKEN=&lt;插件 token&gt; \
+MCP_HTTP_TOKEN=&lt;另一个足够长的随机 token&gt; \
+npx -y ashlar-mcp --http</code></pre>
+      <p class="small muted">MCP 服务器只跑一份，比如和面板托管的 Paper 服务器放在同一台 VPS 上；客户端连 <code>https://mcp.example.com/mcp</code>，带 <code>Authorization: Bearer &lt;MCP_HTTP_TOKEN&gt;</code>（不能设请求头的客户端用 <code>/mcp/&lt;token&gt;</code>）。前面加一层 TLS 反向代理，Caddy 一行就够。</p>
+    </div>
+    <p class="small muted" style="margin-top:16px">国内面板服请在 <code>MC_PLUGIN_URL</code> 里填服务器 IP 而不是域名：有些机房会按 <code>Host</code> 头过滤 HTTP 请求，把 WebSocket 握手拦掉。</p>
+  </div>
+</section>
+
+<section id="ingame">
+  <div class="wrap">
+    <h2>游戏内助手——不需要 AI 客户端</h2>
+    <p class="lead">给服务器上那些不用 AI 客户端的玩家和朋友。插件自己和模型 API 对话：在 <code>config.yml</code> 里填一个 key，<code>/ashlar</code> 就对所有有权限的玩家可用。</p>
+    <div class="grid two">
+      <div>
+<div class="chat">
+<span class="tag">&lt;Steve&gt;</span> /ashlar 在我面前盖一间带玻璃窗的小石屋，门上挂个牌子写"家"<br>
+<span class="tag">[Ashlar]</span> <span class="dim">&gt; mc_survey from=[84,-232] to=[124,-192]</span><br>
+<span class="tag">[Ashlar]</span> <span class="dim">&gt; mc_snapshot</span><br>
+<span class="tag">[Ashlar]</span> <span class="dim">&gt; mc_build</span><br>
+<span class="tag">[Ashlar]</span> <span class="dim">&gt; mc_render from=[98,64,-220] to=[109,71,-211] view="south"</span><br>
+<span class="tag">[Ashlar]</span> 建好了：你北边那块平地上一间 12x9 的石砖小屋，橡木门朝南，四扇玻璃窗，牌子上写着"家"。想撤销就说恢复快照 snap-20260914-101532-7c2a。<br>
+<span class="tag">[Ashlar]</span> <span class="dim">(本次请求: 318.4k tokens, $0.04 | 今日: $0.04，上限 $1.00)</span>
+</div>
+      </div>
+      <div>
+<pre><code>agent:
+  mode: embedded
+  model:
+    base-url: https://api.deepseek.com
+    api-key: "sk-..."
+    model: deepseek-flash
+  limits:
+    max-cost-per-player-per-day: 1.00
+language: zh_CN   # 或 en，或 auto</code></pre>
+        <p class="small muted" style="margin-top:10px">任何 OpenAI 兼容的聊天 API 都可以。按玩家的每日请求数、token、花费上限；给想赞助的玩家充预付额度；<code>/ashlar usage</code> 按天查看用量。助手用玩家的语言回复；插件自身的聊天文字可选中文或英文。</p>
+      </div>
+    </div>
+    <div class="grid three" style="margin-top:20px">
+      <div class="card"><h3>可撤销</h3><p>助手建造前先做快照，"撤销"就能恢复。支撑警告会反馈给模型，悬空的牌子、嵌在墙里的火把会在它说"完成"之前修好。</p></div>
+      <div class="card"><h3>可控制</h3><p><code>ashlar.use</code> 权限或允许列表、每次请求的冷却和长度限制、建造区域围栏、附加到系统提示词的"服规"，以及需要时的 <code>/ashlar pause</code>。</p></div>
+      <div class="card"><h3>有账可查</h3><p>每次模型调用都计量：每请求、每玩家、每天的 token 和花费，支持峰谷价。服主用 <code>/ashlar usage &lt;玩家&gt;</code> 查看。</p></div>
+    </div>
+    <figure class="showcase">
+      <img src="/assets/showcase-cottage.jpg" alt="Claude 通过 Ashlar 建造的带玻璃窗的石头小屋" width="1400" height="787" loading="lazy">
+      <figcaption>"一间带玻璃窗的小石屋，门上挂个牌子"——勘查、快照、建造、渲染、回复。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="compat">
+  <div class="wrap">
+    <h2>兼容性</h2>
+    <table>
+      <tr><th>组件</th><th>状态</th></tr>
+      <tr><td>Paper 26.2</td><td>已测试</td></tr>
+      <tr><td>Paper 26.3</td><td>已测试（同一个 jar）</td></tr>
+      <tr><td>Java</td><td>25（Paper 26.x 自身的要求）</td></tr>
+      <tr><td>Node</td><td>客户端机器上 22 或更新（<code>/ashlar</code> 不需要）</td></tr>
+      <tr><td>MCP 客户端</td><td>任何 MCP SDK v2 客户端：Claude Desktop、Claude Code、OpenCode、Cursor……</td></tr>
+      <tr><td>不支持</td><td>Minecraft 1.21.x 及更早、Folia、基岩版</td></tr>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Ashlar &middot; AGPL-3.0</span>
+    <a href="https://github.com/rcwalter24/ashlar">GitHub</a>
+    <a href="https://github.com/rcwalter24/ashlar/releases">发布页</a>
+    <a href="https://www.npmjs.com/package/ashlar-mcp">npm: ashlar-mcp</a>
+    <a href="https://github.com/rcwalter24/ashlar/issues">反馈问题</a>
+    <a href="/" lang="en">English</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('.tabs [role=tab]');
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      tabs.forEach(function (o) { o.setAttribute('aria-selected', o === t ? 'true' : 'false'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.hidden = p.dataset.panel !== t.dataset.tab; });
+    });
+  });
+  var ver = document.getElementById('ver'), dl = document.getElementById('dl');
+  fetch('https://api.github.com/repos/rcwalter24/ashlar/releases/latest').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (!j || !j.tag_name) return;
+    ver.textContent = j.tag_name + ' · ' + new Date(j.published_at).toISOString().slice(0, 10);
+    (j.assets || []).forEach(function (a) { if (/^ashlar-.*\.jar$/.test(a.name)) dl.href = a.browser_download_url; });
+  }).catch(function () {});
+})();
+</script>
+</body>
+</html>
