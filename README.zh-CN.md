@@ -10,7 +10,7 @@
 
 *由 Claude 通过本 MCP 建造。*
 
-Ashlar 由一个 Paper 插件和一个 Node MCP 服务器组成。把 Claude Desktop、Claude Code、Cursor 或任何其他支持 MCP 的 AI 客户端指向这个 MCP 服务器，它就能获得九个工具：勘测地形、渲染世界图像、批量建造、检查精确的方块数据、快照/恢复区域，以及执行控制台命令。不需要模组，不需要 SSH 访问主机，也不需要在自己的机器上运行世界：插件运行在你现有的 Paper 服务器内部（面板托管的服务器也可以），通过 WebSocket 与 MCP 服务器通信。完全没有 MCP 客户端的玩家也可以直接在聊天里输入 `/ashlar <请求>`，由插件自带的助手来回答 —— 这条路径不需要 Node 进程或入站端口；见下方的[游戏内助手](#游戏内助手不需要-ai-客户端)。
+Ashlar 由一个 Paper 插件和一个 Node MCP 服务器组成。把 Claude Desktop、Claude Code、OpenCode、Cursor 或任何其他支持 MCP 的 AI 客户端指向这个 MCP 服务器，它就能获得九个工具：勘测地形、渲染世界图像、批量建造、检查精确的方块数据、快照/恢复区域，以及执行控制台命令。不需要模组，不需要 SSH 访问主机，也不需要在自己的机器上运行世界：插件运行在你现有的 Paper 服务器内部（面板托管的服务器也可以），通过 WebSocket 与 MCP 服务器通信。完全没有 MCP 客户端的玩家也可以直接在聊天里输入 `/ashlar <请求>`，由插件自带的助手来回答 —— 这条路径不需要 Node 进程或入站端口；见下方的[游戏内助手](#游戏内助手不需要-ai-客户端)。
 
 ## 工作原理
 
@@ -99,6 +99,29 @@ claude mcp add --scope user --transport stdio ashlar \
   -e MC_PLUGIN_TOKEN=<the token from config.yml> \
   -- npx -y ashlar-mcp --stdio
 ```
+
+#### OpenCode
+
+加到 `opencode.json`（项目根目录，或全局 `~/.config/opencode/opencode.json` 对所有项目生效）：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ashlar": {
+      "type": "local",
+      "command": ["npx", "-y", "ashlar-mcp", "--stdio"],
+      "environment": {
+        "MC_PLUGIN_URL": "ws://<你的服务器 IP>:8765",
+        "MC_PLUGIN_TOKEN": "<config.yml 里的 token>"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+项目级的 `opencode.json` 里带着 token，注意不要提交进 git（或者改用全局文件）。如果连的是下面的 HTTP 模式，改用 `"type": "remote"`，加 `"url": "http://<主机>:3000/mcp"` 和 `"headers": {"Authorization": "Bearer <MCP_HTTP_TOKEN>"}`。
 
 #### 远程/HTTP 模式（用于 VPS 上托管的 MCP 服务器）
 
@@ -268,7 +291,7 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 | Paper 26.x | 预期可用（同一条主要 API 线） |
 | Java | 需要 25（Paper 26.x 的硬性要求） |
 | Node | 需要 >= 22（MCP 服务器使用内置的 `WebSocket` 全局对象） |
-| MCP clients | 任何 MCP SDK v2 客户端：Claude Desktop、Claude Code、Cursor 等。 |
+| MCP clients | 任何 MCP SDK v2 客户端：Claude Desktop、Claude Code、OpenCode、Cursor 等。 |
 | `ashlar-mcp` <-> plugin | `ashlar-mcp` 0.4 需要插件 >= 0.3.0（启动时通过 `tool_catalog` 获取工具目录，否则会退出并给出明确提示）；插件 0.3+ 仍然提供 `ashlar-mcp` 0.2 客户端使用的每一个 RPC，因此旧版 `ashlar-mcp` 在新版插件上依然可用。 |
 | In-game assistant | 只需插件（不需要 Node），只要设置了 `agent.model.api-key`。 |
 | Language | 插件聊天文本：英文或简体中文（`config.yml` 里的 `language`），或跟随每个玩家自己的客户端语言（`auto`）。AI 自身的回复始终跟随请求本身所使用的语言，与这项设置无关。 |

@@ -10,7 +10,7 @@ AI building tools for Minecraft Paper servers - no SSH, no LAN world: one jar pl
 
 *Built by Claude through this MCP.*
 
-Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket. Players who have no MCP client at all can instead just type `/ashlar <request>` in chat and get an answer from the plugin's own built-in assistant - no Node process or inbound port needed for that path; see [In-game assistant](#in-game-assistant-no-ai-client-needed) below.
+Ashlar is a Paper plugin plus a Node MCP server. Point an AI client - Claude Desktop, Claude Code, OpenCode, Cursor, or anything else that speaks MCP - at the MCP server, and it gets nine tools to survey terrain, render images of the world, build in bulk, inspect exact block data, snapshot/restore regions, and run console commands. No mods, no SSH access to the host, no need to run the world on your own machine: the plugin runs inside your existing Paper server (a panel-hosted one works fine) and talks to the MCP server over a WebSocket. Players who have no MCP client at all can instead just type `/ashlar <request>` in chat and get an answer from the plugin's own built-in assistant - no Node process or inbound port needed for that path; see [In-game assistant](#in-game-assistant-no-ai-client-needed) below.
 
 ## How it works
 
@@ -99,6 +99,29 @@ claude mcp add --scope user --transport stdio ashlar \
   -e MC_PLUGIN_TOKEN=<the token from config.yml> \
   -- npx -y ashlar-mcp --stdio
 ```
+
+#### OpenCode
+
+Add to `opencode.json` (in the project, or `~/.config/opencode/opencode.json` for every project):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ashlar": {
+      "type": "local",
+      "command": ["npx", "-y", "ashlar-mcp", "--stdio"],
+      "environment": {
+        "MC_PLUGIN_URL": "ws://<your-server-ip>:8765",
+        "MC_PLUGIN_TOKEN": "<the token from config.yml>"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+A project-level `opencode.json` contains the token, so keep it out of git (or use the global file). For an HTTP-mode server (below) use `"type": "remote"` with `"url": "http://<host>:3000/mcp"` and `"headers": {"Authorization": "Bearer <MCP_HTTP_TOKEN>"}` instead.
 
 #### Remote/HTTP mode (for a VPS-hosted MCP server)
 
@@ -268,7 +291,7 @@ A small hut (survey, snapshot, build, a couple of renders, a final reply - about
 | Paper 26.x | Expected to work (same major API line) |
 | Java | 25 required (Paper 26.x's hard requirement) |
 | Node | >= 22 required (MCP server uses the built-in `WebSocket` global) |
-| MCP clients | Any MCP SDK v2 client: Claude Desktop, Claude Code, Cursor, etc. |
+| MCP clients | Any MCP SDK v2 client: Claude Desktop, Claude Code, OpenCode, Cursor, etc. |
 | `ashlar-mcp` <-> plugin | `ashlar-mcp` 0.4 requires plugin >= 0.3.0 (fetches the tool catalog via `tool_catalog` at startup; exits with a clear message otherwise); plugin 0.3+ still serves every RPC an `ashlar-mcp` 0.2 client uses, so an older `ashlar-mcp` keeps working against a newer plugin. |
 | In-game assistant | Plugin only (no Node) once `agent.model.api-key` is set. |
 | Language | Plugin chat text: English or Simplified Chinese (`language` in `config.yml`), or each player's own client language (`auto`). The AI's own replies always follow whatever language the request was written in, regardless of this setting. |
