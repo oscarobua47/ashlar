@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+- Java package renamed from `net.rcwalter.ashlar` to `cc.wujm.ashlar` (Gradle group `cc.wujm`). No user-visible change: the plugin name, data folder (`plugins/Ashlar/`), config, snapshots and permission nodes are unaffected - drop in the new jar.
+
 ## 0.4.7
 
 - New top-level `language` config key (`en`/`zh_CN`/`auto`, default `en`): everything the plugin itself says in chat - `/ashlar` usage/help lines, permission/cooldown/"not configured" messages, progress lines, the usage footer, and every `/ashlar usage`/`limit`/`credit`/`pause`/`resume`/`cancel` reply - can now be shown in Simplified Chinese instead of English. `auto` follows each player's own client language (falling back to English for anything not shipped) with the console always in English; `ashlar simulate` uses the configured language like a player would. The AI's own replies were already following the player's request language and are unaffected; logs, RPC errors, tool descriptions/results and config.yml comments stay English-only. Ships a Chinese README (`README.zh-CN.md`, linked from the top of both READMEs).
@@ -40,7 +44,7 @@ All notable changes to this project are documented in this file.
 
 ### Plugin (`plugin/`)
 
-- Embedded agent: a pure-Java agent core (`net.rcwalter.ashlar.agent`, no Bukkit dependency) ported from the Node `--agent` implementation - `ModelClient` (OpenAI-compatible chat-completions over `java.net.http`, retrying 429/5xx with backoff), `Pricing`/`UsageStore` (peak/off-peak pricing, per-player daily limits, atomic debounced persistence), `HistoryStore` (bounded turns, TTL, image redaction) and `AgentRunner` (the tool-calling loop against the plugin's own `ToolRegistry`).
+- Embedded agent: a pure-Java agent core (`cc.wujm.ashlar.agent`, no Bukkit dependency) ported from the Node `--agent` implementation - `ModelClient` (OpenAI-compatible chat-completions over `java.net.http`, retrying 429/5xx with backoff), `Pricing`/`UsageStore` (peak/off-peak pricing, per-player daily limits, atomic debounced persistence), `HistoryStore` (bounded turns, TTL, image redaction) and `AgentRunner` (the tool-calling loop against the plugin's own `ToolRegistry`).
 - `AgentService`: per-player serial request queue plus a global concurrency cap on a virtual-thread executor, progress throttling, per-turn usage accounting (every model call is recorded immediately, including on cancellation or failure), and a cost/token footer on every final reply.
 - New `agent:` config keys: `agent.mode` (`embedded`/`external`/`off`, default `embedded`), `agent.model.*` (provider, credentials, tool-call budget, timeouts, image detail, system prompt file, `mc_command` opt-in), `agent.limits.*` (daily caps, concurrency, history), `agent.pricing.*` (peak/off-peak pricing). Usage, limit overrides and the pause flag persist to `plugins/Ashlar/usage.json`.
 - `AshlarCommand` calls `AgentService` directly in embedded mode (request, cancel, usage, limit, pause, resume) instead of broadcasting chat events; `external` mode keeps the 0.2 event-broadcast path for a connected integrator process; `off` disables `/ashlar` entirely.

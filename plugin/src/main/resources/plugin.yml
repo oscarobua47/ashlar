@@ -1,6 +1,6 @@
 name: Ashlar
 version: ${version}
-main: net.rcwalter.ashlar.AshlarPlugin
+main: cc.wujm.ashlar.AshlarPlugin
 # api-version "26.2" is the format documented by Paper for the 26.x line
 # (docs.papermc.io/paper/dev/project-setup); confirmed accepted at load time.
 api-version: "26.2"

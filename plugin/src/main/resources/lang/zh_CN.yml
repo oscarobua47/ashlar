@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Ashlar player-facing chat text (docs/private/prompts/step8i-prompt.md).
 # Flat key: "text" map; keys are grouped by dotted prefix. {0}/{1}/... placeholders
-# are substituted with plain String.replace by net.rcwalter.ashlar.i18n.Messages -
+# are substituted with plain String.replace by cc.wujm.ashlar.i18n.Messages -
 # never java.text.MessageFormat, which mangles apostrophes and literal braces.
 
 command.grammar.top: "用法: /ashlar <你的需求> | ask <你的需求> | cancel | usage | help"

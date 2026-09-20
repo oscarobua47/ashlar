@@ -429,7 +429,7 @@ node tools/e2e.mjs        # end-to-end check against a running plugin test serve
 
 项目结构：`plugin/` 是一个独立的 Gradle 项目（Paper 插件，Java 25）；`mcp-server/` 是一个独立的 npm 项目（TypeScript，MCP SDK v2）。两侧遵循相同的硬性规则：Bukkit API 只能在主线程、在按 tick 计预算的执行器内使用；方块写入只通过 `setBlockData(data, false)`；请求在入队前已在网络线程上完全验证；不使用 NMS/反射；源码保持纯 ASCII。
 
-工具层完全位于 `plugin/` 之下：每个 `mc_*` 工具是 `plugin/src/main/java/net/rcwalter/ashlar/tool/mc/` 下的一个 Java 类，其描述和 JSON Schema 是 `plugin/src/main/resources/tools/<name>.json` 中的一个资源文件，发送给模型的服务器级说明文本是 `plugin/src/main/resources/tools/instructions.txt`。要修改某个工具的描述、schema 或说明文本，直接编辑对应的资源文件即可 —— MCP 客户端和游戏内助手都会自动获取，因为二者都通过插件的 `tool_catalog`/`tool_call` RPC，任何一方都不会硬编码自己的工具知识。结果文本的格式化（标题、警告、ASCII 地图、错误文本）位于 `plugin/src/main/java/net/rcwalter/ashlar/tool/text/`；`plugin/src/test/resources/goldens/` 下的 golden 文件是该格式的基准，格式变化时应当有意识地更新它们，而不是悄悄改动。
+工具层完全位于 `plugin/` 之下：每个 `mc_*` 工具是 `plugin/src/main/java/cc/wujm/ashlar/tool/mc/` 下的一个 Java 类，其描述和 JSON Schema 是 `plugin/src/main/resources/tools/<name>.json` 中的一个资源文件，发送给模型的服务器级说明文本是 `plugin/src/main/resources/tools/instructions.txt`。要修改某个工具的描述、schema 或说明文本，直接编辑对应的资源文件即可 —— MCP 客户端和游戏内助手都会自动获取，因为二者都通过插件的 `tool_catalog`/`tool_call` RPC，任何一方都不会硬编码自己的工具知识。结果文本的格式化（标题、警告、ASCII 地图、错误文本）位于 `plugin/src/main/java/cc/wujm/ashlar/tool/text/`；`plugin/src/test/resources/goldens/` 下的 golden 文件是该格式的基准，格式变化时应当有意识地更新它们，而不是悄悄改动。
 
 ## 路线图
 

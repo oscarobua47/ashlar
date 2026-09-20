@@ -3,7 +3,7 @@ plugins {
     id("xyz.jpenilla.run-paper") version "3.1.0"
 }
 
-group = "net.rcwalter"
+group = "cc.wujm"
 // Release builds (the tag-triggered GitHub workflow sets ASHLAR_RELEASE=1) get the bare
 // version; every other build - a developer's local jar - is marked "-dev" so it can never be
 // mistaken for the published artifact of the same number.
