@@ -47,6 +47,21 @@ class CooldownTest {
     }
 
     @Test
+    void setCooldownMillisAppliesImmediatelyToTheNextCheck() {
+        // step8j-prompt.md: agent.cooldown-seconds is hot - /ashlar reload calls setCooldownMillis.
+        AtomicLong clock = new AtomicLong(1_000L);
+        Cooldown cooldown = new Cooldown(5_000L, clock::get);
+        UUID player = UUID.randomUUID();
+
+        cooldown.record(player);
+        clock.addAndGet(2_000L); // 2s elapsed of the original 5s window
+        assertEquals(3_000L, cooldown.remainingMillis(player));
+
+        cooldown.setCooldownMillis(2_000L); // shorten the window below the already-elapsed time
+        assertEquals(0L, cooldown.remainingMillis(player), "the shortened window must apply to the next check");
+    }
+
+    @Test
     void staleEntriesAreEvictedWhenRecordIsCalled() {
         AtomicLong clock = new AtomicLong(0L);
         // A cooldown window far longer than the 10-minute eviction sweep: if the

@@ -199,13 +199,18 @@ public final class UsageStore implements AutoCloseable {
     }
 
     private final Path filePath;
-    private final double priceInput;
-    private final double priceCachedInput;
-    private final double priceOutput;
-    private final String currency;
-    private final Limits envLimits;
-    private final Pricing.Schedule peakSchedule;
-    private final double offPeakMultiplier;
+    // Not final: agent.pricing.*/agent.limits.{max-*-per-player-per-day} are hot (step8j-prompt.md) -
+    // updatePricing/updateEnvLimits/updatePeakSchedule apply a reload; each field is read/written as
+    // a single volatile value (never as a multi-field transaction), so a reload can momentarily mix
+    // an old and a new field for one call, e.g. the old currency label with the new price - judged
+    // an acceptable, purely cosmetic gap for this non-mission-critical accounting (see report).
+    private volatile double priceInput;
+    private volatile double priceCachedInput;
+    private volatile double priceOutput;
+    private volatile String currency;
+    private volatile Limits envLimits;
+    private volatile Pricing.Schedule peakSchedule;
+    private volatile double offPeakMultiplier;
     private final Supplier<Instant> now;
     private final long saveDebounceMs;
 
@@ -242,6 +247,25 @@ public final class UsageStore implements AutoCloseable {
         this.now = now != null ? now : Instant::now;
         this.saveDebounceMs = saveDebounceMs;
         load();
+    }
+
+    /** Applies new peak prices/currency ({@code /ashlar reload}, step8j-prompt.md). */
+    public void updatePricing(double priceInput, double priceCachedInput, double priceOutput, String currency) {
+        this.priceInput = priceInput;
+        this.priceCachedInput = priceCachedInput;
+        this.priceOutput = priceOutput;
+        this.currency = currency;
+    }
+
+    /** Applies new env-level per-day default limits ({@code /ashlar reload}, step8j-prompt.md). */
+    public void updateEnvLimits(Limits envLimits) {
+        this.envLimits = envLimits;
+    }
+
+    /** Applies a new peak-hours schedule/off-peak multiplier ({@code /ashlar reload}, step8j-prompt.md). */
+    public void updatePeakSchedule(Pricing.Schedule peakSchedule, double offPeakMultiplier) {
+        this.peakSchedule = peakSchedule;
+        this.offPeakMultiplier = offPeakMultiplier;
     }
 
     private static String formatNumber(double d) {

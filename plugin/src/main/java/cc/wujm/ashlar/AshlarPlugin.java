@@ -14,7 +14,10 @@ import cc.wujm.ashlar.command.AshlarCommand;
 import cc.wujm.ashlar.command.AshlarTabCompleter;
 import cc.wujm.ashlar.command.Cooldown;
 import cc.wujm.ashlar.config.ConfigException;
+import cc.wujm.ashlar.config.ConfigHolder;
+import cc.wujm.ashlar.config.ConfigReload;
 import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ReloadOutcome;
 import cc.wujm.ashlar.i18n.Messages;
 import cc.wujm.ashlar.player.ChatOut;
 import cc.wujm.ashlar.engine.FillService;
@@ -86,6 +89,8 @@ public final class AshlarPlugin extends JavaPlugin {
     private SnapshotStore snapshotStore;
     private ExecutorService renderExecutor;
     private AgentService agentService;
+    private ConfigHolder configHolder;
+    private Cooldown cooldown;
 
     @Override
     public void onEnable() {
@@ -108,16 +113,14 @@ public final class AshlarPlugin extends JavaPlugin {
             return;
         }
 
-        // agent.everyone-can-use (step6.6): the plugin.yml default for
-        // ashlar.use is "op"; when the operator opts in, flip the *runtime*
-        // default to "everyone" instead so it works with no permissions
-        // plugin installed. Daily limits and the cooldown still apply
-        // either way - this only controls who may send a request at all.
-        Permission usePermission = getServer().getPluginManager().getPermission("ashlar.use");
-        if (usePermission != null) {
-            usePermission.setDefault(config.agent().everyoneCanUse() ? PermissionDefault.TRUE : PermissionDefault.OP);
-            getServer().getPluginManager().recalculatePermissionDefaults(usePermission);
-        }
+        // Live config (step8j-prompt.md, /ashlar reload): every "hot" consumer below is wired with
+        // configHolder instead of the plain config snapshot, and reads configHolder.get() at the
+        // point it needs a value rather than caching it. A "cold" consumer (TickBudgetExecutor, and
+        // WsServer's own token/host/port) keeps a plain PluginConfig/primitive from this initial
+        // load instead - those never change without a restart, by construction.
+        this.configHolder = new ConfigHolder(config);
+
+        applyEveryoneCanUse(config);
 
         Path dataFolder = getDataFolder().toPath();
         this.operationLog = new OperationLog(dataFolder, config.logging().logOperations(), getLogger());
@@ -140,12 +143,12 @@ public final class AshlarPlugin extends JavaPlugin {
         // Execution paths (plan.md step7): independent of the transport, so the
         // in-process tool layer/agent can call them directly in a later step.
         // Handlers below only parse/validate params and delegate to these.
-        FillService fillService = new FillService(config, executor);
-        SparseService sparseService = new SparseService(config, executor);
+        FillService fillService = new FillService(configHolder, executor);
+        SparseService sparseService = new SparseService(configHolder, executor);
         HeightmapService heightmapService = new HeightmapService(executor);
         ReadRegionService readRegionService = new ReadRegionService(executor);
         RenderService renderService = new RenderService(executor, renderExecutor);
-        SnapshotService snapshotService = new SnapshotService(config, executor, snapshotStore);
+        SnapshotService snapshotService = new SnapshotService(configHolder, executor, snapshotStore);
         HealthService healthService = new HealthService(this, startedAt, executor);
 
         // Handler instances are kept as local variables (rather than passed inline to
@@ -154,14 +157,14 @@ public final class AshlarPlugin extends JavaPlugin {
         // straight into fillBatchHandler.handle(ctx, params), reusing every validation rule the
         // fill_batch RPC enforces instead of duplicating it.
         HealthHandler healthHandler = new HealthHandler(healthService);
-        FillBatchHandler fillBatchHandler = new FillBatchHandler(config, fillService);
-        SetBlocksHandler setBlocksHandler = new SetBlocksHandler(config, sparseService);
-        HeightmapHandler heightmapHandler = new HeightmapHandler(config, heightmapService);
-        ReadRegionHandler readRegionHandler = new ReadRegionHandler(config, readRegionService);
-        SnapshotHandler snapshotHandler = new SnapshotHandler(config, snapshotService, snapshotStore);
-        RunCommandHandler runCommandHandler = new RunCommandHandler(config);
+        FillBatchHandler fillBatchHandler = new FillBatchHandler(configHolder, fillService);
+        SetBlocksHandler setBlocksHandler = new SetBlocksHandler(configHolder, sparseService);
+        HeightmapHandler heightmapHandler = new HeightmapHandler(configHolder, heightmapService);
+        ReadRegionHandler readRegionHandler = new ReadRegionHandler(configHolder, readRegionService);
+        SnapshotHandler snapshotHandler = new SnapshotHandler(configHolder, snapshotService, snapshotStore);
+        RunCommandHandler runCommandHandler = new RunCommandHandler(configHolder);
         PlayersHandler playersHandler = new PlayersHandler();
-        RenderHandler renderHandler = new RenderHandler(config, renderService);
+        RenderHandler renderHandler = new RenderHandler(configHolder, renderService);
         RpcHandler snapshotCreateHandler = snapshotHandler.snapshot();
         RpcHandler restoreHandler = snapshotHandler.restore();
         RpcHandler listSnapshotsHandler = snapshotHandler.listSnapshots();
@@ -183,7 +186,7 @@ public final class AshlarPlugin extends JavaPlugin {
         dispatcher.register("list_snapshots", listSnapshotsHandler);
         dispatcher.register("run_command", runCommandHandler);
         dispatcher.register("players", playersHandler);
-        ChatOut chatOut = new ChatOut(config, getLogger());
+        ChatOut chatOut = new ChatOut(configHolder, getLogger());
         dispatcher.register("subscribe", new SubscribeHandler());
         dispatcher.register("send_message", new SendMessageHandler(chatOut));
         dispatcher.register("render", renderHandler);
@@ -230,9 +233,10 @@ public final class AshlarPlugin extends JavaPlugin {
                 // this Bukkit call (org.bukkit.entity.Player#locale()) is safe here.
                 java.util.function.Function<String, String> languageForUuid = uuid -> {
                     org.bukkit.entity.Player online = getServer().getPlayer(java.util.UUID.fromString(uuid));
+                    String language = configHolder.get().language();
                     return online != null
-                            ? Messages.forPlayer(config.language(), online.locale())
-                            : Messages.forConsole(config.language());
+                            ? Messages.forPlayer(language, online.locale())
+                            : Messages.forConsole(language);
                 };
                 this.agentService = new AgentService(config.agent(), toolRegistry, modelClient, usageStore,
                         historyStore, chatOut, getLogger(), languageForUuid);
@@ -246,7 +250,7 @@ public final class AshlarPlugin extends JavaPlugin {
 
         if (config.server().enabled()) {
             InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
-            this.wsServer = new WsServer(address, config, dispatcher, getLogger());
+            this.wsServer = new WsServer(address, configHolder, dispatcher, getLogger());
             // Wired in after the WsServer exists (construction-order workaround: the
             // WsServer constructor needs the dispatcher, and therefore every handler,
             // already built), so InvocationContexts built per-request can send progress
@@ -261,10 +265,11 @@ public final class AshlarPlugin extends JavaPlugin {
             this.wsServer.start();
         }
 
-        Cooldown cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
+        this.cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
         AllowList allowList = new AllowList(dataFolder.resolve("allowed-players.yml"), getLogger());
         allowList.load();
-        getCommand("ashlar").setExecutor(new AshlarCommand(config, wsServer, cooldown, allowList, agentService));
+        getCommand("ashlar").setExecutor(
+                new AshlarCommand(configHolder, wsServer, cooldown, allowList, agentService, this::reloadAshlarConfig));
         getCommand("ashlar").setTabCompleter(new AshlarTabCompleter(allowList));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
@@ -296,6 +301,66 @@ public final class AshlarPlugin extends JavaPlugin {
         if (snapshotStore != null) {
             snapshotStore.shutdown();
         }
+    }
+
+    /**
+     * agent.everyone-can-use (step6.6, hot per step8j-prompt.md): the plugin.yml default for
+     * ashlar.use is "op"; when the operator opts in, flip the *runtime* default to "everyone"
+     * instead so it works with no permissions plugin installed. Daily limits and the cooldown
+     * still apply either way - this only controls who may send a request at all. Called once from
+     * {@link #onEnable} and again on every {@code /ashlar reload}.
+     */
+    private void applyEveryoneCanUse(PluginConfig config) {
+        Permission usePermission = getServer().getPluginManager().getPermission("ashlar.use");
+        if (usePermission != null) {
+            usePermission.setDefault(config.agent().everyoneCanUse() ? PermissionDefault.TRUE : PermissionDefault.OP);
+            getServer().getPluginManager().recalculatePermissionDefaults(usePermission);
+        }
+    }
+
+    /**
+     * {@code /ashlar reload} (step8j-prompt.md &sect;B): re-reads {@code config.yml}, validates it
+     * exactly like startup ({@link PluginConfig#load}), and on success applies every hot key to
+     * {@link #configHolder} and every other component that keeps its own hot-derived state ({@link
+     * #cooldown}, {@link #snapshotStore}, {@link #operationLog}, the {@code ashlar.use} permission
+     * default, {@link #agentService}). A cold key is left exactly as the running config already has
+     * it ({@link ConfigReload#applyHotOnly}) and is reported back so the caller knows a restart is
+     * still needed. On a validation failure the running config is left completely untouched. Must
+     * run on the main thread ({@link #reloadConfig()}/{@link #getConfig()} are Bukkit).
+     */
+    private ReloadOutcome reloadAshlarConfig() {
+        PluginConfig oldConfig = configHolder.get();
+        reloadConfig();
+        PluginConfig parsedNew;
+        try {
+            parsedNew = PluginConfig.load(getConfig(), getLogger());
+        } catch (ConfigException e) {
+            getLogger().warning("/ashlar reload: " + e.getMessage());
+            return ReloadOutcome.failed(e.getMessage());
+        }
+
+        java.util.List<String> coldChanges = ConfigReload.coldChanges(oldConfig, parsedNew);
+        PluginConfig applied = ConfigReload.applyHotOnly(oldConfig, parsedNew);
+        configHolder.set(applied);
+
+        if (cooldown != null) {
+            cooldown.setCooldownMillis(applied.agent().cooldownSeconds() * 1000L);
+        }
+        if (snapshotStore != null) {
+            snapshotStore.setMaxSnapshots(applied.snapshot().maxSnapshots());
+        }
+        if (operationLog != null) {
+            operationLog.setEnabled(applied.logging().logOperations());
+        }
+        applyEveryoneCanUse(applied);
+        if (agentService != null) {
+            agentService.applyConfig(applied.agent());
+        }
+
+        getLogger().info(coldChanges.isEmpty()
+                ? "Config reloaded."
+                : "Config reloaded; these changes need a restart: " + String.join(", ", coldChanges));
+        return ReloadOutcome.ok(coldChanges);
     }
 
     private void logFatal(String message) {

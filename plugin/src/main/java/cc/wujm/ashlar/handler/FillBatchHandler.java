@@ -4,7 +4,7 @@ package cc.wujm.ashlar.handler;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.engine.FillOp;
 import cc.wujm.ashlar.engine.FillService;
 import cc.wujm.ashlar.rpc.ErrorCode;
@@ -37,18 +37,18 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class FillBatchHandler implements RpcHandler {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final FillService fillService;
 
-    public FillBatchHandler(PluginConfig config, FillService fillService) {
-        this.config = config;
+    public FillBatchHandler(ConfigHolder configHolder, FillService fillService) {
+        this.configHolder = configHolder;
         this.fillService = fillService;
     }
 
     @Override
     public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
         try {
-            RequestValidator validator = new RequestValidator(config);
+            RequestValidator validator = new RequestValidator(configHolder.get());
             World world = validator.resolveWorld(params);
             JsonArray opsArray = requireNonEmptyArray(params, "ops");
 

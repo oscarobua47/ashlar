@@ -23,16 +23,26 @@ import java.util.logging.Logger;
  */
 public final class OperationLog {
 
-    private final boolean enabled;
+    private final Path dataFolder;
+    // Not final: logging.log-operations is hot (step8j-prompt.md) - /ashlar reload calls
+    // setEnabled, which opens/closes writer under lock along with it.
+    private boolean enabled;
     private final Logger logger;
     private final Object lock = new Object();
     private BufferedWriter writer;
 
     public OperationLog(Path dataFolder, boolean enabled, Logger logger) {
-        this.enabled = enabled;
+        this.dataFolder = dataFolder;
         this.logger = logger;
-        if (!enabled) {
-            return;
+        synchronized (lock) {
+            this.enabled = enabled && openWriter();
+        }
+    }
+
+    /** Opens {@link #writer} if not already open; returns whether it is open afterwards. Caller must hold {@link #lock}. */
+    private boolean openWriter() {
+        if (writer != null) {
+            return true;
         }
         try {
             Files.createDirectories(dataFolder);
@@ -42,8 +52,37 @@ public final class OperationLog {
                     StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.APPEND);
+            return true;
         } catch (IOException e) {
             logger.log(Level.SEVERE, "Failed to open operations.log for writing; operation logging is disabled", e);
+            return false;
+        }
+    }
+
+    /**
+     * Applies a new {@code logging.log-operations} value ({@code /ashlar reload}, step8j-prompt.md):
+     * opens {@link #writer} (appending to the same file) if turning logging on and it is not
+     * already open, or closes it if turning it off. A failed open leaves logging disabled, same as
+     * the constructor.
+     */
+    public void setEnabled(boolean enabled) {
+        synchronized (lock) {
+            if (enabled == this.enabled) {
+                return;
+            }
+            if (enabled) {
+                this.enabled = openWriter();
+            } else {
+                this.enabled = false;
+                if (writer != null) {
+                    try {
+                        writer.close();
+                    } catch (IOException e) {
+                        logger.log(Level.WARNING, "Failed to close operations.log cleanly", e);
+                    }
+                    writer = null;
+                }
+            }
         }
     }
 

@@ -19,7 +19,10 @@ public final class Cooldown {
     private static final long EVICT_AFTER_MILLIS = 10 * 60 * 1000L;
 
     private final Map<UUID, Long> lastAcceptedMillis = new ConcurrentHashMap<>();
-    private final long cooldownMillis;
+    // Not final: agent.cooldown-seconds is hot (step8j-prompt.md) - /ashlar reload calls
+    // setCooldownMillis; a request already mid-cooldown-check reads a single volatile value, so it
+    // never observes a half-applied change, and the next check sees whatever was set last.
+    private volatile long cooldownMillis;
     private final LongSupplier clock;
 
     public Cooldown(long cooldownMillis, LongSupplier clock) {
@@ -35,6 +38,11 @@ public final class Cooldown {
         }
         long elapsed = clock.getAsLong() - last;
         return Math.max(0L, cooldownMillis - elapsed);
+    }
+
+    /** Applies a new cooldown window ({@code /ashlar reload}, step8j-prompt.md); already-recorded timestamps are unaffected. */
+    public void setCooldownMillis(long cooldownMillis) {
+        this.cooldownMillis = cooldownMillis;
     }
 
     /** Records that {@code player} was just accepted, and sweeps entries older than 10 minutes. */

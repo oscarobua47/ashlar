@@ -60,7 +60,10 @@ public final class AdminActions {
     private final UsageStore store;
     private final Cancel cancel;
     private final Send send;
-    private final String currency;
+    // Not final: agent.pricing.currency is hot (step8j-prompt.md) - AgentService#applyConfig calls
+    // setCurrency; every reader here runs on the main thread only (see class javadoc), so a plain
+    // field is enough.
+    private String currency;
     private final Function<String, String> languageForUuid;
     private final Messages messages = Messages.instance();
 
@@ -74,6 +77,11 @@ public final class AdminActions {
         this.send = send;
         this.currency = currency;
         this.languageForUuid = languageForUuid;
+    }
+
+    /** Applies a new {@code agent.pricing.currency} ({@code /ashlar reload}, step8j-prompt.md). */
+    public void setCurrency(String currency) {
+        this.currency = currency;
     }
 
     private String lang(String uuid) {

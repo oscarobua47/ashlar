@@ -2,7 +2,7 @@
 package cc.wujm.ashlar.engine;
 
 import com.google.gson.JsonElement;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.rpc.InvocationContext;
 import cc.wujm.ashlar.rpc.MainThread;
 import org.bukkit.World;
@@ -18,11 +18,11 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class SparseService {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final TickBudgetExecutor executor;
 
-    public SparseService(PluginConfig config, TickBudgetExecutor executor) {
-        this.config = config;
+    public SparseService(ConfigHolder configHolder, TickBudgetExecutor executor) {
+        this.configHolder = configHolder;
         this.executor = executor;
     }
 
@@ -35,7 +35,7 @@ public final class SparseService {
             InvocationContext ctx) {
         MainThread.assertNotPrimary("SparseService.set");
         Region region = boundingRegion(ops);
-        SparseTask task = new SparseTask(region, ops, world, connect, config.engine().supportWarnings(), liquidsFlow);
+        SparseTask task = new SparseTask(region, ops, world, connect, configHolder.get().engine().supportWarnings(), liquidsFlow);
         return executor.submit(task, ctx);
     }
 

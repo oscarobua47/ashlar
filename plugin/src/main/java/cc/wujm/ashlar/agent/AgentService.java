@@ -60,8 +60,17 @@ public final class AgentService {
         final Deque<Pending> queue = new ArrayDeque<>();
     }
 
-    private final PluginConfig.AgentConfig config;
-    private final AgentRunner runner;
+    // Not final: agent.* is mostly hot (step8j-prompt.md) - applyConfig rebuilds/updates every
+    // hot-derived piece below and swaps these two fields atomically; a request already running
+    // reads each exactly once already (processOne captures player/pending at the top and calls
+    // runner.run(...) once), so it always finishes with the settings it started with.
+    // agent.limits.max-concurrent is the one exception: it sizes the fixed Semaphore below at
+    // construction and stays cold (see the report - resizing permits safely while requests may be
+    // in flight is not simple to re-wire).
+    private volatile PluginConfig.AgentConfig config;
+    private volatile AgentRunner runner;
+    private final ToolRegistry toolRegistry;
+    private final ModelApi modelApi;
     private final UsageStore usageStore;
     private final HistoryStore historyStore;
     private final Outbox outbox;
@@ -96,24 +105,65 @@ public final class AgentService {
                          UsageStore usageStore, HistoryStore historyStore, Outbox outbox, Logger logger,
                          Function<String, String> languageForUuid) {
         this.config = config;
+        this.toolRegistry = toolRegistry;
+        this.modelApi = modelApi;
         this.usageStore = usageStore;
         this.historyStore = historyStore;
         this.outbox = outbox;
         this.logger = logger;
         this.concurrency = new Semaphore(Math.max(1, config.limits().maxConcurrent()));
 
-        Set<String> allowed = new LinkedHashSet<>(toolRegistry.names());
-        if (!config.model().allowCommand()) {
-            allowed.remove("mc_command");
-        }
-        Optional<String> systemPromptExtra = readSystemPromptExtra(config.model().systemPromptFile(), logger);
-        this.runner = new AgentRunner(modelApi, toolRegistry, allowed, config.model().maxToolCalls(),
-                config.model().imageDetail(), systemPromptExtra);
+        this.runner = buildRunner(config, toolRegistry, modelApi, logger);
 
         this.adminActions = new AdminActions(usageStore,
                 uuid -> cancelOutcome(UUID.fromString(uuid)),
                 (uuid, text, kind) -> outbox.send(UUID.fromString(uuid), text, kind == AdminActions.SendKind.FINAL),
                 config.pricing().currency(), languageForUuid);
+    }
+
+    private static AgentRunner buildRunner(PluginConfig.AgentConfig config, ToolRegistry toolRegistry,
+                                            ModelApi modelApi, Logger logger) {
+        Set<String> allowed = new LinkedHashSet<>(toolRegistry.names());
+        if (!config.model().allowCommand()) {
+            allowed.remove("mc_command");
+        }
+        Optional<String> systemPromptExtra = readSystemPromptExtra(config.model().systemPromptFile(), logger);
+        return new AgentRunner(modelApi, toolRegistry, allowed, config.model().maxToolCalls(),
+                config.model().imageDetail(), systemPromptExtra);
+    }
+
+    /**
+     * Applies a reloaded {@code agent.*} config ({@code /ashlar reload}, step8j-prompt.md &sect;B).
+     * Must be called from the main thread, after {@link cc.wujm.ashlar.config.ConfigHolder} already
+     * holds {@code newConfig} (so a hot consumer that reads the holder directly, e.g. {@code
+     * AshlarCommand}, and this method's updates to the pieces {@code AgentService} owns privately
+     * (the model client, the tool-call runner, {@link UsageStore}'s pricing/limits, {@link
+     * HistoryStore}'s turns/ttl, {@link AdminActions}'s currency) become visible together, not one
+     * before the other). {@code agent.limits.max-concurrent} is intentionally not touched here: it
+     * only sizes the fixed {@link #concurrency} {@link Semaphore} at construction and stays cold
+     * (see the report). A request already running keeps the {@link AgentRunner}/{@link ModelClient}
+     * config it started with: {@link #processOne} reads {@link #runner} exactly once per request,
+     * and {@link ModelClient#chat} reads its own config exactly once per call.
+     */
+    public void applyConfig(PluginConfig.AgentConfig newConfig) {
+        this.config = newConfig;
+        if (modelApi instanceof ModelClient modelClient) {
+            PluginConfig.AgentConfig.ModelConfig modelCfg = newConfig.model();
+            modelClient.updateConfig(new ModelConfig(modelCfg.baseUrl(), modelCfg.apiKey(), modelCfg.model(),
+                    java.time.Duration.ofMillis(modelCfg.requestTimeoutMs())));
+        }
+        this.runner = buildRunner(newConfig, toolRegistry, modelApi, logger);
+
+        usageStore.updatePricing(newConfig.pricing().input(), newConfig.pricing().cachedInput(),
+                newConfig.pricing().output(), newConfig.pricing().currency());
+        usageStore.updateEnvLimits(new UsageStore.Limits(newConfig.limits().maxCostPerPlayerPerDay(),
+                newConfig.limits().maxTokensPerPlayerPerDay(), newConfig.limits().maxRequestsPerPlayerPerDay()));
+        usageStore.updatePeakSchedule(Pricing.parsePeakHours(newConfig.pricing().peakHours()),
+                newConfig.pricing().offPeakMultiplier());
+
+        historyStore.updateLimits(newConfig.limits().historyTurns(), newConfig.limits().historyTtlMinutes());
+
+        adminActions.setCurrency(newConfig.pricing().currency());
     }
 
     private static Optional<String> readSystemPromptExtra(String path, Logger logger) {

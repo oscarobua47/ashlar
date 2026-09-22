@@ -10,6 +10,12 @@
 #     Cloudflare Tunnel, ...) in front of it to terminate TLS if the
 #     connection ever crosses an untrusted network. Do not expose this port
 #     directly to the public internet without one.
+#
+# Every key below is marked "Reload" or "Restart":
+#   Reload:  edit the key, then run `/ashlar reload` (in game, ashlar.admin) or
+#            `ashlar reload` (console) - the new value applies immediately, no restart.
+#   Restart: `/ashlar reload` still re-reads the file and reports this key as changed,
+#            but the new value only takes effect after a full server restart.
 # =============================================================================
 
 # Language for everything the plugin itself says in chat (/ashlar usage/help lines, progress
@@ -20,7 +26,7 @@
 #   auto   = each player's own client language (falls back to English for anything not shipped
 #            above); the console (including `ashlar simulate`) always sees English under "auto",
 #            since it has no client locale to read.
-# Picked up on the next restart; changing it does not require a full reconfigure.
+# Reload: /ashlar reload applies it.
 language: en
 
 # How this server is used. This one key decides whether the WebSocket server
@@ -32,21 +38,26 @@ language: en
 #   ingame   = /ashlar only: no WebSocket server, no port, no token needed.
 #   external = WebSocket server on; /ashlar requests are forwarded to a
 #              connected external process (the 0.2 layout, for integrators).
+# Restart: changing this needs a server restart.
 mode: both
 
 server:
+  # Restart: changing this needs a server restart.
   # Interface to bind the WebSocket server to. "0.0.0.0" listens on all
   # interfaces; use "127.0.0.1" if the MCP Server runs on the same host.
   host: "0.0.0.0"
 
+  # Restart: changing this needs a server restart.
   # TCP port for the WebSocket server. Pick an idle port on your host/panel.
   port: 8765
 
+  # Restart: changing this needs a server restart.
   # The token clients must present on connect. Required unless mode is
   # "ingame": leave it empty and the plugin will refuse to start. Use a long
   # random value (>= 16 characters), e.g. `openssl rand -hex 24`.
   token: ""
 
+  # Reload: /ashlar reload applies it. Checked on every new connection.
   # Optional allow-list of client IP addresses. Empty list = no restriction
   # (the token is still required). Recommended when the MCP Server has a
   # fixed IP; leave empty when it runs on a PC with a dynamic home IP, since
@@ -54,18 +65,23 @@ server:
   allowed-ips: []
 
 limits:
+  # Reload: /ashlar reload applies it.
   # Maximum number of blocks a single fill_batch/set_blocks request may touch.
   max-blocks-per-operation: 500000
 
+  # Reload: /ashlar reload applies it.
   # Maximum region volume read_region may return in a single call.
   max-read-volume: 200000
 
+  # Restart: changing this needs a server restart (read once by the tick scheduler).
   # Maximum milliseconds of work performed per server tick by build tasks.
   tick-budget-ms: 20
 
+  # Restart: changing this needs a server restart (read once by the tick scheduler).
   # Maximum number of operations that may be queued at once.
   max-queued-operations: 16
 
+  # Reload: /ashlar reload applies it.
   # Maximum number of 16x16 chunk columns a single operation's bounding box
   # may force-load. Applies to fill_batch, set_blocks, read_region, snapshot,
   # restore (the snapshot's own region) and heightmap (x/z area, one y layer).
@@ -74,11 +90,13 @@ limits:
   # a 300x300 terrain survey; lower it on memory-constrained servers.
   max-chunks-per-operation: 1024
 
+  # Reload: /ashlar reload applies it.
   # Maximum number of physics-enabled liquid blocks a single fill_batch/set_blocks request may
   # place with "liquids": "flow" (default "static" has no such cap). Each one schedules fluid
   # updates that spread on their own, so keep this small.
   max-flowing-liquids-per-operation: 2000
 
+# Reload: /ashlar reload applies it (every key in this section).
 world:
   # Default world name used when a request omits "world".
   default: "world"
@@ -92,6 +110,7 @@ world:
     min: {x: -1000, z: -1000}
     max: {x: 1000, z: 1000}
 
+# Reload: /ashlar reload applies it (every key in this section).
 snapshot:
   # Whether the snapshot/restore feature is available.
   enabled: true
@@ -102,16 +121,19 @@ snapshot:
   # Maximum region volume that may be captured in a single snapshot.
   max-volume: 200000
 
+# Reload: /ashlar reload applies it (every key in this section).
 logging:
   # Whether every executed operation is appended to operations.log.
   log-operations: true
 
+# Reload: /ashlar reload applies it (every key in this section).
 run-command:
   # Whether the run_command RPC (arbitrary console command execution) is
   # enabled. This is an escape hatch with full console privileges; disable
   # it if you do not need it.
   enabled: true
 
+# Reload: /ashlar reload applies it (every key in this section).
 engine:
   # Whether fill_batch/set_blocks run a shape-only connection pass after
   # writing, so glass panes, fences, walls, iron bars and stairs connect to
@@ -132,6 +154,8 @@ agent:
   # "/ashlar <request>". Whether it runs is decided by the top-level `mode`.
 
   # Only used when mode is "both" or "ingame".
+  # Reload: /ashlar reload applies it (every key in this section) - the model client and the
+  # tool-call runner are rebuilt from scratch, including a fresh read of system-prompt-file.
   model:
     # OpenAI-compatible base URL; "/chat/completions" is appended. No
     # trailing slash needed.
@@ -165,30 +189,37 @@ agent:
 
   # Only used when mode is "both" or "ingame".
   limits:
+    # Reload: /ashlar reload applies it.
     # Maximum requests one player may start per day (UTC), counted by UUID.
     # 0 = unlimited.
     max-requests-per-player-per-day: 40
 
+    # Reload: /ashlar reload applies it.
     # Maximum tokens (input + cached + output) one player may use per day.
     # 0 = unlimited.
     max-tokens-per-player-per-day: 0
 
+    # Reload: /ashlar reload applies it.
     # Maximum cost (in agent.pricing.currency) one player may incur per day.
     # 0 = unlimited.
     max-cost-per-player-per-day: 0
 
+    # Restart: changing this needs a server restart (sizes a fixed worker-permit pool at startup).
     # Requests running at once across all players.
     max-concurrent: 2
 
+    # Reload: /ashlar reload applies it.
     # User/assistant exchanges remembered per player between requests.
     history-turns: 6
 
+    # Reload: /ashlar reload applies it.
     # A player's remembered history is forgotten after this many minutes of
     # inactivity.
     history-ttl-minutes: 30
 
   # Only used when mode is "both" or "ingame". Pricing feeds the cost shown in each
   # reply's footer and the max-cost-per-player-per-day limit above.
+  # Reload: /ashlar reload applies it (every key in this section).
   pricing:
     # USD (or "currency" below) per 1,000,000 uncached input tokens, at peak
     # price.
@@ -214,18 +245,22 @@ agent:
     # Price multiplier applied outside the peak-hours windows.
     off-peak-multiplier: 0.5
 
+  # Reload: /ashlar reload applies it.
   # Minimum seconds between two requests from the same player.
   cooldown-seconds: 5
 
+  # Reload: /ashlar reload applies it.
   # Longest request text accepted, in characters.
   max-message-length: 500
 
+  # Reload: /ashlar reload applies it.
   # Whether players with the ashlar.monitor permission (default op) see a
   # compact echo of every /ashlar request and every final reply from other
   # players - "<name> asked: ..." and "[Ashlar -> <name>] ...". Monitors
   # never see progress lines, and never see an echo of their own requests.
   echo-to-monitors: true
 
+  # Reload: /ashlar reload applies it.
   # true = every player may use /ashlar; false (default) = only operators,
   # players granted the ashlar.use permission (e.g. via LuckPerms), or
   # players on the plugin's own allow list (/ashlar allow <player>).

@@ -4,7 +4,7 @@ package cc.wujm.ashlar.handler;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.rpc.ErrorCode;
 import cc.wujm.ashlar.rpc.InvocationContext;
 import cc.wujm.ashlar.rpc.MainThread;
@@ -42,15 +42,15 @@ public final class RunCommandHandler implements RpcHandler {
     private static final int MAX_OUTPUT_LINES = 200;
     private static final int MAX_OUTPUT_BYTES = 16 * 1024;
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
 
-    public RunCommandHandler(PluginConfig config) {
-        this.config = config;
+    public RunCommandHandler(ConfigHolder configHolder) {
+        this.configHolder = configHolder;
     }
 
     @Override
     public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
-        if (!config.runCommand().enabled()) {
+        if (!configHolder.get().runCommand().enabled()) {
             return CompletableFuture.failedFuture(new RpcError(ErrorCode.DISABLED, "run_command is disabled in config.yml"));
         }
         String command;

@@ -5,7 +5,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import cc.wujm.ashlar.agent.ConsolePlayer;
 import cc.wujm.ashlar.agent.Outbox;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.rpc.MainThread;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -31,11 +31,11 @@ import java.util.logging.Logger;
  */
 public final class ChatOut implements Outbox {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final Logger logger;
 
-    public ChatOut(PluginConfig config, Logger logger) {
-        this.config = config;
+    public ChatOut(ConfigHolder configHolder, Logger logger) {
+        this.configHolder = configHolder;
         this.logger = logger;
     }
 
@@ -44,7 +44,7 @@ public final class ChatOut implements Outbox {
 
     /** Splits {@code text} on {@code "\n"}, sends each non-empty line to {@code target}, and echoes final replies to monitors. */
     public Delivered deliver(Player target, String text, boolean finalKind) {
-        List<Player> monitors = finalKind && config.agent().echoToMonitors()
+        List<Player> monitors = finalKind && configHolder.get().agent().echoToMonitors()
                 ? Monitors.onlineExcept(target)
                 : List.of();
         Component monitorPrefix = Component.text("[Ashlar -> " + target.getName() + "] ", NamedTextColor.GOLD);

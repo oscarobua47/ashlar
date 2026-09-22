@@ -4,7 +4,7 @@ package cc.wujm.ashlar.handler;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.engine.RequestValidator;
 import cc.wujm.ashlar.engine.SparseOp;
 import cc.wujm.ashlar.engine.SparseService;
@@ -27,18 +27,18 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class SetBlocksHandler implements RpcHandler {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final SparseService sparseService;
 
-    public SetBlocksHandler(PluginConfig config, SparseService sparseService) {
-        this.config = config;
+    public SetBlocksHandler(ConfigHolder configHolder, SparseService sparseService) {
+        this.configHolder = configHolder;
         this.sparseService = sparseService;
     }
 
     @Override
     public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
         try {
-            RequestValidator validator = new RequestValidator(config);
+            RequestValidator validator = new RequestValidator(configHolder.get());
             World world = validator.resolveWorld(params);
             JsonArray blocksArray = requireNonEmptyArray(params, "blocks");
 

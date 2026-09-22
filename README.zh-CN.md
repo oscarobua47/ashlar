@@ -237,6 +237,7 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 - **`/ashlar cancel <player>`** —— 取消另一个玩家正在运行或排队中的请求（玩家自己的 `/ashlar cancel` 依然可用）；目标玩家会被告知是谁取消的。
 - **`/ashlar allow <player>`** / **`/ashlar deny <player>`** / **`/ashlar allowed`** —— 插件自己的允许列表（见"设置"）。
 - **`/ashlar credit <player>`** / **`/ashlar credit <player> <add|set> <amount>`** / **`/ashlar credit <player> off`** —— 管理某玩家的预付额度（见下方"预付额度"）。
+- **`/ashlar reload`**（控制台也可用 `ashlar reload`）—— 重新读取 `config.yml`，绝大多数配置项立即生效，无需重启；config.yml 中每个配置项都标注了 `Reload` 或 `Restart`，改动了的 `Restart` 项会在回复中列出，但仍需要重启才能生效。文件无效时会返回错误，且当前运行的配置保持不变。
 
 #### 预付额度
 

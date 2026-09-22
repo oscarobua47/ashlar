@@ -4,7 +4,7 @@ package cc.wujm.ashlar.handler;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.engine.BlockDataParser;
 import cc.wujm.ashlar.engine.Region;
 import cc.wujm.ashlar.engine.RegionData;
@@ -35,12 +35,12 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class SnapshotHandler {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final SnapshotService snapshotService;
     private final SnapshotStore store;
 
-    public SnapshotHandler(PluginConfig config, SnapshotService snapshotService, SnapshotStore store) {
-        this.config = config;
+    public SnapshotHandler(ConfigHolder configHolder, SnapshotService snapshotService, SnapshotStore store) {
+        this.configHolder = configHolder;
         this.snapshotService = snapshotService;
         this.store = store;
     }
@@ -62,11 +62,11 @@ public final class SnapshotHandler {
     // ------------------------------------------------------------------
 
     private CompletableFuture<JsonElement> handleSnapshot(InvocationContext ctx, JsonObject params) {
-        if (!config.snapshot().enabled()) {
+        if (!configHolder.get().snapshot().enabled()) {
             return CompletableFuture.failedFuture(new RpcError(ErrorCode.DISABLED, "snapshot is disabled in config.yml"));
         }
         try {
-            RequestValidator validator = new RequestValidator(config);
+            RequestValidator validator = new RequestValidator(configHolder.get());
             World world = validator.resolveWorld(params);
             String label = optString(params, "label");
             return MainThread.call(() -> new int[]{world.getMinHeight(), world.getMaxHeight()})
@@ -79,7 +79,7 @@ public final class SnapshotHandler {
     private CompletableFuture<JsonElement> startSnapshot(RequestValidator validator, World world, JsonObject params,
             int[] heights, String label, InvocationContext ctx) {
         try {
-            Region region = validator.validateReadRegion(params, heights[0], heights[1], config.snapshot().maxVolume());
+            Region region = validator.validateReadRegion(params, heights[0], heights[1], configHolder.get().snapshot().maxVolume());
             return snapshotService.snapshot(world, region, label, ctx);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);
@@ -99,7 +99,7 @@ public final class SnapshotHandler {
             if (world == null) {
                 throw new RpcError(ErrorCode.WORLD_NOT_ALLOWED, "world for this snapshot no longer exists: '" + snapshot.world() + "'");
             }
-            RequestValidator validator = new RequestValidator(config);
+            RequestValidator validator = new RequestValidator(configHolder.get());
             validator.checkChunkCount(snapshot.region());
 
             // Parse every palette entry before enqueueing (network thread; Bukkit.createBlockData

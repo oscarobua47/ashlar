@@ -44,7 +44,9 @@ import java.util.zip.GZIPOutputStream;
 public final class SnapshotStore {
 
     private final Path snapshotsDir;
-    private final int maxSnapshots;
+    // Not final: snapshot.max-snapshots is hot (step8j-prompt.md) - /ashlar reload calls
+    // setMaxSnapshots; only read/written under lock in put(), so a plain volatile is enough.
+    private volatile int maxSnapshots;
     private final Logger logger;
     private final LinkedHashMap<String, Snapshot> byId = new LinkedHashMap<>();
     private final Object lock = new Object();
@@ -122,6 +124,11 @@ public final class SnapshotStore {
             list.sort(Comparator.comparing(Snapshot::createdAt).reversed());
             return list;
         }
+    }
+
+    /** Applies a new cap ({@code /ashlar reload}, step8j-prompt.md); does not itself evict anything - the next {@link #put} does. */
+    public void setMaxSnapshots(int maxSnapshots) {
+        this.maxSnapshots = maxSnapshots;
     }
 
     /** Drains the I/O executor so a shutdown never truncates a still-in-flight gzip write. Call from {@code onDisable}. */

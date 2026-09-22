@@ -38,18 +38,19 @@ import java.util.regex.Pattern;
  * /ashlar deny &lt;player&gt;
  * /ashlar allowed
  * /ashlar help
+ * /ashlar reload
  * </pre>
  *
  * The first word decides the subcommand, case-insensitively; {@code usage},
  * {@code limit}, {@code credit}, {@code pause}, {@code resume}, {@code allow},
- * {@code deny}, {@code allowed}, {@code help} and {@code cancel} are reserved,
+ * {@code deny}, {@code allowed}, {@code help}, {@code reload} and {@code cancel} are reserved,
  * so a plain request cannot start with one of them.
  */
 public final class AshlarArgs {
 
     public enum Kind {
         REQUEST, CANCEL_SELF, CANCEL_OTHER, RESET, USAGE_SELF, USAGE_OTHER, USAGE_ALL,
-        LIMIT, CREDIT_SHOW, CREDIT_SET, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, INVALID
+        LIMIT, CREDIT_SHOW, CREDIT_SET, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, RELOAD, INVALID
     }
 
     /** {@code ashlar simulate <x> <y> <z> [facing] <text...>} (step8b-prompt.md), console only. */
@@ -87,6 +88,7 @@ public final class AshlarArgs {
     static final String USAGE_DENY = "Usage: /ashlar deny <player>";
     static final String USAGE_ALLOWED = "Usage: /ashlar allowed";
     static final String USAGE_SIMULATE = "Usage: ashlar simulate <x> <y> <z> [facing] <text...> (console only)";
+    static final String USAGE_RELOAD = "Usage: /ashlar reload";
 
     private static final List<String> FACINGS = List.of("south", "west", "north", "east");
 
@@ -110,7 +112,8 @@ public final class AshlarArgs {
             Map.entry(USAGE_ALLOW, "command.grammar.allow"),
             Map.entry(USAGE_DENY, "command.grammar.deny"),
             Map.entry(USAGE_ALLOWED, "command.grammar.allowed"),
-            Map.entry(USAGE_SIMULATE, "command.grammar.simulate"));
+            Map.entry(USAGE_SIMULATE, "command.grammar.simulate"),
+            Map.entry(USAGE_RELOAD, "command.grammar.reload"));
 
     private AshlarArgs() {
     }
@@ -167,6 +170,7 @@ public final class AshlarArgs {
             case "allowed" -> args.length == 1 ? simple(Kind.ALLOWED) : invalid(USAGE_ALLOWED);
             case "reset" -> args.length == 1 ? simple(Kind.RESET) : invalid(USAGE_RESET);
             case "help" -> simple(Kind.HELP);
+            case "reload" -> args.length == 1 ? simple(Kind.RELOAD) : invalid(USAGE_RELOAD);
             case "simulate" -> parseSimulate(args, consoleSender);
             default -> new Parsed(Kind.REQUEST, null, List.of(args), null);
         };

@@ -6,7 +6,7 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.rpc.ErrorCode;
 import cc.wujm.ashlar.rpc.RpcDispatcher;
 import cc.wujm.ashlar.rpc.RpcResponse;
@@ -36,7 +36,11 @@ import java.util.logging.Logger;
  */
 public final class WsServer extends WebSocketServer {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
+    // server.token is cold (step8j-prompt.md): frozen at construction rather than read through
+    // configHolder, so a reloaded token never takes effect until a restart, even though
+    // server.allowed-ips below (hot) is checked fresh on every connection.
+    private final String token;
     private final RpcDispatcher dispatcher;
     private final Logger logger;
     private final Map<WebSocket, ClientSession> sessions = new ConcurrentHashMap<>();
@@ -46,9 +50,10 @@ public final class WsServer extends WebSocketServer {
         return t;
     });
 
-    public WsServer(InetSocketAddress address, PluginConfig config, RpcDispatcher dispatcher, Logger logger) {
+    public WsServer(InetSocketAddress address, ConfigHolder configHolder, RpcDispatcher dispatcher, Logger logger) {
         super(address);
-        this.config = config;
+        this.configHolder = configHolder;
+        this.token = configHolder.get().server().token();
         this.dispatcher = dispatcher;
         this.logger = logger;
         setReuseAddr(true);
@@ -57,7 +62,7 @@ public final class WsServer extends WebSocketServer {
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
         String ip = remoteIp(conn);
-        if (!config.isIpAllowed(ip)) {
+        if (!configHolder.get().isIpAllowed(ip)) {
             logger.info("Rejected connection from " + ip + ": not in allowed-ips");
             conn.close(4003, "ip not allowed");
             return;
@@ -198,7 +203,7 @@ public final class WsServer extends WebSocketServer {
 
         boolean valid = MessageDigest.isEqual(
                 token.getBytes(StandardCharsets.UTF_8),
-                config.server().token().getBytes(StandardCharsets.UTF_8));
+                this.token.getBytes(StandardCharsets.UTF_8));
 
         if (!valid) {
             conn.send(RpcResponse.error(id, ErrorCode.UNAUTHORIZED, "invalid token").toJson().toString());

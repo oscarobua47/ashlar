@@ -2,7 +2,7 @@
 package cc.wujm.ashlar.engine;
 
 import com.google.gson.JsonElement;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.rpc.InvocationContext;
 import cc.wujm.ashlar.rpc.MainThread;
 import org.bukkit.World;
@@ -20,11 +20,11 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class FillService {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final TickBudgetExecutor executor;
 
-    public FillService(PluginConfig config, TickBudgetExecutor executor) {
-        this.config = config;
+    public FillService(ConfigHolder configHolder, TickBudgetExecutor executor) {
+        this.configHolder = configHolder;
         this.executor = executor;
     }
 
@@ -39,7 +39,7 @@ public final class FillService {
             InvocationContext ctx) {
         MainThread.assertNotPrimary("FillService.fill");
         Region region = boundingRegion(ops);
-        FillTask task = new FillTask(region, ops, world, connect, config.engine().supportWarnings(), liquidsFlow);
+        FillTask task = new FillTask(region, ops, world, connect, configHolder.get().engine().supportWarnings(), liquidsFlow);
         return executor.submit(task, ctx);
     }
 

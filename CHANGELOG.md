@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- `/ashlar reload` (also `ashlar reload` from the console): re-reads `config.yml` and applies most keys immediately - model/limits/pricing/cooldown/language/world/snapshot/engine/logging and more - without a restart. Every key in `config.yml` is now commented `Reload` or `Restart`; a changed `Restart` key (`mode`, `server.host/port/token`, `limits.tick-budget-ms`/`max-queued-operations`, `agent.limits.max-concurrent`) is listed in the reply but still needs one. An invalid file is rejected with the error, leaving the running config untouched.
 - One top-level `mode` key replaces `agent.mode`: `both` (default - WebSocket server for MCP clients plus the in-game assistant), `mcp` (WebSocket only, `/ashlar` off), `ingame` (`/ashlar` only: no WebSocket server, no port, and `server.token` is not required any more) or `external` (WebSocket plus `/ashlar` forwarded to a connected external process). A config without `mode` keeps working: it is derived from the old `agent.mode` and the log says which value to add. Fixes a latent bug where an unquoted `agent.mode: off` was read as YAML `false` and ignored.
 - Java package renamed from `net.rcwalter.ashlar` to `cc.wujm.ashlar` (Gradle group `cc.wujm`). No user-visible change: the plugin name, data folder (`plugins/Ashlar/`), config, snapshots and permission nodes are unaffected - drop in the new jar.
 

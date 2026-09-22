@@ -40,7 +40,10 @@ public final class ModelClient implements ModelApi {
     private static final int[] BACKOFF_MS = {1000, 2000, 4000};
     private static final long POLL_MS = 50;
 
-    private final ModelConfig cfg;
+    // Not final: agent.model.* is hot (step8j-prompt.md) - AgentService#applyConfig calls
+    // updateConfig; chat() reads this field once at the top of each call, so a request already in
+    // flight keeps the ModelConfig it started with.
+    private volatile ModelConfig cfg;
     private final HttpClient http;
     private final Logger logger;
 
@@ -54,10 +57,16 @@ public final class ModelClient implements ModelApi {
         this.logger = logger;
     }
 
+    /** Applies a new {@link ModelConfig} ({@code /ashlar reload}, step8j-prompt.md); a call already in progress keeps the config it started with. */
+    public void updateConfig(ModelConfig cfg) {
+        this.cfg = cfg;
+    }
+
     @Override
     public Reply chat(List<ChatMessage> messages, List<ToolDef> tools, ToolChoice toolChoice, BooleanSupplier cancelled) {
+        ModelConfig cfg = this.cfg; // one snapshot for the whole call, including its retries: a reload mid-call must not mix old/new settings
         String url = cfg.baseUrl() + "/chat/completions";
-        String payload = buildRequestBody(messages, tools, toolChoice);
+        String payload = buildRequestBody(cfg, messages, tools, toolChoice);
 
         for (int attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
             if (cancelled.getAsBoolean()) {
@@ -86,14 +95,14 @@ public final class ModelClient implements ModelApi {
                 throw new ModelException(status, body.substring(0, Math.min(300, body.length())));
             }
 
-            return parseReply(response.body(), status, startedAt);
+            return parseReply(cfg, response.body(), status, startedAt);
         }
 
         // Unreachable: the loop always returns or throws.
         throw new ModelException(0, "chatCompletion: exhausted retries without a response");
     }
 
-    private String buildRequestBody(List<ChatMessage> messages, List<ToolDef> tools, ToolChoice toolChoice) {
+    private static String buildRequestBody(ModelConfig cfg, List<ChatMessage> messages, List<ToolDef> tools, ToolChoice toolChoice) {
         JsonObject body = new JsonObject();
         body.addProperty("model", cfg.model());
         JsonArray msgs = new JsonArray();
@@ -115,7 +124,7 @@ public final class ModelClient implements ModelApi {
         return body.toString();
     }
 
-    private Reply parseReply(String responseBody, int status, long startedAt) {
+    private Reply parseReply(ModelConfig cfg, String responseBody, int status, long startedAt) {
         JsonObject json;
         try {
             json = JsonParser.parseString(responseBody != null ? responseBody : "{}").getAsJsonObject();

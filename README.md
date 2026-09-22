@@ -237,6 +237,7 @@ Players with the `ashlar.admin` permission (default op) get these in-game comman
 - **`/ashlar cancel <player>`** - cancels another player's running or queued request (their own `/ashlar cancel` still works too); the target is told who cancelled it.
 - **`/ashlar allow <player>`** / **`/ashlar deny <player>`** / **`/ashlar allowed`** - the plugin's own allow list (see Setup).
 - **`/ashlar credit <player>`** / **`/ashlar credit <player> <add|set> <amount>`** / **`/ashlar credit <player> off`** - manage a player's prepaid credit (see "Prepaid credit" below).
+- **`/ashlar reload`** (also `ashlar reload` from the console) - re-reads `config.yml` and applies most keys immediately, no restart; config.yml marks each key `Reload` or `Restart`, and a changed `Restart` key is listed in the reply but still needs one. An invalid file is rejected with the error and the running config is left untouched.
 
 #### Prepaid credit
 

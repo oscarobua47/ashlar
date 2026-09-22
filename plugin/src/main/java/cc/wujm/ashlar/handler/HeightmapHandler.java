@@ -3,7 +3,7 @@ package cc.wujm.ashlar.handler;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.engine.HeightmapService;
 import cc.wujm.ashlar.engine.HeightmapTypes;
 import cc.wujm.ashlar.engine.RequestValidator;
@@ -32,22 +32,22 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class HeightmapHandler implements RpcHandler {
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final HeightmapService heightmapService;
 
-    public HeightmapHandler(PluginConfig config, HeightmapService heightmapService) {
-        this.config = config;
+    public HeightmapHandler(ConfigHolder configHolder, HeightmapService heightmapService) {
+        this.configHolder = configHolder;
         this.heightmapService = heightmapService;
     }
 
     @Override
     public CompletableFuture<JsonElement> handle(InvocationContext ctx, JsonObject params) {
         try {
-            RequestValidator validator = new RequestValidator(config);
+            RequestValidator validator = new RequestValidator(configHolder.get());
             World world = validator.resolveWorld(params);
             String typeName = optType(params);
             HeightMap heightMap = HeightmapTypes.resolve(typeName);
-            RequestValidator.HeightmapArea area = validator.validateHeightmapArea(params, config.limits().maxReadVolume());
+            RequestValidator.HeightmapArea area = validator.validateHeightmapArea(params, configHolder.get().limits().maxReadVolume());
             return heightmapService.heightmap(world, area.x1(), area.z1(), area.x2(), area.z2(), heightMap, typeName, ctx);
         } catch (RpcError e) {
             return CompletableFuture.failedFuture(e);

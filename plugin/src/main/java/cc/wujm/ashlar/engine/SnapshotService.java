@@ -4,6 +4,7 @@ package cc.wujm.ashlar.engine;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.config.PluginConfig;
 import cc.wujm.ashlar.rpc.InvocationContext;
 import cc.wujm.ashlar.rpc.MainThread;
@@ -33,12 +34,12 @@ public final class SnapshotService {
 
     private static final DateTimeFormatter ID_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final TickBudgetExecutor executor;
     private final SnapshotStore store;
 
-    public SnapshotService(PluginConfig config, TickBudgetExecutor executor, SnapshotStore store) {
-        this.config = config;
+    public SnapshotService(ConfigHolder configHolder, TickBudgetExecutor executor, SnapshotStore store) {
+        this.configHolder = configHolder;
         this.executor = executor;
         this.store = store;
     }
@@ -64,8 +65,9 @@ public final class SnapshotService {
      */
     public CompletableFuture<JsonElement> restore(Snapshot snapshot, World world, BlockData[] paletteBlocks, InvocationContext ctx) {
         MainThread.assertNotPrimary("SnapshotService.restore");
+        PluginConfig.EngineConfig engineConfig = configHolder.get().engine();
         RestoreTask task = new RestoreTask(snapshot.region(), world, snapshot.data(), paletteBlocks,
-                config.engine().connectBlocks(), config.engine().supportWarnings());
+                engineConfig.connectBlocks(), engineConfig.supportWarnings());
         return executor.submit(task, ctx);
     }
 

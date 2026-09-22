@@ -11,7 +11,10 @@ import cc.wujm.ashlar.agent.AdminActions;
 import cc.wujm.ashlar.agent.AgentRunner;
 import cc.wujm.ashlar.agent.AgentService;
 import cc.wujm.ashlar.agent.ConsolePlayer;
+import cc.wujm.ashlar.config.ConfigHolder;
+import cc.wujm.ashlar.config.ConfigReloader;
 import cc.wujm.ashlar.config.PluginConfig;
+import cc.wujm.ashlar.config.ReloadOutcome;
 import cc.wujm.ashlar.i18n.Messages;
 import cc.wujm.ashlar.net.WsServer;
 import cc.wujm.ashlar.player.Facing;
@@ -31,7 +34,8 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * {@code /ashlar}: the in-game entry point into the AI assistant
  * (step6a-prompt.md) and, from step6e-prompt.md on, its admin surface
- * (usage/limit/credit/cancel &lt;player&gt;/pause/resume/allow/deny/allowed/help).
+ * (usage/limit/credit/cancel &lt;player&gt;/pause/resume/allow/deny/allowed/help), plus {@code reload}
+ * (step8j-prompt.md, hot config reload).
  * Bukkit runs command executors on the main thread, so this may read Bukkit
  * state freely; the only network action most subcommands take is
  * {@link WsServer#broadcastEvent}, which just enqueues bytes on the socket -
@@ -48,21 +52,23 @@ public final class AshlarCommand implements CommandExecutor {
 
     private static final Component PREFIX = Component.text("[Ashlar] ", NamedTextColor.GOLD);
 
-    private final PluginConfig config;
+    private final ConfigHolder configHolder;
     private final WsServer wsServer;
     private final Cooldown cooldown;
     private final AllowList allowList;
     private final AgentService agentService;
+    private final ConfigReloader reloader;
     private final AtomicLong requestCounter = new AtomicLong();
     private final Messages messages = Messages.instance();
 
-    public AshlarCommand(PluginConfig config, WsServer wsServer, Cooldown cooldown, AllowList allowList,
-                          AgentService agentService) {
-        this.config = config;
+    public AshlarCommand(ConfigHolder configHolder, WsServer wsServer, Cooldown cooldown, AllowList allowList,
+                          AgentService agentService, ConfigReloader reloader) {
+        this.configHolder = configHolder;
         this.wsServer = wsServer;
         this.cooldown = cooldown;
         this.allowList = allowList;
         this.agentService = agentService;
+        this.reloader = reloader;
     }
 
     @Override
@@ -80,8 +86,13 @@ public final class AshlarCommand implements CommandExecutor {
             handleSimulate(sender, parsed.simulate());
             return true;
         }
+        if (parsed.kind() == AshlarArgs.Kind.RELOAD) {
+            handleReload(sender);
+            return true;
+        }
         if (consoleSender) {
-            if (parsed.kind() == AshlarArgs.Kind.INVALID && args[0].equalsIgnoreCase("simulate")) {
+            if (parsed.kind() == AshlarArgs.Kind.INVALID
+                    && (args[0].equalsIgnoreCase("simulate") || args[0].equalsIgnoreCase("reload"))) {
                 reply(sender, parsed.error());
             } else {
                 reply(sender, msg(sender, "command.player_only"));
@@ -99,7 +110,7 @@ public final class AshlarCommand implements CommandExecutor {
             return true;
         }
 
-        PluginConfig.AgentConfig.Mode mode = config.agent().mode();
+        PluginConfig.AgentConfig.Mode mode = configHolder.get().agent().mode();
         if (mode == PluginConfig.AgentConfig.Mode.OFF && parsed.kind() != AshlarArgs.Kind.HELP) {
             reply(player, msg(player, "agent.disabled"));
             return true;
@@ -132,6 +143,7 @@ public final class AshlarCommand implements CommandExecutor {
             case ALLOWED -> handleAllowed(player);
             case HELP -> handleHelp(player);
             case SIMULATE -> throw new IllegalStateException("handled above");
+            case RELOAD -> throw new IllegalStateException("handled above");
             case INVALID -> throw new IllegalStateException("handled above");
         }
         return true;
@@ -140,7 +152,7 @@ public final class AshlarCommand implements CommandExecutor {
     // -- simulate (console only) ---------------------------------------
 
     private void handleSimulate(CommandSender sender, AshlarArgs.Simulate sim) {
-        PluginConfig.AgentConfig.Mode mode = config.agent().mode();
+        PluginConfig.AgentConfig.Mode mode = configHolder.get().agent().mode();
         if (mode == PluginConfig.AgentConfig.Mode.OFF) {
             reply(sender, msg(sender, "agent.disabled"));
             return;
@@ -157,16 +169,41 @@ public final class AshlarCommand implements CommandExecutor {
         int[] offset = Facing.offset(sim.facing());
         int[] inFront = {pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]};
         AgentRunner.PlayerInfo playerInfo = new AgentRunner.PlayerInfo(
-                ConsolePlayer.NAME, ConsolePlayer.ID.toString(), config.world().defaultWorld(),
+                ConsolePlayer.NAME, ConsolePlayer.ID.toString(), configHolder.get().world().defaultWorld(),
                 pos, sim.facing(), inFront, "CREATIVE", null, effectiveLanguage(sender));
         agentService.submit(playerInfo, String.join(" ", sim.text()));
+    }
+
+    // -- reload (player with ashlar.admin, or console) -----------------
+
+    /**
+     * {@code /ashlar reload} (step8j-prompt.md): re-reads {@code config.yml} and applies every hot
+     * key immediately; a changed cold key (restart required) is listed in the reply but still takes
+     * no effect until the restart. Console may always run it (same trust level as {@code ashlar
+     * simulate}); a player needs {@code ashlar.admin}.
+     */
+    private void handleReload(CommandSender sender) {
+        if (sender instanceof Player player && !player.hasPermission(Access.ADMIN)) {
+            reply(player, msg(player, "command.no_permission"));
+            return;
+        }
+        ReloadOutcome outcome = reloader.reload();
+        if (!outcome.success()) {
+            reply(sender, msg(sender, "command.reload.failed", outcome.error()));
+            return;
+        }
+        if (outcome.coldChanges().isEmpty()) {
+            reply(sender, msg(sender, "command.reload.done"));
+        } else {
+            reply(sender, msg(sender, "command.reload.done_needs_restart", String.join(", ", outcome.coldChanges())));
+        }
     }
 
     // -- request -------------------------------------------------------
 
     private void handleRequest(Player player, List<String> words) {
         String text = String.join(" ", words);
-        int maxLength = config.agent().maxMessageLength();
+        int maxLength = configHolder.get().agent().maxMessageLength();
         if (text.length() > maxLength) {
             reply(player, msg(player, "command.request.too_long", maxLength));
             return;
@@ -358,7 +395,8 @@ public final class AshlarCommand implements CommandExecutor {
             new HelpLine("ashlar.admin", "help.resume"),
             new HelpLine("ashlar.admin", "help.allow"),
             new HelpLine("ashlar.admin", "help.deny"),
-            new HelpLine("ashlar.admin", "help.allowed")
+            new HelpLine("ashlar.admin", "help.allowed"),
+            new HelpLine("ashlar.admin", "help.reload")
     );
 
     /** {@code key} is a {@code lang/*.yml} message key (step8i-prompt.md), not literal text. */
@@ -450,7 +488,7 @@ public final class AshlarCommand implements CommandExecutor {
 
     /** Whether {@code agent.mode} is {@code embedded} - the request/admin handlers call {@link #agentService} instead of broadcasting an event. */
     private boolean isEmbedded() {
-        return config.agent().mode() == PluginConfig.AgentConfig.Mode.EMBEDDED;
+        return configHolder.get().agent().mode() == PluginConfig.AgentConfig.Mode.EMBEDDED;
     }
 
     private static AdminActions.By byOf(Player player) {
@@ -511,7 +549,7 @@ public final class AshlarCommand implements CommandExecutor {
      * tells the affected player about a cancellation.
      */
     private void echoToMonitors(Player requester, Component message) {
-        if (!config.agent().echoToMonitors()) {
+        if (!configHolder.get().agent().echoToMonitors()) {
             return;
         }
         Component full = PREFIX.append(message);
@@ -535,8 +573,8 @@ public final class AshlarCommand implements CommandExecutor {
      */
     private String effectiveLanguage(CommandSender sender) {
         return sender instanceof Player player
-                ? Messages.forPlayer(config.language(), player.locale())
-                : Messages.forConsole(config.language());
+                ? Messages.forPlayer(configHolder.get().language(), player.locale())
+                : Messages.forConsole(configHolder.get().language());
     }
 
     /** Looks up {@code key} in {@code sender}'s effective language, substituting {@code args}. */

@@ -25,8 +25,11 @@ public final class HistoryStore implements History {
         long lastUsedAtMs;
     }
 
-    private final int turns;
-    private final long ttlMs;
+    // Not final: agent.limits.history-turns/history-ttl-minutes are hot (step8j-prompt.md) -
+    // updateLimits applies a reload; always read/written under this instance's monitor (every
+    // public method here already is), so a plain field is enough.
+    private int turns;
+    private long ttlMs;
     private final Supplier<Instant> now;
     private final Map<String, PlayerEntry> players = new HashMap<>();
 
@@ -38,6 +41,16 @@ public final class HistoryStore implements History {
         this.turns = turns;
         this.ttlMs = Math.max(0, ttlMinutes) * 60_000L;
         this.now = now != null ? now : Instant::now;
+    }
+
+    /**
+     * Applies new {@code history-turns}/{@code history-ttl-minutes} ({@code /ashlar reload},
+     * step8j-prompt.md); an already-remembered exchange is trimmed to the new {@code turns} cap
+     * only the next time {@link #append} runs for that player, same as before this method existed.
+     */
+    public synchronized void updateLimits(int turns, long ttlMinutes) {
+        this.turns = turns;
+        this.ttlMs = Math.max(0, ttlMinutes) * 60_000L;
     }
 
     @Override

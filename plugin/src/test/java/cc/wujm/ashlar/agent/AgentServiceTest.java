@@ -493,6 +493,29 @@ class AgentServiceTest {
     }
 
     @Test
+    void applyConfigUpdatesPricingCurrencyForTheNextRequest() {
+        // step8j-prompt.md: /ashlar reload -> AgentService#applyConfig. Currency is agent.pricing.currency,
+        // hot; a submit() after applyConfig must see the reloaded value in its usage footer.
+        ScriptedModelApi model = new ScriptedModelApi(List.of(textReply("Built it.", new Usage(1_000_000, 0, 0))));
+        RecordingOutbox outbox = new RecordingOutbox();
+        AgentService svc = newService(agentConfig(2, 0, 0), model, outbox);
+
+        PluginConfig.AgentConfig reloaded = new PluginConfig.AgentConfig(
+                PluginConfig.AgentConfig.Mode.EMBEDDED, 5, 500, true, false,
+                new PluginConfig.AgentConfig.ModelConfig("http://localhost", "test-key", "test-model", 25, 120_000,
+                        "high", "", false),
+                new PluginConfig.AgentConfig.LimitsConfig(0, 0, 0, 2, 6, 30),
+                new PluginConfig.AgentConfig.PricingConfig(0.30, 0.006, 1.20, "EUR", "always", 0.5));
+        svc.applyConfig(reloaded);
+
+        svc.submit(player(PLAYER_1, "Alex"), "build a house");
+
+        awaitTrue(() -> outbox.forPlayer(PLAYER_1).stream().anyMatch(RecordingOutbox.Sent::finalKind), "the final reply");
+        RecordingOutbox.Sent finalSent = outbox.forPlayer(PLAYER_1).stream().filter(RecordingOutbox.Sent::finalKind).findFirst().orElseThrow();
+        assertTrue(finalSent.text().contains("EUR "), "unexpected footer (currency not reloaded): " + finalSent.text());
+    }
+
+    @Test
     void shutdownCancelsARunningRequestAndReturnsPromptly() {
         BlockingModelApi model = new BlockingModelApi(textReply("Never sent.", new Usage(1, 0, 1)));
         RecordingOutbox outbox = new RecordingOutbox();
