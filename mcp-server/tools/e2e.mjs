@@ -1038,6 +1038,80 @@ async function main() {
         /flowing liquid blocks \d+ exceeds limit 2000/.test(textOf(liquidCapExceeded))
     );
 
+    // --- step8k: mc_build `text` entries (lettering rendered by the plugin) -------------
+    section('mc_build (text: "HI" facing south, scale 1) + mc_inspect columns through the "I"');
+    const TEXT_X = 800;
+    const TEXT_Y = 64;
+    const TEXT_Z = 800;
+    const textClear = await client.callTool({
+        name: "mc_build",
+        arguments: { fills: [{ from: [TEXT_X - 1, TEXT_Y - 1, TEXT_Z], to: [TEXT_X + 15, TEXT_Y + 8, TEXT_Z], block: "minecraft:air" }] }
+    });
+    check("text-check area clear not an error", !textClear.isError);
+
+    const hiBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            text: [{ text: "HI", pos: [TEXT_X, TEXT_Y, TEXT_Z], block: "minecraft:emerald_block", facing: "south", scale: 1 }]
+        }
+    });
+    const hiBuildText = textOf(hiBuild);
+    console.log(hiBuildText);
+    check("mc_build (text HI) not an error", !hiBuild.isError);
+    check('mc_build (text HI) response has a "Text:" section', /^Text:$/m.test(hiBuildText));
+    check(
+        'mc_build (text HI) reports the exact bounding box [800,64,800] -> [810,70,800] (H:5 + spacing:1 + I:5 = 11 wide, 7 tall)',
+        hiBuildText.includes("[800,64,800] -> [810,70,800]")
+    );
+
+    // "I" is the 5x7 font's 2nd glyph in "HI": H occupies columns 0-4, a 1-column gap (default
+    // spacing) is column 5, so "I" occupies columns 6-10 at world x = 800+6..800+10. Its glyph is
+    // a full-width serif on row 0 (top) and row 6 (bottom) and a single-column stem (glyph-local
+    // column 2) on every row in between - so glyph-local column 2 (world x = 800+6+2 = 808) is lit
+    // on every one of the 7 rows: a solid, uninterrupted 7-block vertical run from y=64 (bottom,
+    // row 6) to y=70 (top, row 0).
+    const iColumn = await client.callTool({
+        name: "mc_inspect",
+        arguments: { from: [808, TEXT_Y - 2, TEXT_Z], to: [808, TEXT_Y + 9, TEXT_Z], format: "columns" }
+    });
+    const iColumnText = textOf(iColumn);
+    console.log(iColumnText);
+    check("mc_inspect (I column) not an error", !iColumn.isError);
+    // mc_inspect "columns" format strips the "minecraft:" prefix from block ids.
+    const iRunMatch = iColumnText.match(/(\d+)-(\d+) emerald_block/);
+    check('column x=808 has exactly one emerald_block run (the "I" stem)', !!iRunMatch);
+    if (iRunMatch) {
+        const lo = Number(iRunMatch[1]);
+        const hi = Number(iRunMatch[2]);
+        check(`"I" stem run is exactly y=64..70 (got ${lo}..${hi})`, lo === 64 && hi === 70);
+        check(`"I" stem run is exactly 7 blocks tall (got ${hi - lo + 1})`, hi - lo + 1 === 7);
+    }
+
+    section("mc_build (text: error cases - bad facing, scale out of range, empty text, text over 64 chars)");
+    const textBadFacing = await client.callTool({
+        name: "mc_build",
+        arguments: { text: [{ text: "HI", pos: [TEXT_X, TEXT_Y, TEXT_Z], block: "minecraft:stone", facing: "sideways" }] }
+    });
+    check("text bad facing isError", textBadFacing.isError === true);
+
+    const textScaleFive = await client.callTool({
+        name: "mc_build",
+        arguments: { text: [{ text: "HI", pos: [TEXT_X, TEXT_Y, TEXT_Z], block: "minecraft:stone", scale: 5 }] }
+    });
+    check("text scale 5 (out of 1-4 range) isError", textScaleFive.isError === true);
+
+    const textEmpty = await client.callTool({
+        name: "mc_build",
+        arguments: { text: [{ text: "   ", pos: [TEXT_X, TEXT_Y, TEXT_Z], block: "minecraft:stone" }] }
+    });
+    check("text empty (blank after trim) isError", textEmpty.isError === true);
+
+    const textTooLong = await client.callTool({
+        name: "mc_build",
+        arguments: { text: [{ text: "A".repeat(65), pos: [TEXT_X, TEXT_Y, TEXT_Z], block: "minecraft:stone" }] }
+    });
+    check("text over 64 characters isError", textTooLong.isError === true);
+
     // --- mc_command ---------------------------------------------------------
     section("mc_command");
     const cmdResult = await client.callTool({ name: "mc_command", arguments: { command: "time query day" } });

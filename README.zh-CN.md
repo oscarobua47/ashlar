@@ -44,7 +44,7 @@ player's /ashlar  --->  plugin's built-in assistant  --->  model API (DeepSeek b
 | `mc_players` | 在线玩家及其位置和朝向（"here"、"in front of me"、"at my feet"）。 |
 | `mc_survey` | 对 x/z 区域的地形勘测：高度图图像加精确数字（最小/最大/中位高度、地表构成、最大平地区域）；`format:"text"` 输出 ASCII 地图。 |
 | `mc_render` | 一个区域的 PNG 图像：俯视图、南北东西立面、切片，或高度图（俯视图/高度图按面积计价，y 范围任意）。 |
-| `mc_build` | 批量放置方块（cuboid 填充，模式有 replace/keep/outline/hollow/walls，也支持单个方块和告示牌文字）；唯一会真正建造的工具。 |
+| `mc_build` | 批量放置方块（cuboid 填充，模式有 replace/keep/outline/hollow/walls，也支持单个方块、告示牌文字，以及通过 `text` 由插件渲染的文字/字母）；唯一会真正建造的工具。 |
 | `mc_inspect` | 一个区域的精确方块内容（统计信息、ASCII 切片、告示牌文字）。 |
 | `mc_snapshot` | 在改动前保存一个区域（或列出已保存的快照）。 |
 | `mc_restore` | 把一个区域回滚到某个快照。 |

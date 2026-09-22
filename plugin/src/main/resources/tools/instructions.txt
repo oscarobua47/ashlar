@@ -4,7 +4,7 @@ mc_status   - server/plugin health and queue length
 mc_players  - online players with position and facing ("here", "in front of me", "at my feet")
 mc_survey   - terrain survey of an x/z area: heightmap image plus exact numbers (min/max/median height, surface mix, largest flat zone); format:"text" for an ASCII map
 mc_render   - PNG image of a region: top view, north/south/east/west facades, a slice, or a heightmap (top/heightmap are area-priced, any y range)
-mc_build    - place blocks in bulk (cuboid fills with modes replace/keep/outline/hollow/walls, plus individual blocks and sign text); the only tool that builds
+mc_build    - place blocks in bulk (cuboid fills with modes replace/keep/outline/hollow/walls, individual blocks and sign text, plus rendered lettering via `text`); the only tool that builds
 mc_inspect  - exact block contents of a region (statistics, per-column runs, ASCII slice, sign text)
 mc_snapshot - save a region before changing it (or list saved snapshots)
 mc_restore  - roll a region back to a snapshot

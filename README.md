@@ -44,7 +44,7 @@ The tool layer lives entirely in the plugin, not in the MCP server: `ashlar-mcp`
 | `mc_players` | Online players with position and facing ("here", "in front of me", "at my feet"). |
 | `mc_survey` | Terrain survey of an x/z area: heightmap image plus exact numbers (min/max/median height, surface mix, largest flat zone); `format:"text"` for an ASCII map. |
 | `mc_render` | PNG image of a region: top view, north/south/east/west facades, a slice, or a heightmap (top/heightmap are area-priced, any y range). |
-| `mc_build` | Places blocks in bulk (cuboid fills with modes replace/keep/outline/hollow/walls, plus individual blocks and sign text); the only tool that builds. |
+| `mc_build` | Places blocks in bulk (cuboid fills with modes replace/keep/outline/hollow/walls, individual blocks and sign text, plus lettering rendered by the plugin via `text`); the only tool that builds. |
 | `mc_inspect` | Exact block contents of a region (statistics, ASCII slice, sign text). |
 | `mc_snapshot` | Save a region before changing it (or list saved snapshots). |
 | `mc_restore` | Roll a region back to a snapshot. |

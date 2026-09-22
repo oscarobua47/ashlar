@@ -197,6 +197,26 @@ public final class ToolText {
         return "Blocks: " + changed + "/" + requested + " changed in " + elapsedMs + "ms";
     }
 
+    /** One entry of the "Text:" section: the rendered text, its exact bounding box and size, and how many of its cells changed. */
+    public record TextEntryLine(int index, String text, int[] from, int[] to, int widthBlocks, int heightBlocks, long changed, long volume) {
+    }
+
+    /**
+     * The "Text:" section (step8k-prompt.md &sect;B): header, one line per {@code text} entry (its
+     * literal string, exact bounding box and WxH in blocks), then the total line - same shape as
+     * {@link #fillsSection}, since {@code text} entries execute as fill_batch ops under the hood.
+     */
+    public static List<String> textSection(List<TextEntryLine> entries, long totalChanged, long totalVolume, long elapsedMs) {
+        List<String> lines = new ArrayList<>();
+        lines.add("Text:");
+        for (TextEntryLine e : entries) {
+            lines.add("  #" + e.index() + " \"" + e.text() + "\" [" + joinCoords(e.from()) + "] -> [" + joinCoords(e.to()) + "] "
+                    + e.widthBlocks() + "x" + e.heightBlocks() + ": " + e.changed() + "/" + e.volume() + " changed");
+        }
+        lines.add("  total: " + totalChanged + "/" + totalVolume + " changed in " + elapsedMs + "ms");
+        return lines;
+    }
+
     /**
      * The {@code chestsPaired: <n>} line (step8e-prompt.md): how many adjacent single chests were
      * paired into double chests across this call's fills/blocks. Omitted entirely when zero, so a
@@ -208,11 +228,11 @@ public final class ToolText {
 
     /**
      * Full composition of {@code mc_build}'s result text: an optional snapshot line, an optional
-     * Fills: section, an optional Blocks: line, an optional chestsPaired line, then the WARNINGS
-     * section (if any).
+     * Fills: section, an optional Text: section, an optional Blocks: line, an optional chestsPaired
+     * line, then the WARNINGS section (if any).
      */
-    public static String buildResultText(String snapshotLine, List<String> fillsSection, String blocksLine,
-                                          long chestsPaired, List<WarningText.SupportWarning> warnings,
+    public static String buildResultText(String snapshotLine, List<String> fillsSection, List<String> textSection,
+                                          String blocksLine, long chestsPaired, List<WarningText.SupportWarning> warnings,
                                           boolean warningsTruncated) {
         List<String> lines = new ArrayList<>();
         if (snapshotLine != null) {
@@ -220,6 +240,9 @@ public final class ToolText {
         }
         if (fillsSection != null) {
             lines.addAll(fillsSection);
+        }
+        if (textSection != null) {
+            lines.addAll(textSection);
         }
         if (blocksLine != null) {
             lines.add(blocksLine);

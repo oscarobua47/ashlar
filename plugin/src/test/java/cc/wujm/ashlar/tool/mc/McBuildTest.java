@@ -40,7 +40,8 @@ class McBuildTest {
     @Test
     void emptyBodyThrowsRefineMessage() {
         ToolArgError e = assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj("{}")));
-        assertEquals("\"fills\" and/or \"blocks\" must be provided, with at least one non-empty", e.getMessage());
+        assertEquals("\"fills\", \"blocks\" and/or \"text\" must be provided, with at least one non-empty",
+                e.getMessage());
     }
 
     @Test
@@ -132,5 +133,91 @@ class McBuildTest {
         String longLine = "x".repeat(65);
         assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
                 "{\"blocks\":[{\"pos\":[0,60,0],\"block\":\"minecraft:oak_sign\",\"sign\":{\"front\":[\"" + longLine + "\"]}}]}")));
+    }
+
+    // --- text entries (step8k-prompt.md) ------------------------------------------------------
+
+    @Test
+    void textOnlyParses() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:white_concrete\"}]}"));
+        assertEquals(1, a.text().size());
+        assertEquals(0, a.fills().size());
+        assertEquals(0, a.blocks().size());
+        McBuild.TextArg t = a.text().get(0);
+        assertEquals("HI", t.text());
+        assertEquals("minecraft:white_concrete", t.block());
+        assertEquals("south", t.facing());
+        assertEquals(1, t.scale());
+        assertEquals(1, t.spacing());
+        assertNull(t.background());
+    }
+
+    @Test
+    void textAllOptionsParse() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:white_concrete\","
+                        + "\"background\":\"minecraft:black_concrete\",\"facing\":\"up\",\"scale\":3,\"spacing\":0}]}"));
+        McBuild.TextArg t = a.text().get(0);
+        assertEquals("minecraft:black_concrete", t.background());
+        assertEquals("up", t.facing());
+        assertEquals(3, t.scale());
+        assertEquals(0, t.spacing());
+    }
+
+    @Test
+    void textMissingBlockThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(
+                obj("{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0]}]}")));
+    }
+
+    @Test
+    void textMissingPosThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(
+                obj("{\"text\":[{\"text\":\"HI\",\"block\":\"minecraft:stone\"}]}")));
+    }
+
+    @Test
+    void textBadFacingThrows() {
+        ToolArgError e = assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\",\"facing\":\"sideways\"}]}")));
+        assertTrue(e.getMessage().contains("facing"));
+    }
+
+    @Test
+    void textScaleFiveThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\",\"scale\":5}]}")));
+    }
+
+    @Test
+    void textScaleZeroThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\",\"scale\":0}]}")));
+    }
+
+    @Test
+    void textEmptyStringThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"   \",\"pos\":[0,60,0],\"block\":\"minecraft:stone\"}]}")));
+    }
+
+    @Test
+    void textOver64CharsThrows() {
+        String longText = "A".repeat(65);
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"" + longText + "\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\"}]}")));
+    }
+
+    @Test
+    void textFiveLinesThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"A\\nA\\nA\\nA\\nA\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\"}]}")));
+    }
+
+    @Test
+    void textSpacingFourThrows() {
+        assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\",\"spacing\":4}]}")));
     }
 }
