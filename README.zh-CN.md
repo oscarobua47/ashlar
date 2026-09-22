@@ -56,7 +56,7 @@ player's /ashlar  --->  plugin's built-in assistant  --->  model API (DeepSeek b
 
 ### 1. 安装插件
 
-1. 从 [Releases](../../releases) 页面下载 `ashlar-0.4.7.jar`，放进服务器的 `plugins/` 目录。
+1. 从 [Releases](../../releases) 页面下载 `ashlar-0.4.8.jar`，放进服务器的 `plugins/` 目录。
 2. 启动服务器一次，然后停止。插件在这第一次运行时会拒绝完全启动 —— 它会写出默认的 `plugins/Ashlar/config.yml` 并自我禁用，因为 token 是空的。
 3. 编辑 `plugins/Ashlar/config.yml`：
    - `mode`：这台服务器怎么用 —— `both`（默认：MCP 客户端和 `/ashlar` 都开）、`mcp`（只给 MCP 客户端）、`ingame`（只有 `/ashlar`）或 `external`（见[游戏内助手](#游戏内助手不需要-ai-客户端)）。**只在游戏内用 `/ashlar`、不接 AI 客户端？** 设 `mode: ingame`，跳过下面几项直接看那一节：不会开放任何端口，也不需要 token。

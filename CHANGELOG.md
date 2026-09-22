@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.4.8
 
 - `mc_build` gains `text` entries: lettering rendered by the plugin instead of guessed block-by-block by the model. A built-in 5x7 bitmap font covers printable ASCII; any other character (CJK etc.) is rendered through this server's Java (`java.awt`) at 12 rows (up to 12 columns) per glyph, and fails the whole call with a clear error if this JVM has no fonts for it. `facing` (`south`/`north`/`east`/`west`/`up`) picks which way the text reads, `scale` (1-4) and `spacing` (0-3) control size, an optional `background` paints a solid plaque behind the letters - omit it and only the ink is written, the gaps stay untouched. Executes via the same `fill_batch` machinery as `fills` (one run per row of pixels), so it counts against the same block/chunk limits and gets the same connect/support-warning handling; the response gets a new "Text:" section reporting each entry's exact bounding box.
 - `/ashlar reload` (also `ashlar reload` from the console): re-reads `config.yml` and applies most keys immediately - model/limits/pricing/cooldown/language/world/snapshot/engine/logging and more - without a restart. Every key in `config.yml` is now commented `Reload` or `Restart`; a changed `Restart` key (`mode`, `server.host/port/token`, `limits.tick-budget-ms`/`max-queued-operations`, `agent.limits.max-concurrent`) is listed in the reply but still needs one. An invalid file is rejected with the error, leaving the running config untouched.
