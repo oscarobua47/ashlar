@@ -59,7 +59,8 @@ player's /ashlar  --->  plugin's built-in assistant  --->  model API (DeepSeek b
 1. 从 [Releases](../../releases) 页面下载 `ashlar-0.4.7.jar`，放进服务器的 `plugins/` 目录。
 2. 启动服务器一次，然后停止。插件在这第一次运行时会拒绝完全启动 —— 它会写出默认的 `plugins/Ashlar/config.yml` 并自我禁用，因为 token 是空的。
 3. 编辑 `plugins/Ashlar/config.yml`：
-   - `server.token`：一个足够长的随机值，例如 `openssl rand -hex 24`。**如果缺失或短于 16 个字符，插件会拒绝启动。**
+   - **只在游戏内用 `/ashlar`、不接 AI 客户端？** 把 `server.enabled` 设为 `false`，跳过下面几项，直接看[游戏内助手](#游戏内助手不需要-ai-客户端)：不会开放任何端口，也不需要 token。
+   - `server.token`：一个足够长的随机值，例如 `openssl rand -hex 24`。**WebSocket 服务器开启时，如果缺失或短于 16 个字符，插件会拒绝启动。**
    - `server.port`：主机/面板上一个空闲的 TCP 端口。
    - `server.allowed-ips`：可选。如果 MCP 服务器运行在有固定公网 IP 的地方（例如 VPS），把那个 IP 填在这里。如果它运行在你自己的电脑上、走的是普通家庭宽带，你的 IP 会变化，白名单反而会把你自己锁在外面 —— 留空，依赖 token 本身即可，token 才是真正的身份验证。留空意味着什么、以及如何在此基础上进一步收紧，见[安全性](#安全性)。
 4. 重启服务器。
@@ -317,9 +318,10 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 | Key | Default | Meaning |
 |---|---|---|
 | `language` | `"en"` | 插件自身在聊天中所说的一切所用的语言（用法/帮助行、进度行、用量页脚、限额/额度/暂停消息）；不影响 AI 自己的回复。取值 `en`、`zh_CN`，或 `auto`（跟随每个玩家自己的客户端语言，控制台始终为英文）。 |
+| `server.enabled` | `true` | 是否运行 WebSocket 服务器（MCP 客户端的入口）。`false` 时不开放端口、忽略 `server.token`——适合只用 `/ashlar` 的服务器。`agent.mode: external` 要求它为 `true`。 |
 | `server.host` | `"0.0.0.0"` | WebSocket 服务器绑定的网卡接口。 |
 | `server.port` | `8765` | WebSocket 服务器的 TCP 端口。 |
-| `server.token` | `""` | 必需的认证 token；必须 >= 16 个字符，否则插件拒绝启动。 |
+| `server.token` | `""` | 给 MCP 客户端用的认证 token；必须 >= 16 个字符，否则插件拒绝启动（`server.enabled` 为 `false` 时不检查）。 |
 | `server.allowed-ips` | `[]` | 客户端精确 IP 的白名单（IPv4/IPv6，v1 不支持 CIDR/主机名）。空列表 = 允许任意 IP。 |
 | `limits.max-blocks-per-operation` | `500000` | 单次 `fill_batch`/`set_blocks` 请求最多可触及的方块数。 |
 | `limits.max-read-volume` | `200000` | `read_region`/`heightmap` 单次调用最多可返回的区域体积。 |
@@ -391,7 +393,7 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 
 **症状：** 插件日志提示 token 为空（或过短），插件没有启动。
 **原因：** `config.yml` 里的 `server.token` 是空的、只有空白字符，或短于 16 个字符。
-**修复：** 设置一个真实的 token（`openssl rand -hex 24`）并重启。
+**修复：** 设置一个真实的 token（`openssl rand -hex 24`）并重启——如果只会用 `/ashlar`，也可以把 `server.enabled` 设为 `false`。
 
 **症状：** `mc_render` 报 `VOLUME_EXCEEDED` 错误。
 **原因：** 立面/切片视图按体积计价（<= 200,000 方块）；过高或过深的 `from`/`to` 范围很容易超出这个限制。

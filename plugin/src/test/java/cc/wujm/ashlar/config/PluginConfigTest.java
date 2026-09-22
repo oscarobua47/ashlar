@@ -110,4 +110,24 @@ class PluginConfigTest {
         assertThrows(ConfigException.class, () -> PluginConfig.validateLanguage(""));
         assertThrows(ConfigException.class, () -> PluginConfig.validateLanguage(null));
     }
+
+    @Test
+    void tokenIsRequiredOnlyWhileTheServerIsEnabled() throws ConfigException {
+        assertEquals("0123456789abcdef", PluginConfig.validateToken(true, "0123456789abcdef"));
+        assertThrows(ConfigException.class, () -> PluginConfig.validateToken(true, ""));
+        assertThrows(ConfigException.class, () -> PluginConfig.validateToken(true, null));
+        assertThrows(ConfigException.class, () -> PluginConfig.validateToken(true, "short"));
+        assertEquals("", PluginConfig.validateToken(false, ""));
+        assertEquals("", PluginConfig.validateToken(false, null));
+        assertEquals("short", PluginConfig.validateToken(false, "short"));
+    }
+
+    @Test
+    void externalModeNeedsTheServer() throws ConfigException {
+        PluginConfig.validateModeAgainstServer(true, PluginConfig.AgentConfig.Mode.EXTERNAL);
+        PluginConfig.validateModeAgainstServer(false, PluginConfig.AgentConfig.Mode.EMBEDDED);
+        PluginConfig.validateModeAgainstServer(false, PluginConfig.AgentConfig.Mode.OFF);
+        assertThrows(ConfigException.class,
+                () -> PluginConfig.validateModeAgainstServer(false, PluginConfig.AgentConfig.Mode.EXTERNAL));
+    }
 }

@@ -244,15 +244,22 @@ public final class AshlarPlugin extends JavaPlugin {
             getLogger().info("Ashlar agent: mode=" + agentMode.name().toLowerCase(java.util.Locale.ROOT));
         }
 
-        InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
-        this.wsServer = new WsServer(address, config, dispatcher, getLogger());
-        // Wired in after the WsServer exists (construction-order workaround: the
-        // WsServer constructor needs the dispatcher, and therefore every handler,
-        // already built), so InvocationContexts built per-request can send progress
-        // events (net.SessionProgressSink, plan.md step7).
-        this.dispatcher.setWsServer(wsServer);
+        if (config.server().enabled()) {
+            InetSocketAddress address = new InetSocketAddress(config.server().host(), config.server().port());
+            this.wsServer = new WsServer(address, config, dispatcher, getLogger());
+            // Wired in after the WsServer exists (construction-order workaround: the
+            // WsServer constructor needs the dispatcher, and therefore every handler,
+            // already built), so InvocationContexts built per-request can send progress
+            // events (net.SessionProgressSink, plan.md step7).
+            this.dispatcher.setWsServer(wsServer);
+        } else if (this.agentService == null) {
+            getLogger().warning("server.enabled is false and the in-game assistant is not configured:"
+                    + " this plugin will do nothing until one of them is set up.");
+        }
         this.executor.start();
-        this.wsServer.start();
+        if (this.wsServer != null) {
+            this.wsServer.start();
+        }
 
         Cooldown cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
         AllowList allowList = new AllowList(dataFolder.resolve("allowed-players.yml"), getLogger());
@@ -261,7 +268,9 @@ public final class AshlarPlugin extends JavaPlugin {
         getCommand("ashlar").setTabCompleter(new AshlarTabCompleter(allowList));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
-                + "WebSocket listening on " + config.server().host() + ":" + config.server().port());
+                + (config.server().enabled()
+                        ? "WebSocket listening on " + config.server().host() + ":" + config.server().port()
+                        : "WebSocket server disabled (server.enabled: false); /ashlar only."));
     }
 
     @Override

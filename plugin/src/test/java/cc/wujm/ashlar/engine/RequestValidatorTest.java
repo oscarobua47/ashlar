@@ -34,7 +34,7 @@ class RequestValidatorTest {
 
     private static PluginConfig config(long maxFlowingLiquidsPerOperation) {
         return new PluginConfig(
-                new PluginConfig.ServerConfig("0.0.0.0", 8765, "0123456789abcdef", List.of()),
+                new PluginConfig.ServerConfig(true, "0.0.0.0", 8765, "0123456789abcdef", List.of()),
                 new PluginConfig.LimitsConfig(500_000, 200_000, 20, 16, 1024, maxFlowingLiquidsPerOperation),
                 new PluginConfig.WorldConfig("world", List.of("world"),
                         new PluginConfig.WorldConfig.BuildRegion(false, -1000, -1000, 1000, 1000)),

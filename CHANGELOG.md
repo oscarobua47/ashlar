@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- `server.enabled` (default `true`): set it to `false` on a server that only uses `/ashlar` - the WebSocket server is not started, no port is opened and `server.token` is no longer required. Previously an empty token stopped the plugin from loading even when nothing needed the MCP entry point. `agent.mode: external` still requires the server.
 - Java package renamed from `net.rcwalter.ashlar` to `cc.wujm.ashlar` (Gradle group `cc.wujm`). No user-visible change: the plugin name, data folder (`plugins/Ashlar/`), config, snapshots and permission nodes are unaffected - drop in the new jar.
 
 ## 0.4.7

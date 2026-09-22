@@ -59,7 +59,8 @@ Typical flow: `mc_players` (if the request is relative to a player) -> `mc_surve
 1. Download `ashlar-0.4.7.jar` from the [Releases](../../releases) page into your server's `plugins/` folder.
 2. Start the server once, then stop it. The plugin refuses to fully start on this first run - it writes a default `plugins/Ashlar/config.yml` and disables itself because the token is empty.
 3. Edit `plugins/Ashlar/config.yml`:
-   - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **The plugin refuses to start if this is missing or shorter than 16 characters.**
+   - **Only using `/ashlar` in game, no AI client?** Set `server.enabled: false`, skip the rest of this list and go straight to [In-game assistant](#in-game-assistant-no-ai-client-needed): no port is opened and no token is needed.
+   - `server.token`: a long random value, e.g. `openssl rand -hex 24`. **While the WebSocket server is enabled, the plugin refuses to start if this is missing or shorter than 16 characters.**
    - `server.port`: an idle TCP port your host/panel exposes.
    - `server.allowed-ips`: optional. If the MCP server runs somewhere with a fixed public IP (a VPS), put that IP here. If it runs on your own PC behind a typical home connection, your IP changes and an allow-list would lock you out - leave it empty and rely on the token, which is the real authentication. See [Security](#security) for what an empty list means and how to tighten it anyway.
 4. Restart the server.
@@ -317,9 +318,10 @@ A small hut (survey, snapshot, build, a couple of renders, a final reply - about
 | Key | Default | Meaning |
 |---|---|---|
 | `language` | `"en"` | Language for everything the plugin itself says in chat (usage/help lines, progress lines, the usage footer, limit/credit/pause messages); does not affect the AI's own replies. `en`, `zh_CN`, or `auto` (each player's own client language, console always English). |
+| `server.enabled` | `true` | Whether to run the WebSocket server (the entry point for MCP clients). `false` opens no port and ignores `server.token` - for servers that only use `/ashlar`. `agent.mode: external` requires it to be `true`. |
 | `server.host` | `"0.0.0.0"` | Interface the WebSocket server binds to. |
 | `server.port` | `8765` | TCP port for the WebSocket server. |
-| `server.token` | `""` | Required auth token; must be >= 16 characters or the plugin refuses to start. |
+| `server.token` | `""` | Auth token for MCP clients; must be >= 16 characters or the plugin refuses to start (not checked when `server.enabled` is `false`). |
 | `server.allowed-ips` | `[]` | Allow-list of exact client IPs (IPv4/IPv6, no CIDR/hostnames in v1). Empty = allow any IP. |
 | `limits.max-blocks-per-operation` | `500000` | Max blocks a single `fill_batch`/`set_blocks` request may touch. |
 | `limits.max-read-volume` | `200000` | Max region volume `read_region`/`heightmap` may return in one call. |
@@ -391,7 +393,7 @@ The in-game assistant has no environment variables of its own any more - see the
 
 **Symptom:** the plugin's log says the token is empty (or too short) and the plugin does not start.
 **Cause:** `server.token` in `config.yml` is blank, whitespace, or shorter than 16 characters.
-**Fix:** set a real token (`openssl rand -hex 24`) and restart.
+**Fix:** set a real token (`openssl rand -hex 24`) and restart - or, if nothing but `/ashlar` will be used, set `server.enabled: false`.
 
 **Symptom:** `mc_render` fails with `VOLUME_EXCEEDED`.
 **Cause:** a facade/slice view is volume-priced (<= 200,000 blocks); a tall or deep `from`/`to` range can exceed that quickly.

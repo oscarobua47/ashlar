@@ -29,7 +29,13 @@ public record PluginConfig(
         String language
 ) {
 
-    public record ServerConfig(String host, int port, String token, List<String> allowedIps) {
+    /**
+     * {@code enabled=false} means the WebSocket server (the MCP / RPC entry point) is never
+     * started: no port is opened and {@code token} is not validated or used. The in-game
+     * assistant ({@code agent.mode: embedded}) works either way; {@code agent.mode: external}
+     * needs the server and is rejected at load time when it is disabled.
+     */
+    public record ServerConfig(boolean enabled, String host, int port, String token, List<String> allowedIps) {
     }
 
     public record LimitsConfig(long maxBlocksPerOperation, long maxReadVolume, long tickBudgetMs,
@@ -131,11 +137,8 @@ public record PluginConfig(
     public static PluginConfig load(FileConfiguration fc, Logger logger) throws ConfigException {
         String language = validateLanguage(fc.getString("language", "en"));
 
-        String token = fc.getString("server.token", "");
-        if (token == null || token.trim().length() < 16) {
-            throw new ConfigException(
-                    "server.token is empty or too short (must be at least 16 characters). Refusing to start.");
-        }
+        boolean serverEnabled = fc.getBoolean("server.enabled", true);
+        String token = validateToken(serverEnabled, fc.getString("server.token", ""));
 
         int port = fc.getInt("server.port", 8765);
         if (port < 1 || port > 65535) {
@@ -184,6 +187,7 @@ public record PluginConfig(
         boolean supportWarnings = fc.getBoolean("engine.support-warnings", true);
 
         AgentConfig.Mode agentMode = AgentConfig.Mode.parse(fc.getString("agent.mode", "embedded"), logger);
+        validateModeAgainstServer(serverEnabled, agentMode);
         int agentCooldownSeconds = (int) nonNegativeOrDefault(fc, "agent.cooldown-seconds", 5, logger);
         int agentMaxMessageLength = (int) positiveOrDefault(fc, "agent.max-message-length", 500, logger);
         boolean agentEchoToMonitors = fc.getBoolean("agent.echo-to-monitors", true);
@@ -214,7 +218,7 @@ public record PluginConfig(
         double pricingOffPeakMultiplier = nonNegativeDoubleOrDefault(fc, "agent.pricing.off-peak-multiplier", 0.5, logger);
 
         return new PluginConfig(
-                new ServerConfig(host, port, token, List.copyOf(allowedIps)),
+                new ServerConfig(serverEnabled, host, port, token, List.copyOf(allowedIps)),
                 new LimitsConfig(maxBlocksPerOperation, maxReadVolume, tickBudgetMs, maxQueuedOperations,
                         maxChunksPerOperation, maxFlowingLiquidsPerOperation),
                 new WorldConfig(defaultWorld, List.copyOf(allowedWorlds),
@@ -241,6 +245,30 @@ public record PluginConfig(
      * unlike most config values this is fatal on an invalid value rather than falling back with a
      * warning, since a typo here would otherwise silently ship the wrong language to every player.
      */
+    /**
+     * {@code server.token} must be at least 16 characters while the WebSocket server is enabled;
+     * with {@code server.enabled: false} it is ignored (an in-game-only install has no MCP client
+     * to authenticate). Returns the token, never null.
+     */
+    static String validateToken(boolean serverEnabled, String token) throws ConfigException {
+        String t = token == null ? "" : token;
+        if (serverEnabled && t.trim().length() < 16) {
+            throw new ConfigException(
+                    "server.token is empty or too short (must be at least 16 characters). Set a long random token"
+                    + " for MCP clients, or set server.enabled: false if only /ashlar is used. Refusing to start.");
+        }
+        return t;
+    }
+
+    /** {@code agent.mode: external} forwards /ashlar over the WebSocket server, so it needs the server on. */
+    static void validateModeAgainstServer(boolean serverEnabled, AgentConfig.Mode mode) throws ConfigException {
+        if (!serverEnabled && mode == AgentConfig.Mode.EXTERNAL) {
+            throw new ConfigException(
+                    "agent.mode: external forwards /ashlar to a connected MCP process and needs the WebSocket"
+                    + " server, but server.enabled is false. Enable the server or use agent.mode: embedded.");
+        }
+    }
+
     static String validateLanguage(String raw) throws ConfigException {
         if ("en".equals(raw) || "zh_CN".equals(raw) || "auto".equals(raw)) {
             return raw;

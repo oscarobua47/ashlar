@@ -24,6 +24,12 @@
 language: en
 
 server:
+  # Whether to run the WebSocket server at all. It is the entry point for MCP
+  # clients (Claude Desktop, Claude Code, OpenCode, ... via ashlar-mcp). If this
+  # server is only used through /ashlar in game, set this to false: no port is
+  # opened and `token` below is not needed.
+  enabled: true
+
   # Interface to bind the WebSocket server to. "0.0.0.0" listens on all
   # interfaces; use "127.0.0.1" if the MCP Server runs on the same host.
   host: "0.0.0.0"
@@ -31,9 +37,9 @@ server:
   # TCP port for the WebSocket server. Pick an idle port on your host/panel.
   port: 8765
 
-  # Required. Authentication token clients must present on connect.
-  # Leave empty and the plugin will refuse to start. Use a long random value
-  # (>= 16 characters), e.g. `openssl rand -hex 24`.
+  # Required while `enabled` is true: the token clients must present on
+  # connect. Leave it empty and the plugin will refuse to start. Use a long
+  # random value (>= 16 characters), e.g. `openssl rand -hex 24`.
   token: ""
 
   # Optional allow-list of client IP addresses. Empty list = no restriction
