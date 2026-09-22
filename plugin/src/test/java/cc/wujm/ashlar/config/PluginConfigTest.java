@@ -25,6 +25,7 @@ class PluginConfigTest {
         assertEquals(PluginConfig.AgentConfig.Mode.EXTERNAL, PluginConfig.AgentConfig.Mode.parse("external", LOGGER));
         assertEquals(PluginConfig.AgentConfig.Mode.OFF, PluginConfig.AgentConfig.Mode.parse("off", LOGGER));
         assertEquals(PluginConfig.AgentConfig.Mode.OFF, PluginConfig.AgentConfig.Mode.parse(" Off ", LOGGER));
+        assertEquals(PluginConfig.AgentConfig.Mode.OFF, PluginConfig.AgentConfig.Mode.parse("false", LOGGER));
     }
 
     @Test
@@ -123,11 +124,38 @@ class PluginConfigTest {
     }
 
     @Test
-    void externalModeNeedsTheServer() throws ConfigException {
-        PluginConfig.validateModeAgainstServer(true, PluginConfig.AgentConfig.Mode.EXTERNAL);
-        PluginConfig.validateModeAgainstServer(false, PluginConfig.AgentConfig.Mode.EMBEDDED);
-        PluginConfig.validateModeAgainstServer(false, PluginConfig.AgentConfig.Mode.OFF);
-        assertThrows(ConfigException.class,
-                () -> PluginConfig.validateModeAgainstServer(false, PluginConfig.AgentConfig.Mode.EXTERNAL));
+    void deploymentModeParsesTheFourValuesAndRejectsTheRest() throws ConfigException {
+        assertEquals(PluginConfig.DeploymentMode.BOTH, PluginConfig.DeploymentMode.parse("both"));
+        assertEquals(PluginConfig.DeploymentMode.MCP, PluginConfig.DeploymentMode.parse(" MCP "));
+        assertEquals(PluginConfig.DeploymentMode.INGAME, PluginConfig.DeploymentMode.parse("ingame"));
+        assertEquals(PluginConfig.DeploymentMode.EXTERNAL, PluginConfig.DeploymentMode.parse("external"));
+        assertThrows(ConfigException.class, () -> PluginConfig.DeploymentMode.parse("embedded"));
+        assertThrows(ConfigException.class, () -> PluginConfig.DeploymentMode.parse("off"));
+        assertThrows(ConfigException.class, () -> PluginConfig.DeploymentMode.parse(""));
+        assertThrows(ConfigException.class, () -> PluginConfig.DeploymentMode.parse(null));
+    }
+
+    @Test
+    void deploymentModeDecidesServerAndAgent() {
+        assertEquals(true, PluginConfig.DeploymentMode.BOTH.serverEnabled());
+        assertEquals(PluginConfig.AgentConfig.Mode.EMBEDDED, PluginConfig.DeploymentMode.BOTH.agentMode());
+        assertEquals(true, PluginConfig.DeploymentMode.MCP.serverEnabled());
+        assertEquals(PluginConfig.AgentConfig.Mode.OFF, PluginConfig.DeploymentMode.MCP.agentMode());
+        assertEquals(false, PluginConfig.DeploymentMode.INGAME.serverEnabled());
+        assertEquals(PluginConfig.AgentConfig.Mode.EMBEDDED, PluginConfig.DeploymentMode.INGAME.agentMode());
+        assertEquals(true, PluginConfig.DeploymentMode.EXTERNAL.serverEnabled());
+        assertEquals(PluginConfig.AgentConfig.Mode.EXTERNAL, PluginConfig.DeploymentMode.EXTERNAL.agentMode());
+    }
+
+    @Test
+    void legacyAgentModeMapsOntoDeploymentMode() {
+        assertEquals(PluginConfig.DeploymentMode.BOTH,
+                PluginConfig.DeploymentMode.fromLegacy(PluginConfig.AgentConfig.Mode.EMBEDDED, true));
+        assertEquals(PluginConfig.DeploymentMode.INGAME,
+                PluginConfig.DeploymentMode.fromLegacy(PluginConfig.AgentConfig.Mode.EMBEDDED, false));
+        assertEquals(PluginConfig.DeploymentMode.MCP,
+                PluginConfig.DeploymentMode.fromLegacy(PluginConfig.AgentConfig.Mode.OFF, true));
+        assertEquals(PluginConfig.DeploymentMode.EXTERNAL,
+                PluginConfig.DeploymentMode.fromLegacy(PluginConfig.AgentConfig.Mode.EXTERNAL, true));
     }
 }

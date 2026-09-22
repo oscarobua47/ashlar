@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
-- `server.enabled` (default `true`): set it to `false` on a server that only uses `/ashlar` - the WebSocket server is not started, no port is opened and `server.token` is no longer required. Previously an empty token stopped the plugin from loading even when nothing needed the MCP entry point. `agent.mode: external` still requires the server.
+- One top-level `mode` key replaces `agent.mode`: `both` (default - WebSocket server for MCP clients plus the in-game assistant), `mcp` (WebSocket only, `/ashlar` off), `ingame` (`/ashlar` only: no WebSocket server, no port, and `server.token` is not required any more) or `external` (WebSocket plus `/ashlar` forwarded to a connected external process). A config without `mode` keeps working: it is derived from the old `agent.mode` and the log says which value to add. Fixes a latent bug where an unquoted `agent.mode: off` was read as YAML `false` and ignored.
 - Java package renamed from `net.rcwalter.ashlar` to `cc.wujm.ashlar` (Gradle group `cc.wujm`). No user-visible change: the plugin name, data folder (`plugins/Ashlar/`), config, snapshots and permission nodes are unaffected - drop in the new jar.
 
 ## 0.4.7

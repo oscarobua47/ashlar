@@ -23,13 +23,18 @@
 # Picked up on the next restart; changing it does not require a full reconfigure.
 language: en
 
-server:
-  # Whether to run the WebSocket server at all. It is the entry point for MCP
-  # clients (Claude Desktop, Claude Code, OpenCode, ... via ashlar-mcp). If this
-  # server is only used through /ashlar in game, set this to false: no port is
-  # opened and `token` below is not needed.
-  enabled: true
+# How this server is used. This one key decides whether the WebSocket server
+# (the entry point for MCP clients such as Claude Desktop, Claude Code or
+# OpenCode, via ashlar-mcp) runs, and what /ashlar does in game:
+#   both     = WebSocket server on (needs server.token below) AND the in-game
+#              assistant, run by the plugin itself using agent.model (default).
+#   mcp      = WebSocket server only; /ashlar is disabled.
+#   ingame   = /ashlar only: no WebSocket server, no port, no token needed.
+#   external = WebSocket server on; /ashlar requests are forwarded to a
+#              connected external process (the 0.2 layout, for integrators).
+mode: both
 
+server:
   # Interface to bind the WebSocket server to. "0.0.0.0" listens on all
   # interfaces; use "127.0.0.1" if the MCP Server runs on the same host.
   host: "0.0.0.0"
@@ -37,8 +42,8 @@ server:
   # TCP port for the WebSocket server. Pick an idle port on your host/panel.
   port: 8765
 
-  # Required while `enabled` is true: the token clients must present on
-  # connect. Leave it empty and the plugin will refuse to start. Use a long
+  # The token clients must present on connect. Required unless mode is
+  # "ingame": leave it empty and the plugin will refuse to start. Use a long
   # random value (>= 16 characters), e.g. `openssl rand -hex 24`.
   token: ""
 
@@ -124,21 +129,15 @@ engine:
 
 agent:
   # The in-game assistant: players with the ashlar.use permission can type
-  # "/ashlar <request>".
-  #   embedded = the plugin runs the assistant itself using agent.model below
-  #              (default); no Node process or inbound port needed.
-  #   external = forward /ashlar requests to a connected `ashlar-mcp --agent`
-  #              process (0.2 behaviour).
-  #   off      = /ashlar is disabled entirely.
-  mode: embedded
+  # "/ashlar <request>". Whether it runs is decided by the top-level `mode`.
 
-  # Only used when mode is "embedded".
+  # Only used when mode is "both" or "ingame".
   model:
     # OpenAI-compatible base URL; "/chat/completions" is appended. No
     # trailing slash needed.
     base-url: "https://api.deepseek.com"
 
-    # Required in embedded mode. Leave empty and /ashlar will reply that the
+    # Required for the in-game assistant. Leave empty and /ashlar will reply that the
     # assistant is not configured, instead of refusing to start.
     api-key: ""
 
@@ -164,7 +163,7 @@ agent:
     # is true, since it gives the model direct console access.
     allow-command: false
 
-  # Only used when mode is "embedded".
+  # Only used when mode is "both" or "ingame".
   limits:
     # Maximum requests one player may start per day (UTC), counted by UUID.
     # 0 = unlimited.
@@ -188,7 +187,7 @@ agent:
     # inactivity.
     history-ttl-minutes: 30
 
-  # Only used when mode is "embedded". Pricing feeds the cost shown in each
+  # Only used when mode is "both" or "ingame". Pricing feeds the cost shown in each
   # reply's footer and the max-cost-per-player-per-day limit above.
   pricing:
     # USD (or "currency" below) per 1,000,000 uncached input tokens, at peak

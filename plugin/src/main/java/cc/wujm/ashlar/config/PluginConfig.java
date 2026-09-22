@@ -30,10 +30,65 @@ public record PluginConfig(
 ) {
 
     /**
-     * {@code enabled=false} means the WebSocket server (the MCP / RPC entry point) is never
-     * started: no port is opened and {@code token} is not validated or used. The in-game
-     * assistant ({@code agent.mode: embedded}) works either way; {@code agent.mode: external}
-     * needs the server and is rejected at load time when it is disabled.
+     * The single top-level {@code mode} key: how this server is used. It decides both whether the
+     * WebSocket server (the MCP entry point) runs and what {@code /ashlar} does, replacing the
+     * separate {@code agent.mode} of 0.2-0.4.7 (still read as a fallback when {@code mode} is absent).
+     */
+    public enum DeploymentMode {
+        /** WebSocket server on and the in-game assistant embedded (default). */
+        BOTH(true, AgentConfig.Mode.EMBEDDED),
+        /** WebSocket server on; {@code /ashlar} disabled. */
+        MCP(true, AgentConfig.Mode.OFF),
+        /** No WebSocket server, no port, no token; {@code /ashlar} embedded. */
+        INGAME(false, AgentConfig.Mode.EMBEDDED),
+        /** WebSocket server on; {@code /ashlar} forwarded to a connected external process (0.2 layout). */
+        EXTERNAL(true, AgentConfig.Mode.EXTERNAL);
+
+        private final boolean serverEnabled;
+        private final AgentConfig.Mode agentMode;
+
+        DeploymentMode(boolean serverEnabled, AgentConfig.Mode agentMode) {
+            this.serverEnabled = serverEnabled;
+            this.agentMode = agentMode;
+        }
+
+        public boolean serverEnabled() {
+            return serverEnabled;
+        }
+
+        public AgentConfig.Mode agentMode() {
+            return agentMode;
+        }
+
+        /** Parses the {@code mode} value; anything else is a fatal {@link ConfigException}. */
+        public static DeploymentMode parse(String raw) throws ConfigException {
+            String v = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+            return switch (v) {
+                case "both" -> BOTH;
+                case "mcp" -> MCP;
+                case "ingame" -> INGAME;
+                case "external" -> EXTERNAL;
+                default -> throw new ConfigException(
+                        "mode must be one of both/mcp/ingame/external (got '" + raw + "'). Refusing to start.");
+            };
+        }
+
+        /**
+         * Maps a pre-0.4.8 config ({@code agent.mode} plus the never-released {@code server.enabled})
+         * onto the new key, so an existing install keeps behaving as before after the upgrade.
+         */
+        public static DeploymentMode fromLegacy(AgentConfig.Mode agentMode, boolean serverEnabled) {
+            return switch (agentMode) {
+                case EMBEDDED -> serverEnabled ? BOTH : INGAME;
+                case EXTERNAL -> EXTERNAL;
+                case OFF -> MCP;
+            };
+        }
+    }
+
+    /**
+     * {@code enabled=false} ({@code mode: ingame}) means the WebSocket server (the MCP / RPC
+     * entry point) is never started: no port is opened and {@code token} is not validated or used.
      */
     public record ServerConfig(boolean enabled, String host, int port, String token, List<String> allowedIps) {
     }
@@ -84,7 +139,7 @@ public record PluginConfig(
         public enum Mode {
             EMBEDDED, EXTERNAL, OFF;
 
-            /** Parses {@code agent.mode}; anything unrecognised (including null/blank) falls back to {@link #EMBEDDED} with a warning. */
+            /** Parses the legacy {@code agent.mode} (pre-0.4.8 configs only); anything unrecognised falls back to {@link #EMBEDDED} with a warning. */
             public static Mode parse(String raw, Logger logger) {
                 if (raw == null) {
                     return EMBEDDED;
@@ -92,7 +147,7 @@ public record PluginConfig(
                 return switch (raw.trim().toLowerCase(Locale.ROOT)) {
                     case "embedded" -> EMBEDDED;
                     case "external" -> EXTERNAL;
-                    case "off" -> OFF;
+                    case "off", "false" -> OFF; // an unquoted YAML `off` arrives as the boolean false
                     default -> {
                         logger.warning("Config value 'agent.mode' must be one of embedded/external/off (got '"
                                 + raw + "'); falling back to default: embedded");
@@ -137,7 +192,20 @@ public record PluginConfig(
     public static PluginConfig load(FileConfiguration fc, Logger logger) throws ConfigException {
         String language = validateLanguage(fc.getString("language", "en"));
 
-        boolean serverEnabled = fc.getBoolean("server.enabled", true);
+        DeploymentMode deployment;
+        if (fc.isSet("mode")) { // isSet ignores the jar defaults; contains() would always see the default "both".
+            deployment = DeploymentMode.parse(fc.getString("mode"));
+        } else {
+            // Pre-0.4.8 config: derive the new key from agent.mode (and server.enabled, 0.4.8-dev only).
+            // fc.get, not getString: an unquoted `off` is a YAML boolean, which getString would drop.
+            Object rawLegacy = fc.get("agent.mode");
+            AgentConfig.Mode legacyAgentMode = AgentConfig.Mode.parse(rawLegacy == null ? "embedded" : String.valueOf(rawLegacy), logger);
+            deployment = DeploymentMode.fromLegacy(legacyAgentMode, fc.getBoolean("server.enabled", true));
+            logger.info("config.yml has no top-level 'mode' key; using mode: "
+                    + deployment.name().toLowerCase(Locale.ROOT) + " (derived from agent.mode). Add 'mode: "
+                    + deployment.name().toLowerCase(Locale.ROOT) + "' to config.yml to silence this.");
+        }
+        boolean serverEnabled = deployment.serverEnabled();
         String token = validateToken(serverEnabled, fc.getString("server.token", ""));
 
         int port = fc.getInt("server.port", 8765);
@@ -186,8 +254,7 @@ public record PluginConfig(
         boolean connectBlocks = fc.getBoolean("engine.connect-blocks", true);
         boolean supportWarnings = fc.getBoolean("engine.support-warnings", true);
 
-        AgentConfig.Mode agentMode = AgentConfig.Mode.parse(fc.getString("agent.mode", "embedded"), logger);
-        validateModeAgainstServer(serverEnabled, agentMode);
+        AgentConfig.Mode agentMode = deployment.agentMode();
         int agentCooldownSeconds = (int) nonNegativeOrDefault(fc, "agent.cooldown-seconds", 5, logger);
         int agentMaxMessageLength = (int) positiveOrDefault(fc, "agent.max-message-length", 500, logger);
         boolean agentEchoToMonitors = fc.getBoolean("agent.echo-to-monitors", true);
@@ -247,26 +314,17 @@ public record PluginConfig(
      */
     /**
      * {@code server.token} must be at least 16 characters while the WebSocket server is enabled;
-     * with {@code server.enabled: false} it is ignored (an in-game-only install has no MCP client
-     * to authenticate). Returns the token, never null.
+     * under {@code mode: ingame} it is ignored (an in-game-only install has no MCP client to
+     * authenticate). Returns the token, never null.
      */
     static String validateToken(boolean serverEnabled, String token) throws ConfigException {
         String t = token == null ? "" : token;
         if (serverEnabled && t.trim().length() < 16) {
             throw new ConfigException(
                     "server.token is empty or too short (must be at least 16 characters). Set a long random token"
-                    + " for MCP clients, or set server.enabled: false if only /ashlar is used. Refusing to start.");
+                    + " for MCP clients, or set mode: ingame if only /ashlar is used. Refusing to start.");
         }
         return t;
-    }
-
-    /** {@code agent.mode: external} forwards /ashlar over the WebSocket server, so it needs the server on. */
-    static void validateModeAgainstServer(boolean serverEnabled, AgentConfig.Mode mode) throws ConfigException {
-        if (!serverEnabled && mode == AgentConfig.Mode.EXTERNAL) {
-            throw new ConfigException(
-                    "agent.mode: external forwards /ashlar to a connected MCP process and needs the WebSocket"
-                    + " server, but server.enabled is false. Enable the server or use agent.mode: embedded.");
-        }
     }
 
     static String validateLanguage(String raw) throws ConfigException {

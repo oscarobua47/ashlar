@@ -253,8 +253,8 @@ public final class AshlarPlugin extends JavaPlugin {
             // events (net.SessionProgressSink, plan.md step7).
             this.dispatcher.setWsServer(wsServer);
         } else if (this.agentService == null) {
-            getLogger().warning("server.enabled is false and the in-game assistant is not configured:"
-                    + " this plugin will do nothing until one of them is set up.");
+            getLogger().warning("mode is ingame but the in-game assistant is not configured"
+                    + " (agent.model.api-key is empty): /ashlar will answer \"not configured\" until it is set.");
         }
         this.executor.start();
         if (this.wsServer != null) {
@@ -270,7 +270,7 @@ public final class AshlarPlugin extends JavaPlugin {
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "
                 + (config.server().enabled()
                         ? "WebSocket listening on " + config.server().host() + ":" + config.server().port()
-                        : "WebSocket server disabled (server.enabled: false); /ashlar only."));
+                        : "mode: ingame - no WebSocket server; /ashlar only."));
     }
 
     @Override

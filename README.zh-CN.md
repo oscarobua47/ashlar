@@ -59,8 +59,8 @@ player's /ashlar  --->  plugin's built-in assistant  --->  model API (DeepSeek b
 1. 从 [Releases](../../releases) 页面下载 `ashlar-0.4.7.jar`，放进服务器的 `plugins/` 目录。
 2. 启动服务器一次，然后停止。插件在这第一次运行时会拒绝完全启动 —— 它会写出默认的 `plugins/Ashlar/config.yml` 并自我禁用，因为 token 是空的。
 3. 编辑 `plugins/Ashlar/config.yml`：
-   - **只在游戏内用 `/ashlar`、不接 AI 客户端？** 把 `server.enabled` 设为 `false`，跳过下面几项，直接看[游戏内助手](#游戏内助手不需要-ai-客户端)：不会开放任何端口，也不需要 token。
-   - `server.token`：一个足够长的随机值，例如 `openssl rand -hex 24`。**WebSocket 服务器开启时，如果缺失或短于 16 个字符，插件会拒绝启动。**
+   - `mode`：这台服务器怎么用 —— `both`（默认：MCP 客户端和 `/ashlar` 都开）、`mcp`（只给 MCP 客户端）、`ingame`（只有 `/ashlar`）或 `external`（见[游戏内助手](#游戏内助手不需要-ai-客户端)）。**只在游戏内用 `/ashlar`、不接 AI 客户端？** 设 `mode: ingame`，跳过下面几项直接看那一节：不会开放任何端口，也不需要 token。
+   - `server.token`：一个足够长的随机值，例如 `openssl rand -hex 24`。**除非 `mode` 是 `ingame`，缺失或短于 16 个字符时插件会拒绝启动。**
    - `server.port`：主机/面板上一个空闲的 TCP 端口。
    - `server.allowed-ips`：可选。如果 MCP 服务器运行在有固定公网 IP 的地方（例如 VPS），把那个 IP 填在这里。如果它运行在你自己的电脑上、走的是普通家庭宽带，你的 IP 会变化，白名单反而会把你自己锁在外面 —— 留空，依赖 token 本身即可，token 才是真正的身份验证。留空意味着什么、以及如何在此基础上进一步收紧，见[安全性](#安全性)。
 4. 重启服务器。
@@ -179,16 +179,17 @@ WARNINGS (blocks that would fall or pop off in vanilla, including ones next to s
 1. **只需要插件。** 在 `plugins/Ashlar/config.yml` 里把 `agent.model.api-key` 设为一个来自 [platform.deepseek.com](https://platform.deepseek.com) 的 DeepSeek key（默认值已经指向 `deepseek-flash`），重启服务器，`/ashlar` 就能用了 —— 不需要运行任何其他进程：
 
    ```yaml
+   mode: both                # 默认：MCP 客户端和 /ashlar；"ingame" = 只有 /ashlar，不开端口、不需要 token
    agent:
-     mode: embedded          # default; the plugin runs the assistant itself
      model:
-       api-key: "sk-..."     # required; leave empty and /ashlar replies "not configured"
+       api-key: "sk-..."     # 必填；留空时 /ashlar 会回复"未配置"
    ```
 
-   `agent.mode` 有三个取值：
-   - `embedded`（默认）—— 插件用下面的 `agent.model.*` 自己运行助手；不需要 Node 进程或入站端口。
-   - `external` —— 通过插件的聊天事件把 `/ashlar` 请求转发给一个已连接的 `ashlar-mcp` 风格进程，供集成方使用；这是之前 0.2 版本的方式。
-   - `off` —— 完全禁用 `/ashlar`。
+   助手是否运行由顶层的 `mode` 决定：
+   - `both`（默认）—— 给 MCP 客户端用的 WebSocket 服务器**加上**助手，助手由插件自己用下面的 `agent.model.*` 运行；`/ashlar` 不需要 Node 进程。
+   - `ingame` —— 只有助手：没有 WebSocket 服务器，不开端口，不需要 `server.token`。
+   - `mcp` —— 只有 WebSocket 服务器；`/ashlar` 禁用。
+   - `external` —— WebSocket 服务器开着，`/ashlar` 请求通过插件的聊天事件转发给一个已连接的 `ashlar-mcp` 风格进程，供集成方使用；这是之前 0.2 版本的方式。
 2. **任何兼容 OpenAI 的接口**都可以用，只需把 `agent.model.base-url` 和 `agent.model.model` 换成对应的值（OpenAI、OpenRouter、本地 Ollama），只要该模型支持 tool calling 即可。建议使用支持视觉的模型：否则助手看不到 `mc_render`/`mc_survey` 返回的图像，只能看到其中的文字。
 3. **谁可以使用它**按以下顺序决定（与 0.2 版本相同）：
    - 管理员（operator）始终可以使用。
@@ -243,7 +244,7 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 
 余额在每次模型轮次之后扣除，与用量计数器采用同样的按轮计费方式。如果请求仍在运行时余额降到零，请求不会被硬生生截断，而是优雅收尾：正在进行的工具调用先完成，然后模型获得最后一轮、不带任何工具的机会，说明已完成了什么、还剩什么，以及快照 id —— 与请求触达 `agent.model.max-tool-calls` 时的处理方式相同。最终回复会多出一行，提示玩家请管理员充值，然后说 "continue"。当余额已经小于或等于零时开始一个*新*请求会被直接拒绝，和其他限额一样。每日限额依然会和额度一起生效 —— 两者都会被检查。余额和上面的一切一样，保存在同一个 `plugins/Ashlar/usage.json` 里。
 
-`plugins/Ashlar/config.yml` 中的 `agent.limits.*` 和 `agent.pricing.*`（仅 embedded 模式下使用）：
+`plugins/Ashlar/config.yml` 中的 `agent.limits.*` 和 `agent.pricing.*`（仅游戏内助手使用）：
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -278,10 +279,10 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 
 ### 从 0.2 升级
 
-- 停止旧的、基于 Node 的助手进程 —— 曾经用来启动它的那个标志已经不存在了，现在会立即退出并提示指向 `agent.mode: embedded`。
+- 停止旧的、基于 Node 的助手进程 —— 曾经用来启动它的那个标志已经不存在了，现在会立即退出并提示改用内置助手。
 - 如果想保留用量计数，把旧的用量文件（在那个旧进程曾经运行的目录旁边）复制到 `plugins/Ashlar/usage.json`（格式相同）。
 - 把旧进程的 provider/limit/pricing 环境变量的值迁移到 `plugins/Ashlar/config.yml` 里对应的 `agent.model.*`/`agent.limits.*`/`agent.pricing.*` 键 —— 具体键名见上表和[配置参考](#配置参考)。
-- 如果仍然想要一个独立进程驱动 `/ashlar`（例如自定义集成），把 `agent.mode` 设为 `external` 而不是 `embedded` —— 这就是旧的 0.2 行为。
+- 如果仍然想要一个独立进程驱动 `/ashlar`（例如自定义集成），设 `mode: external` —— 这就是旧的 0.2 行为。
 
 ## 兼容性
 
@@ -318,10 +319,10 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 | Key | Default | Meaning |
 |---|---|---|
 | `language` | `"en"` | 插件自身在聊天中所说的一切所用的语言（用法/帮助行、进度行、用量页脚、限额/额度/暂停消息）；不影响 AI 自己的回复。取值 `en`、`zh_CN`，或 `auto`（跟随每个玩家自己的客户端语言，控制台始终为英文）。 |
-| `server.enabled` | `true` | 是否运行 WebSocket 服务器（MCP 客户端的入口）。`false` 时不开放端口、忽略 `server.token`——适合只用 `/ashlar` 的服务器。`agent.mode: external` 要求它为 `true`。 |
+| `mode` | `"both"` | 这台服务器怎么用：`both` = WebSocket 服务器（MCP 客户端）加游戏内助手；`mcp` = 只有 WebSocket 服务器，`/ashlar` 禁用；`ingame` = 只有 `/ashlar`，不开 WebSocket 服务器、不开端口、不需要 token；`external` = WebSocket 服务器开着，`/ashlar` 转发给已连接的外部进程（0.2 方式）。取代原来的 `agent.mode`（没有 `mode` 时仍会读取它）。 |
 | `server.host` | `"0.0.0.0"` | WebSocket 服务器绑定的网卡接口。 |
 | `server.port` | `8765` | WebSocket 服务器的 TCP 端口。 |
-| `server.token` | `""` | 给 MCP 客户端用的认证 token；必须 >= 16 个字符，否则插件拒绝启动（`server.enabled` 为 `false` 时不检查）。 |
+| `server.token` | `""` | 给 MCP 客户端用的认证 token；必须 >= 16 个字符，否则插件拒绝启动（`mode: ingame` 时不检查）。 |
 | `server.allowed-ips` | `[]` | 客户端精确 IP 的白名单（IPv4/IPv6，v1 不支持 CIDR/主机名）。空列表 = 允许任意 IP。 |
 | `limits.max-blocks-per-operation` | `500000` | 单次 `fill_batch`/`set_blocks` 请求最多可触及的方块数。 |
 | `limits.max-read-volume` | `200000` | `read_region`/`heightmap` 单次调用最多可返回的区域体积。 |
@@ -339,27 +340,26 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 | `run-command.enabled` | `true` | 是否提供 `run_command`/`mc_command` 这个应急出口。 |
 | `engine.connect-blocks` | `true` | 写入后是否执行仅改变形状的连接处理（玻璃板/栅栏/墙/铁栏杆/楼梯与相邻方块连接）。可通过 `mc_build` 的 `connect` 字段按请求覆盖。 |
 | `engine.support-warnings` | `true` | 写入后是否检查失去支撑的悬挂方块（作为警告报告，不会自动修复任何东西）。不支持按请求覆盖。 |
-| `agent.mode` | `"embedded"` | `embedded` 在插件内部运行助手；`external` 把 `/ashlar` 转发给已连接的 `ashlar-mcp` 风格进程（0.2 行为）；`off` 完全禁用 `/ashlar`。 |
-| `agent.model.base-url` | `"https://api.deepseek.com"` | 兼容 OpenAI 的 base URL；会自动追加 `/chat/completions`。仅 embedded 模式使用。 |
-| `agent.model.api-key` | `""` | 模型 API 的 Bearer token。embedded 模式下必填 —— 留空时 `/ashlar` 会回复"未配置"，而不是插件拒绝启动。 |
-| `agent.model.model` | `"deepseek-flash"` | 每次请求发送的模型名。仅 embedded 模式使用。 |
-| `agent.model.max-tool-calls` | `25` | 每个玩家请求允许的最大工具调用次数，超过后强制给出最终答复。仅 embedded 模式使用。 |
-| `agent.model.request-timeout-ms` | `120000` | 单次模型 API 调用超时时间，单位毫秒。仅 embedded 模式使用。 |
-| `agent.model.image-detail` | `"high"` | 图像部分传递的细节级别：`low`/`high`/`auto`。仅 embedded 模式使用。 |
-| `agent.model.system-prompt-file` | `""` | 追加到内置系统提示词后面的文本文件的可选路径。仅 embedded 模式使用。 |
-| `agent.model.allow-command` | `false` | 是否把 `mc_command` 作为工具提供给模型。仅 embedded 模式使用。 |
-| `agent.limits.max-requests-per-player-per-day` | `40` | 每个玩家每日请求次数上限，UTC 午夜重置；`0` = 无限制。可通过 `/ashlar limit` 按玩家覆盖。仅 embedded 模式使用。 |
-| `agent.limits.max-tokens-per-player-per-day` | `0` | 每个玩家每日 token 上限（输入 + 缓存 + 输出）；`0` = 无限制。可按玩家覆盖。仅 embedded 模式使用。 |
-| `agent.limits.max-cost-per-player-per-day` | `0` | 每个玩家每日花费上限，单位是 `agent.pricing.currency`；`0` = 无限制。可按玩家覆盖。仅 embedded 模式使用。 |
-| `agent.limits.max-concurrent` | `2` | 所有玩家合计同时运行的请求数。仅 embedded 模式使用。 |
-| `agent.limits.history-turns` | `6` | 每个玩家记住的用户/助手对话轮数。仅 embedded 模式使用。 |
-| `agent.limits.history-ttl-minutes` | `30` | 玩家历史记录在空闲多少分钟后被丢弃。仅 embedded 模式使用。 |
-| `agent.pricing.input` | `0.30` | 每 100 万未缓存输入 token 的价格，峰值价格。仅 embedded 模式使用。 |
-| `agent.pricing.cached-input` | `0.006` | 每 100 万缓存输入 token 的价格，峰值价格。仅 embedded 模式使用。 |
-| `agent.pricing.output` | `1.20` | 每 100 万输出 token 的价格，峰值价格。仅 embedded 模式使用。 |
-| `agent.pricing.currency` | `"USD"` | 仅作标签用：`USD` 显示为 `$`，其他值显示为 `<code> ` 前缀。仅 embedded 模式使用。 |
-| `agent.pricing.peak-hours` | `"mon-fri 01:00-04:00,06:00-10:00"` | `agent.pricing.*` 价格完全生效的 UTC 时间窗口；`always` 禁用非峰值折扣。仅 embedded 模式使用。 |
-| `agent.pricing.off-peak-multiplier` | `0.5` | `agent.pricing.peak-hours` 之外应用的价格倍数。仅 embedded 模式使用。 |
+| `agent.model.base-url` | `"https://api.deepseek.com"` | 兼容 OpenAI 的 base URL；会自动追加 `/chat/completions`。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.model.api-key` | `""` | 模型 API 的 Bearer token。游戏内助手必填 —— 留空时 `/ashlar` 会回复"未配置"，而不是插件拒绝启动。 |
+| `agent.model.model` | `"deepseek-flash"` | 每次请求发送的模型名。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.model.max-tool-calls` | `25` | 每个玩家请求允许的最大工具调用次数，超过后强制给出最终答复。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.model.request-timeout-ms` | `120000` | 单次模型 API 调用超时时间，单位毫秒。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.model.image-detail` | `"high"` | 图像部分传递的细节级别：`low`/`high`/`auto`。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.model.system-prompt-file` | `""` | 追加到内置系统提示词后面的文本文件的可选路径。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.model.allow-command` | `false` | 是否把 `mc_command` 作为工具提供给模型。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.limits.max-requests-per-player-per-day` | `40` | 每个玩家每日请求次数上限，UTC 午夜重置；`0` = 无限制。可通过 `/ashlar limit` 按玩家覆盖。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.limits.max-tokens-per-player-per-day` | `0` | 每个玩家每日 token 上限（输入 + 缓存 + 输出）；`0` = 无限制。可按玩家覆盖。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.limits.max-cost-per-player-per-day` | `0` | 每个玩家每日花费上限，单位是 `agent.pricing.currency`；`0` = 无限制。可按玩家覆盖。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.limits.max-concurrent` | `2` | 所有玩家合计同时运行的请求数。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.limits.history-turns` | `6` | 每个玩家记住的用户/助手对话轮数。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.limits.history-ttl-minutes` | `30` | 玩家历史记录在空闲多少分钟后被丢弃。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.pricing.input` | `0.30` | 每 100 万未缓存输入 token 的价格，峰值价格。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.pricing.cached-input` | `0.006` | 每 100 万缓存输入 token 的价格，峰值价格。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.pricing.output` | `1.20` | 每 100 万输出 token 的价格，峰值价格。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.pricing.currency` | `"USD"` | 仅作标签用：`USD` 显示为 `$`，其他值显示为 `<code> ` 前缀。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.pricing.peak-hours` | `"mon-fri 01:00-04:00,06:00-10:00"` | `agent.pricing.*` 价格完全生效的 UTC 时间窗口；`always` 禁用非峰值折扣。仅游戏内助手使用（`mode: both`/`ingame`）。 |
+| `agent.pricing.off-peak-multiplier` | `0.5` | `agent.pricing.peak-hours` 之外应用的价格倍数。仅游戏内助手使用（`mode: both`/`ingame`）。 |
 | `agent.cooldown-seconds` | `5` | 同一玩家两次 `/ashlar` 请求之间的最短间隔秒数。 |
 | `agent.max-message-length` | `500` | `/ashlar` 请求文本接受的最大字符数。 |
 | `agent.everyone-can-use` | `false` | 是否让每个玩家都能使用 `/ashlar`，而不必是管理员、被授予权限，或在允许列表中。 |
@@ -393,7 +393,7 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 
 **症状：** 插件日志提示 token 为空（或过短），插件没有启动。
 **原因：** `config.yml` 里的 `server.token` 是空的、只有空白字符，或短于 16 个字符。
-**修复：** 设置一个真实的 token（`openssl rand -hex 24`）并重启——如果只会用 `/ashlar`，也可以把 `server.enabled` 设为 `false`。
+**修复：** 设置一个真实的 token（`openssl rand -hex 24`）并重启——如果只会用 `/ashlar`，也可以设 `mode: ingame`。
 
 **症状：** `mc_render` 报 `VOLUME_EXCEEDED` 错误。
 **原因：** 立面/切片视图按体积计价（<= 200,000 方块）；过高或过深的 `from`/`to` 范围很容易超出这个限制。
@@ -404,12 +404,12 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 **修复：** 阅读 `mc_build` 响应中的 `WARNINGS` 部分 —— 它精确列出了哪些方块缺少支撑以及原因。
 
 **症状：** `/ashlar` 提示助手未配置。
-**原因：** `agent.mode` 是 `embedded`（默认值），但 `config.yml` 里的 `agent.model.api-key` 是空的。
+**原因：** `mode` 是 `both`（默认值）或 `ingame`，但 `config.yml` 里的 `agent.model.api-key` 是空的。
 **修复：** 把 `agent.model.api-key` 设为一个真实的 key 并重启。
 
 **症状：** 控制台显示 `Ashlar agent: mode=external`，但 `/ashlar` 没有任何回应。
-**原因：** `agent.mode: external` 会把请求转发给一个已连接的外部进程，而不是在插件内部运行助手；当前没有任何进程连接。
-**修复：** 要么连接一个订阅插件聊天事件的 `ashlar-mcp` 风格外部进程，要么把 `agent.mode` 设为 `embedded`（大多数服务器的常规设置）。
+**原因：** `mode: external` 会把请求转发给一个已连接的外部进程，而不是在插件内部运行助手；当前没有任何进程连接。
+**修复：** 要么连接一个订阅插件聊天事件的 `ashlar-mcp` 风格外部进程，要么设 `mode: both`（大多数服务器的常规设置）。
 
 **症状：** 模型的回复说它看不到图像，或者回答得就像从未看过勘测/渲染结果一样。
 **原因：** `agent.model.model` 不支持视觉，因此随 `mc_render`/`mc_survey` 结果一起发送的图像对它来说等于不存在。
