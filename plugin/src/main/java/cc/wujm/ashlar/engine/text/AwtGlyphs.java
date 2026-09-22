@@ -20,8 +20,9 @@ import java.awt.image.BufferedImage;
  * #MAX_WIDTH} columns so a single wide CJK character does not become a wall. 12 rows rather than
  * the ASCII font's 7: at 7 a character like "welcome" in Chinese collapses into a solid blob
  * (verified on the test server, step8k); {@link TextLayout} bottom-aligns mixed-height glyphs. Guarded per step8k-prompt.md &sect;A: if this JVM has no fonts
- * ({@link Font} creation/measurement throws, or the rendered bitmap comes out entirely blank), this
- * throws {@link FontRenderException} rather than silently returning a blank glyph.
+ * ({@link Font} creation/measurement throws, {@link Font#canDisplay} says the code point is not
+ * covered, or the rendered bitmap comes out entirely blank), this throws {@link
+ * FontRenderException} rather than returning a blank glyph or the JVM's missing-glyph box.
  */
 final class AwtGlyphs {
 
@@ -64,6 +65,13 @@ final class AwtGlyphs {
                     throw new FontRenderException(noFontsMessage());
                 }
                 font = font.deriveFont(size);
+                if (!font.canDisplay(codePoint)) {
+                    // A logical font is a composite: canDisplay is false only when no font in it
+                    // covers this code point. Without the check the JVM happily draws its
+                    // missing-glyph box, which at block scale looks like a deliberate rectangle
+                    // (reported from a real server, 2026-09-22) instead of an error.
+                    throw new FontRenderException(noFontsMessage());
+                }
                 metrics = probe.getFontMetrics(font);
             } finally {
                 probe.dispose();
@@ -191,6 +199,7 @@ final class AwtGlyphs {
     }
 
     private static String noFontsMessage() {
-        return "this server's Java has no fonts for non-ASCII text; use ASCII";
+        return "this server's Java has no font for that character (install a CJK font on the server,"
+                + " e.g. fonts-noto-cjk, or use ASCII text)";
     }
 }

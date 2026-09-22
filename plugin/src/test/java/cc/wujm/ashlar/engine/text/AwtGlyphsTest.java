@@ -4,6 +4,7 @@ package cc.wujm.ashlar.engine.text;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -34,5 +35,12 @@ class AwtGlyphsTest {
         Glyph a = Glyphs.glyphFor('A');
         assertEquals(5, a.width());
         assertEquals(7, a.height());
+    }
+
+    @Test
+    void anUncoveredCodePointFailsInsteadOfDrawingTheMissingGlyphBox() {
+        // U+E000 is in the Private Use Area: no real font covers it, so this must throw rather
+        // than return the JVM's tofu rectangle (which at block scale reads as intentional lettering).
+        assertThrows(FontRenderException.class, () -> Glyphs.glyphFor(0xE000));
     }
 }
