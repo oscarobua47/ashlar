@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.4.9
 
 - New `engine.text-font-file` config key (hot, `/ashlar reload` applies it): points `mc_build`'s `text` entries at a `.ttf`/`.otf`/`.ttc` file for non-ASCII (CJK) lettering instead of this JVM's system font - the fix for a Docker container with no CJK font installed, since a mounted file needs no image rebuild or restart. Empty (the default) keeps the previous behaviour; a path that does not exist, is a directory, or fails to load as a font logs one warning and falls back to the system font rather than stopping the server.
 - `/ashlar undo`: rolls back the player's own last assistant build with no model call - restores the newest snapshot that player's own requests created (through the same validation/executor/connect-support passes `mc_restore` uses) and marks it undone, so a second `/ashlar undo` goes one step further back. An MCP client's snapshots are never touched. A reply that created a snapshot now hints at this in its usage footer.
