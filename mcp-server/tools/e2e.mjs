@@ -1087,6 +1087,37 @@ async function main() {
         check(`"I" stem run is exactly 7 blocks tall (got ${hi - lo + 1})`, hi - lo + 1 === 7);
     }
 
+    // --- step8m: `text` `align: "center"` (pos is the bottom-centre block of the first line) -----
+    section('mc_build (text: "HI" align:"center") - bbox is symmetric around the known centre x');
+    const centerClear = await client.callTool({
+        name: "mc_build",
+        arguments: { fills: [{ from: [TEXT_X - 10, TEXT_Y - 1, TEXT_Z + 20], to: [TEXT_X + 10, TEXT_Y + 8, TEXT_Z + 20], block: "minecraft:air" }] }
+    });
+    check("align-center-check area clear not an error", !centerClear.isError);
+
+    const CENTER_X = TEXT_X;
+    const centerBuild = await client.callTool({
+        name: "mc_build",
+        arguments: {
+            text: [{ text: "HI", pos: [CENTER_X, TEXT_Y, TEXT_Z + 20], block: "minecraft:emerald_block", facing: "south", scale: 1, align: "center" }]
+        }
+    });
+    const centerBuildText = textOf(centerBuild);
+    console.log(centerBuildText);
+    check("mc_build (text HI align:center) not an error", !centerBuild.isError);
+    // "HI" is 11 blocks wide (H:5 + spacing:1 + I:5), odd: floor(11/2)=5 blocks land before pos,
+    // 6 (pos included) land at/after it - bbox [CENTER_X-5, ...] -> [CENTER_X+5, ...], symmetric
+    // around CENTER_X to within the single extra block, which lands on the advance-positive (+x) side.
+    const centerBboxMatch = centerBuildText.match(/\[(-?\d+),(\d+),(-?\d+)\] -> \[(-?\d+),(\d+),(-?\d+)\]/);
+    check("mc_build (text HI align:center) response reports a bounding box", !!centerBboxMatch);
+    if (centerBboxMatch) {
+        const [, x1, , , x2] = centerBboxMatch.map(Number);
+        check(`align:center bbox x1 is CENTER_X-5 (got ${x1}, want ${CENTER_X - 5})`, x1 === CENTER_X - 5);
+        check(`align:center bbox x2 is CENTER_X+5 (got ${x2}, want ${CENTER_X + 5})`, x2 === CENTER_X + 5);
+        check("align:center bbox is symmetric around CENTER_X (within the one odd-width extra block)",
+            (CENTER_X - x1) === 5 && (x2 - CENTER_X) === 5);
+    }
+
     section("mc_build (text: error cases - bad facing, scale out of range, empty text, text over 64 chars)");
     const textBadFacing = await client.callTool({
         name: "mc_build",

@@ -206,12 +206,20 @@
               "items": false,
               "minItems": 3,
               "maxItems": 3,
-              "description": "The [x, y, z] block of the bottom-left pixel of the first (top) line of text, in the viewer's frame - see `facing`. For a wall-mounted `facing: \"south\"/\"north\"/\"east\"/\"west\"` text this is a block in the wall's own plane (the text is one block thick); for `facing: \"up\"` it is a block on the ground the text lies flat on."
+              "description": "The [x, y, z] block of the first (top) line of text, in the viewer's frame - see `facing`. With `align: \"left\"` (default) this is the bottom-left pixel; with `align: \"center\"` it is the bottom-CENTRE (see `align`). For a wall-mounted `facing: \"south\"/\"north\"/\"east\"/\"west\"` text this is a block in the wall's own plane (the text is one block thick); for `facing: \"up\"` it is a block on the ground the text lies flat on."
             },
             "block": {
               "type": "string",
               "minLength": 1,
               "description": "Block state string for the letters themselves, e.g. \"minecraft:white_concrete\". Solid, opaque blocks read best; avoid transparent/see-through blocks unless a see-through sign effect is wanted."
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "left",
+                "center"
+              ],
+              "description": "How `pos` relates to the text, along the advance (reading) axis. \"left\" (default): `pos` is the bottom-left block of the first line. \"center\": `pos` is the bottom-CENTRE block of the first line - the text extends half its total width to each side of `pos`; when the width does not split evenly, the extra block goes on the advance-positive side (the side the text continues onto). Use \"center\" for free-standing lettering anchored on a player's position, so no manual half-width math is needed."
             },
             "background": {
               "type": "string",

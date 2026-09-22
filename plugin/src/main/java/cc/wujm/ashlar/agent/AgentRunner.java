@@ -46,6 +46,21 @@ public final class AgentRunner {
     private static final List<String> SHORT_ARG_KEYS = List.of("from", "to", "view", "action", "liquids");
     private static final long POLL_MS = 50;
 
+    /**
+     * Engine-level stop on repeated image reads (step8m-prompt.md &sect;C): a real server session
+     * showed the model calling {@code mc_survey} six times over six different areas, never placing
+     * a block, because nothing stopped it from trying again with a different rectangle - a
+     * heightmap cannot answer "where is a wall" no matter how many times it is re-read. These two
+     * thresholds count calls to the image-returning read tools ({@link #IMAGE_READ_TOOLS}) per
+     * request, independent of prompt wording: from the {@link #IMAGE_READ_WARN_AT}th such call on,
+     * a system note is appended to that call's result nudging the model to stop; from the
+     * {@link #IMAGE_READ_DROP_AT}th on, the image itself is withheld (the call still succeeds -
+     * this never fails the request, it only stops feeding the model more pixels to search with).
+     */
+    private static final Set<String> IMAGE_READ_TOOLS = Set.of("mc_survey", "mc_render");
+    private static final int IMAGE_READ_WARN_AT = 2;
+    private static final int IMAGE_READ_DROP_AT = 4;
+
     private final ModelApi modelApi;
     private final ToolRegistry toolRegistry;
     private final List<String> allowedToolNames;
@@ -141,6 +156,7 @@ public final class AgentRunner {
         boolean snapshotCreated = false;
         int callIndex = 0;
         int modelCallCount = 0;
+        int imageReadCallCount = 0;
 
         for (;;) {
             if (req.cancelled().getAsBoolean()) {
@@ -214,6 +230,11 @@ public final class AgentRunner {
                         ? new ToolCallOutcome(parseError, List.of(), true)
                         : callTool(call.functionName(), args, req.player(), callIndex, req.cancelled());
 
+                if (IMAGE_READ_TOOLS.contains(call.functionName())) {
+                    imageReadCallCount++;
+                    result = applyImageReadLimit(result, imageReadCallCount);
+                }
+
                 toolCallCount++;
                 if (!result.isError() && madeASnapshot(call.functionName(), result.text())) {
                     snapshotCreated = true;
@@ -284,6 +305,28 @@ public final class AgentRunner {
             }
         }
         return new ToolCallOutcome(text.toString(), images, result.isError());
+    }
+
+    /**
+     * Applies the step8m-prompt.md &sect;C thresholds to one {@code mc_survey}/{@code mc_render}
+     * call's outcome, given {@code callCount} = how many such calls this request has made so far
+     * (this one included). Below {@link #IMAGE_READ_WARN_AT} the outcome is returned unchanged.
+     */
+    private static ToolCallOutcome applyImageReadLimit(ToolCallOutcome result, int callCount) {
+        if (callCount < IMAGE_READ_WARN_AT) {
+            return result;
+        }
+        if (callCount >= IMAGE_READ_DROP_AT) {
+            String text = result.text()
+                    + "\n[system] Image withheld: you have surveyed/rendered " + callCount
+                    + " times in this request. Do not call mc_survey or mc_render again: act on what you already"
+                    + " have, or ask the player where to build.";
+            return new ToolCallOutcome(text, List.of(), result.isError());
+        }
+        String text = result.text()
+                + "\n[system] You have surveyed/rendered " + callCount + " times in this request. Do not call"
+                + " mc_survey or mc_render again: act on what you already have, or ask the player where to build.";
+        return new ToolCallOutcome(text, result.images(), result.isError());
     }
 
     private String unknownToolText(String name) {

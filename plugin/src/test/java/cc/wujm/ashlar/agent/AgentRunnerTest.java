@@ -317,6 +317,96 @@ class AgentRunnerTest {
         assertEquals(0, model.calls.size());
     }
 
+    // --- step8m-prompt.md &sect;C: engine-level stop on repeated image reads ------------------
+
+    private static Tool fakeImageTool(String name) {
+        return fakeTool(name, (ctx, args) -> CompletableFuture.completedFuture(
+                ToolResult.content(List.of(ContentBlock.text(name + " text"), ContentBlock.image("abc123", "image/png")))));
+    }
+
+    private static ChatMessage toolMessageFor(List<ChatMessage> exchange, String callId) {
+        return exchange.stream()
+                .filter(m -> m.role() == ChatMessage.Role.TOOL && callId.equals(m.toolCallId()))
+                .findFirst().orElseThrow(() -> new AssertionError("no tool message for " + callId));
+    }
+
+    private static long imageMessageCount(List<ChatMessage> exchange) {
+        return exchange.stream()
+                .filter(m -> m.role() == ChatMessage.Role.USER && m.contentParts() != null)
+                .filter(m -> m.contentParts().stream().anyMatch(ContentPart::isImage))
+                .count();
+    }
+
+    @Test
+    void aSingleSurveyCallIsUntouched() {
+        FakeModelApi model = new FakeModelApi(List.of(
+                assistantToolCallsReply(List.of(new ToolCall("call-1", "mc_survey", "{}"))),
+                assistantTextReply("Done.")));
+        ToolRegistry registry = new ToolRegistry(List.of(fakeImageTool("mc_survey")));
+        AgentRunner runner = new AgentRunner(model, registry, Set.of("mc_survey"), 25, "high", Optional.empty());
+
+        AgentRunner.RunResult result = runner.run(request("survey the area", () -> false, l -> { }));
+
+        ChatMessage tool1 = toolMessageFor(result.exchange(), "call-1");
+        assertEquals("mc_survey text", tool1.contentText(), "one survey call must not get a note");
+        assertEquals(1, imageMessageCount(result.exchange()), "the one image must still be delivered");
+    }
+
+    @Test
+    void aNoteAppearsFromTheSecondImageReadCallOnAndImagesAreDroppedFromTheFourthOn() {
+        FakeModelApi model = new FakeModelApi(List.of(
+                assistantToolCallsReply(List.of(new ToolCall("call-1", "mc_survey", "{}"))),
+                assistantToolCallsReply(List.of(new ToolCall("call-2", "mc_render", "{}"))),
+                assistantToolCallsReply(List.of(new ToolCall("call-3", "mc_survey", "{}"))),
+                assistantToolCallsReply(List.of(new ToolCall("call-4", "mc_render", "{}"))),
+                assistantTextReply("Done.")));
+        ToolRegistry registry = new ToolRegistry(List.of(fakeImageTool("mc_survey"), fakeImageTool("mc_render")));
+        AgentRunner runner = new AgentRunner(model, registry, Set.of("mc_survey", "mc_render"), 25, "high", Optional.empty());
+
+        AgentRunner.RunResult result = runner.run(request("keep looking", () -> false, l -> { }));
+        List<ChatMessage> exchange = result.exchange();
+
+        ChatMessage tool1 = toolMessageFor(exchange, "call-1");
+        assertEquals("mc_survey text", tool1.contentText(), "the 1st image-read call must be untouched");
+
+        ChatMessage tool2 = toolMessageFor(exchange, "call-2");
+        assertTrue(tool2.contentText().contains("surveyed/rendered 2 times"), "unexpected: " + tool2.contentText());
+        assertTrue(tool2.contentText().startsWith("mc_render text"), "the note is appended, the original text kept");
+
+        ChatMessage tool3 = toolMessageFor(exchange, "call-3");
+        assertTrue(tool3.contentText().contains("surveyed/rendered 3 times"), "unexpected: " + tool3.contentText());
+
+        ChatMessage tool4 = toolMessageFor(exchange, "call-4");
+        assertTrue(tool4.contentText().contains("surveyed/rendered 4 times"), "unexpected: " + tool4.contentText());
+        assertTrue(tool4.contentText().contains("withheld"), "the 4th call's note must say the image was withheld");
+
+        // calls 1-3 each deliver their image; call 4's image is withheld -> only 3 image messages.
+        assertEquals(3, imageMessageCount(exchange));
+        assertFalse(result.text().isEmpty());
+        assertEquals(4, result.toolCalls());
+    }
+
+    @Test
+    void theImageReadCounterIsPerRequestASecondRequestStartsClean() {
+        ToolRegistry registry = new ToolRegistry(List.of(fakeImageTool("mc_survey")));
+
+        FakeModelApi firstModel = new FakeModelApi(List.of(
+                assistantToolCallsReply(List.of(new ToolCall("call-1", "mc_survey", "{}"))),
+                assistantToolCallsReply(List.of(new ToolCall("call-2", "mc_survey", "{}"))),
+                assistantTextReply("Done.")));
+        AgentRunner firstRunner = new AgentRunner(firstModel, registry, Set.of("mc_survey"), 25, "high", Optional.empty());
+        AgentRunner.RunResult firstResult = firstRunner.run(request("first request", () -> false, l -> { }));
+        assertTrue(toolMessageFor(firstResult.exchange(), "call-2").contentText().contains("surveyed/rendered 2 times"));
+
+        FakeModelApi secondModel = new FakeModelApi(List.of(
+                assistantToolCallsReply(List.of(new ToolCall("call-1", "mc_survey", "{}"))),
+                assistantTextReply("Done.")));
+        AgentRunner secondRunner = new AgentRunner(secondModel, registry, Set.of("mc_survey"), 25, "high", Optional.empty());
+        AgentRunner.RunResult secondResult = secondRunner.run(request("second request", () -> false, l -> { }));
+        assertEquals("mc_survey text", toolMessageFor(secondResult.exchange(), "call-1").contentText(),
+                "a fresh request's own first survey call must not carry the previous request's note");
+    }
+
     @Test
     void sumsUsageAndCountsToolCallsAcrossEveryModelCall() {
         FakeModelApi model = new FakeModelApi(List.of(

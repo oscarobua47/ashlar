@@ -220,4 +220,27 @@ class McBuildTest {
         assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
                 "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\",\"spacing\":4}]}")));
     }
+
+    // --- align (step8m-prompt.md &sect;A) ------------------------------------------------------
+
+    @Test
+    void alignDefaultsToLeft() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:white_concrete\"}]}"));
+        assertEquals("left", a.text().get(0).align());
+    }
+
+    @Test
+    void alignCenterParses() {
+        McBuild.Args a = McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:white_concrete\",\"align\":\"center\"}]}"));
+        assertEquals("center", a.text().get(0).align());
+    }
+
+    @Test
+    void alignInvalidValueThrows() {
+        ToolArgError e = assertThrows(ToolArgError.class, () -> McBuild.Args.parse(obj(
+                "{\"text\":[{\"text\":\"HI\",\"pos\":[0,60,0],\"block\":\"minecraft:stone\",\"align\":\"middle\"}]}")));
+        assertTrue(e.getMessage().contains("align"));
+    }
 }

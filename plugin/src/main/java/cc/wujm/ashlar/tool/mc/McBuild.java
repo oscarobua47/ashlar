@@ -64,7 +64,7 @@ public final class McBuild implements Tool {
 
     /** One {@code text} entry, plus its geometry already expanded via {@link TextExpand#expand} at parse time. */
     record TextArg(String text, int[] pos, String block, String background, String facing, int scale, int spacing,
-            TextExpand.Result expanded) {
+            String align, TextExpand.Result expanded) {
     }
 
     record Args(String world, List<FillOpArg> fills, List<SparseOpArg> blocks, List<TextArg> text, boolean snapshot,
@@ -154,15 +154,16 @@ public final class McBuild implements Tool {
                 throw new ToolArgError("text[" + i + "].spacing: must be between " + TextExpand.MIN_SPACING + " and "
                         + TextExpand.MAX_SPACING + ", got " + spacing);
             }
+            String align = ArgParse.optEnum(t, "align", TextExpand.ALIGNS, TextExpand.ALIGN_LEFT);
             TextExpand.Result expanded;
             try {
-                expanded = TextExpand.expand(rawText, pos, facing, scale, spacing);
+                expanded = TextExpand.expand(rawText, pos, facing, scale, spacing, align);
             } catch (FontRenderException e) {
                 throw new ToolArgError(e.getMessage());
             } catch (IllegalArgumentException e) {
                 throw new ToolArgError("text[" + i + "]: " + e.getMessage());
             }
-            return new TextArg(rawText.trim(), pos, block, background, facing, scale, spacing, expanded);
+            return new TextArg(rawText.trim(), pos, block, background, facing, scale, spacing, align, expanded);
         }
 
         private static List<String> optSignLines(JsonObject signObj, String field) {

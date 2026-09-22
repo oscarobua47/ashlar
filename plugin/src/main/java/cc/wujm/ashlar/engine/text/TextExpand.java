@@ -33,6 +33,18 @@ public final class TextExpand {
     public static final int MIN_SPACING = 0;
     public static final int MAX_SPACING = 3;
 
+    /** {@code pos} is the bottom-left block of the first line (today's behaviour, and the default). */
+    public static final String ALIGN_LEFT = "left";
+    /**
+     * {@code pos} is the bottom-CENTRE block of the first line: the text extends half its total
+     * width to each side along the advance axis. When the width does not split evenly (an odd
+     * total width in blocks), the extra block goes on the advance-positive side (the side the text
+     * continues onto, i.e. later columns) - {@code floor(width/2)} blocks sit strictly before
+     * {@code pos}, {@code ceil(width/2)} blocks (including {@code pos} itself) sit at and after it.
+     */
+    public static final String ALIGN_CENTER = "center";
+    public static final List<String> ALIGNS = List.of(ALIGN_LEFT, ALIGN_CENTER);
+
     private static final int AXIS_X = 0;
     private static final int AXIS_Y = 1;
     private static final int AXIS_Z = 2;
@@ -79,13 +91,18 @@ public final class TextExpand {
         };
     }
 
+    /** Equivalent to the six-arg form with {@code align = "left"} (today's behaviour). */
+    public static Result expand(String text, int[] pos, String facing, int scale, int spacing) {
+        return expand(text, pos, facing, scale, spacing, ALIGN_LEFT);
+    }
+
     /**
-     * @throws IllegalArgumentException on a bad facing/scale/spacing, or a layout error propagated
-     *         from {@link TextLayout#layout}
+     * @throws IllegalArgumentException on a bad facing/scale/spacing/align, or a layout error
+     *         propagated from {@link TextLayout#layout}
      * @throws FontRenderException propagated from {@link Glyphs#glyphFor} when a non-ASCII character
      *         cannot be rendered on this JVM
      */
-    public static Result expand(String text, int[] pos, String facing, int scale, int spacing) {
+    public static Result expand(String text, int[] pos, String facing, int scale, int spacing, String align) {
         if (!FACINGS.contains(facing)) {
             throw new IllegalArgumentException("facing must be one of " + FACINGS + ", got '" + facing + "'");
         }
@@ -95,10 +112,14 @@ public final class TextExpand {
         if (spacing < MIN_SPACING || spacing > MAX_SPACING) {
             throw new IllegalArgumentException("spacing must be between " + MIN_SPACING + " and " + MAX_SPACING + ", got " + spacing);
         }
+        if (!ALIGNS.contains(align)) {
+            throw new IllegalArgumentException("align must be one of " + ALIGNS + ", got '" + align + "'");
+        }
 
         TextLayout.Layout layout = TextLayout.layout(text, spacing);
         int totalRows = layout.height();
         int totalCols = Math.max(1, layout.width());
+        int widthBlocks = totalCols * scale;
 
         boolean[][] ink = new boolean[totalRows][totalCols];
         for (TextLayout.PlacedGlyph pg : layout.glyphs()) {
@@ -116,6 +137,17 @@ public final class TextExpand {
 
         Axes axes = axesFor(facing);
 
+        // ALIGN_CENTER: pos is the bottom-CENTRE block instead of the bottom-left block, so shift
+        // the reference point that block-column 0 is measured from back along the advance axis by
+        // floor(widthBlocks/2) - leaving ceil(widthBlocks/2) blocks (pos itself included) on the
+        // advance-positive side, per the field description above.
+        int[] origin = pos;
+        if (ALIGN_CENTER.equals(align)) {
+            origin = pos.clone();
+            int leftHalf = widthBlocks / 2;
+            origin[axes.advanceAxis()] -= axes.advanceSign() * leftHalf;
+        }
+
         List<Run> runs = new ArrayList<>();
         long inkBlockCount = 0;
         for (int row = 0; row < totalRows; row++) {
@@ -130,18 +162,18 @@ public final class TextExpand {
                     col++;
                 }
                 int end = col - 1;
-                runs.add(box(pos, axes, start, end, row, row, scale, baseRow));
+                runs.add(box(origin, axes, start, end, row, row, scale, baseRow));
                 inkBlockCount += (long) (end - start + 1) * scale * scale;
             }
         }
 
-        Run full = box(pos, axes, 0, totalCols - 1, 0, totalRows - 1, scale, baseRow);
+        Run full = box(origin, axes, 0, totalCols - 1, 0, totalRows - 1, scale, baseRow);
         int[] bboxMin = {
                 Math.min(full.x1(), full.x2()), Math.min(full.y1(), full.y2()), Math.min(full.z1(), full.z2())};
         int[] bboxMax = {
                 Math.max(full.x1(), full.x2()), Math.max(full.y1(), full.y2()), Math.max(full.z1(), full.z2())};
 
-        return new Result(runs, bboxMin, bboxMax, totalCols * scale, totalRows * scale, inkBlockCount);
+        return new Result(runs, bboxMin, bboxMax, widthBlocks, totalRows * scale, inkBlockCount);
     }
 
     /** Builds the world-space box for pixel columns {@code [colStart,colEnd]} x rows {@code [rowStart,rowEnd]} (both inclusive), scaled. */

@@ -112,6 +112,56 @@ class TextExpandTest {
         assertTrue(r.inkBlockCount() < cellVolume);
     }
 
+    // --- align (step8m-prompt.md &sect;A) ------------------------------------------------------
+
+    @Test
+    void alignLeftExplicitMatchesTheDefault() {
+        TextExpand.Result withDefault = TextExpand.expand("I", POS, "south", 1, 1);
+        TextExpand.Result withExplicitLeft = TextExpand.expand("I", POS, "south", 1, 1, TextExpand.ALIGN_LEFT);
+        assertArrayEquals(withDefault.bboxMin(), withExplicitLeft.bboxMin());
+        assertArrayEquals(withDefault.bboxMax(), withExplicitLeft.bboxMax());
+        assertEquals(withDefault.inkRuns(), withExplicitLeft.inkRuns());
+    }
+
+    @Test
+    void alignCenterOddWidthPutsTheExtraBlockOnTheAdvancePositiveSide() {
+        // "I" is 5 blocks wide (odd). floor(5/2)=2 blocks land before pos (x=98,99), pos itself
+        // (x=100) plus 2 more (x=101,102) land on the advance-positive side - a clean, symmetric
+        // 2/1/2 split around pos.
+        TextExpand.Result r = TextExpand.expand("I", POS, "south", 1, 1, TextExpand.ALIGN_CENTER);
+        assertArrayEquals(new int[] {98, 64, 200}, r.bboxMin());
+        assertArrayEquals(new int[] {102, 70, 200}, r.bboxMax());
+        assertEquals(5, r.widthBlocks());
+        assertRunPresent(r.inkRuns(), 98, 64, 200, 102, 64, 200); // bottom serif, full width
+        assertRunPresent(r.inkRuns(), 100, 65, 200, 100, 65, 200); // stem passes exactly through pos.x
+    }
+
+    @Test
+    void alignCenterEvenWidthSplitsExactlyInHalfWithPosStartingThePositiveHalf() {
+        // "I" at scale 2 is 10 blocks wide (even): floor(10/2)=5 blocks before pos (x=95..99), and
+        // exactly 5 more from pos onward (x=100..104) - an even 5/5 split, no extra block.
+        TextExpand.Result r = TextExpand.expand("I", POS, "south", 2, 1, TextExpand.ALIGN_CENTER);
+        assertArrayEquals(new int[] {95, 64, 200}, r.bboxMin());
+        assertArrayEquals(new int[] {104, 77, 200}, r.bboxMax());
+        assertEquals(10, r.widthBlocks());
+        assertRunPresent(r.inkRuns(), 95, 64, 200, 104, 65, 200); // bottom serif, full 10 wide
+    }
+
+    @Test
+    void alignCenterIsSymmetricRegardlessOfFacing() {
+        // North's advance axis runs the opposite way (-x); centering must still produce the same
+        // bounding box the south case did (the "I" glyph itself is left/right symmetric).
+        TextExpand.Result south = TextExpand.expand("I", POS, "south", 1, 1, TextExpand.ALIGN_CENTER);
+        TextExpand.Result north = TextExpand.expand("I", POS, "north", 1, 1, TextExpand.ALIGN_CENTER);
+        assertArrayEquals(south.bboxMin(), north.bboxMin());
+        assertArrayEquals(south.bboxMax(), north.bboxMax());
+    }
+
+    @Test
+    void invalidAlignThrows() {
+        assertThrows(IllegalArgumentException.class, () -> TextExpand.expand("I", POS, "south", 1, 1, "middle"));
+    }
+
     @Test
     void invalidFacingThrows() {
         assertThrows(IllegalArgumentException.class, () -> TextExpand.expand("I", POS, "sideways", 1, 1));
