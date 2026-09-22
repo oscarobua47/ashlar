@@ -341,6 +341,7 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 | `run-command.enabled` | `true` | 是否提供 `run_command`/`mc_command` 这个应急出口。 |
 | `engine.connect-blocks` | `true` | 写入后是否执行仅改变形状的连接处理（玻璃板/栅栏/墙/铁栏杆/楼梯与相邻方块连接）。可通过 `mc_build` 的 `connect` 字段按请求覆盖。 |
 | `engine.support-warnings` | `true` | 写入后是否检查失去支撑的悬挂方块（作为警告报告，不会自动修复任何东西）。不支持按请求覆盖。 |
+| `engine.text-font-file` | `""` | `mc_build` 的 `text` 条目用于非 ASCII（中日韩）文字的 `.ttf`/`.otf`/`.ttc` 字体文件路径，替代这个 JVM 的系统字体。留空保持现有行为；相对路径相对于插件数据目录解析。路径无效时只会记录一条警告并回退到系统字体，绝不会导致服务器无法启动。 |
 | `agent.model.base-url` | `"https://api.deepseek.com"` | 兼容 OpenAI 的 base URL；会自动追加 `/chat/completions`。仅游戏内助手使用（`mode: both`/`ingame`）。 |
 | `agent.model.api-key` | `""` | 模型 API 的 Bearer token。游戏内助手必填 —— 留空时 `/ashlar` 会回复"未配置"，而不是插件拒绝启动。 |
 | `agent.model.model` | `"deepseek-flash"` | 每次请求发送的模型名。仅游戏内助手使用（`mode: both`/`ingame`）。 |
@@ -411,6 +412,10 @@ ashlar simulate 100 64 -200 south build a small stone cottage
 **症状：** 控制台显示 `Ashlar agent: mode=external`，但 `/ashlar` 没有任何回应。
 **原因：** `mode: external` 会把请求转发给一个已连接的外部进程，而不是在插件内部运行助手；当前没有任何进程连接。
 **修复：** 要么连接一个订阅插件聊天事件的 `ashlar-mcp` 风格外部进程，要么设 `mode: both`（大多数服务器的常规设置）。
+
+**症状：** `mc_build` 的 `text` 报错说这台服务器的 Java 没有某个字符（通常是中日韩文字）的字体，尤其是在 Docker 容器里。
+**原因：** JVM 只在启动时读取一次系统字体列表，而容器镜像通常根本没有装中日韩字体。
+**修复：** 最快的办法——把手头已有的 `.ttf` 挂载进容器，把 `engine.text-font-file` 指向它，然后执行 `/ashlar reload`（不需要重启）。否则就安装系统字体（Debian/Ubuntu：`apt install fonts-noto-cjk`）并重启服务器，或者把字体打进 Docker 镜像里。
 
 **症状：** 模型的回复说它看不到图像，或者回答得就像从未看过勘测/渲染结果一样。
 **原因：** `agent.model.model` 不支持视觉，因此随 `mc_render`/`mc_survey` 结果一起发送的图像对它来说等于不存在。

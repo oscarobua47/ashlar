@@ -110,6 +110,7 @@ class TextLayoutTest {
     @Test
     void mixedHeightLineIsAsTallAsItsTallestGlyphAndBottomAligns() {
         // "A" (7 rows) next to a CJK character (12 rows via AWT): the line is 12 rows, A sits on the baseline.
+        TestFonts.assumeSystemFontCanDisplay(0x6b22);
         TextLayout.Layout layout = TextLayout.layout("A\u6b22", 1);
         assertEquals(12, layout.height());
         assertEquals(12, layout.firstLineHeight());

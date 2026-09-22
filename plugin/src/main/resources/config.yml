@@ -152,6 +152,19 @@ engine:
   # No per-request override (unlike connect-blocks).
   support-warnings: true
 
+  # Path to a .ttf/.otf/.ttc file mc_build's text entries use for non-ASCII (CJK etc.)
+  # lettering instead of this JVM's logical SANS_SERIF font. Empty (the default) keeps
+  # today's behaviour. A relative path resolves against this plugin's data folder
+  # (plugins/Ashlar/); an absolute path is used as-is. Useful in a container that has no
+  # CJK font installed: mount a .ttf into the container and point this at it instead of
+  # rebuilding the image or restarting for a system font install. A value that does not
+  # exist, is a directory, or fails to load as a font is never fatal - it logs one warning
+  # naming the path and falls back to the system font. Reloading this key alone does not
+  # pick up a file that changed *content* at the same path (only a changed path string) -
+  # replacing the file in place needs either a full restart, or two reloads with the path
+  # pointed elsewhere (or blanked) in between.
+  text-font-file: ""
+
 agent:
   # The in-game assistant: players with the ashlar.use permission can type
   # "/ashlar <request>". Whether it runs is decided by the top-level `mode`.

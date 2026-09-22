@@ -341,6 +341,7 @@ A small hut (survey, snapshot, build, a couple of renders, a final reply - about
 | `run-command.enabled` | `true` | Whether the `run_command`/`mc_command` escape hatch is available at all. |
 | `engine.connect-blocks` | `true` | Whether writes get a shape-only connection pass (panes/fences/walls/bars/stairs connect to neighbours). Overridable per-request via `mc_build`'s `connect` field. |
 | `engine.support-warnings` | `true` | Whether writes are checked afterward for unsupported attached blocks (reported as warnings, nothing is fixed automatically). No per-request override. |
+| `engine.text-font-file` | `""` | Path to a `.ttf`/`.otf`/`.ttc` file `mc_build`'s `text` entries use for non-ASCII (CJK) lettering instead of this JVM's system font. Empty keeps today's behaviour; relative paths resolve against the plugin data folder. A bad path only falls back to the system font with a logged warning - it never stops the server. |
 | `agent.model.base-url` | `"https://api.deepseek.com"` | OpenAI-compatible base URL; `/chat/completions` is appended. Only with the in-game assistant (`mode: both`/`ingame`). |
 | `agent.model.api-key` | `""` | Bearer token for the model API. Required for the in-game assistant - empty means `/ashlar` replies "not configured" instead of the plugin refusing to start. |
 | `agent.model.model` | `"deepseek-flash"` | Model name sent in each request. Only with the in-game assistant (`mode: both`/`ingame`). |
@@ -411,6 +412,10 @@ The in-game assistant has no environment variables of its own any more - see the
 **Symptom:** the console says `Ashlar agent: mode=external` but nothing answers `/ashlar`.
 **Cause:** `mode: external` forwards requests to a connected external process instead of running the assistant inside the plugin; none is connected.
 **Fix:** either connect an `ashlar-mcp`-style external process that subscribes to the plugin's chat events, or set `mode: both` (the normal setup for most servers).
+
+**Symptom:** `mc_build`'s `text` fails saying this server's Java has no font for a character (typically CJK), especially in a Docker container.
+**Cause:** the JVM reads the system font list once at startup, and a container image usually ships with no CJK font at all.
+**Fix:** the quick one - mount a `.ttf` you already have into the container, set `engine.text-font-file` to its path, and run `/ashlar reload` (no restart needed). Otherwise install a system font (Debian/Ubuntu: `apt install fonts-noto-cjk`) and restart the server, or a Docker image needs the font baked into the image.
 
 **Symptom:** the model's reply says it cannot see the image, or answers as if it never looked at the survey/render.
 **Cause:** `agent.model.model` does not support vision, so the images sent alongside `mc_render`/`mc_survey` results are effectively invisible to it.

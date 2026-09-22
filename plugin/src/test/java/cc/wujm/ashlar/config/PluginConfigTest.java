@@ -158,4 +158,24 @@ class PluginConfigTest {
         assertEquals(PluginConfig.DeploymentMode.EXTERNAL,
                 PluginConfig.DeploymentMode.fromLegacy(PluginConfig.AgentConfig.Mode.EXTERNAL, true));
     }
+
+    // ---- engine.text-font-file (step8n-prompt.md &sect;A/C) --------------------------------
+    // PluginConfig.load itself reads "engine.text-font-file" as a plain string (fc.getString(...,
+    // "")) with no existence/format check of its own - that validation (does the path exist, is
+    // it a directory, does Font.createFont accept it) happens off this path, in
+    // cc.wujm.ashlar.engine.text.FontSource (exercised in FontSourceTest), so a bad path can never
+    // make PluginConfig.load throw. These tests document that contract at the EngineConfig level,
+    // the same way PluginConfig.load itself cannot be exercised directly here (FileConfiguration
+    // needs paper-api, which is compileOnly and not on the test classpath).
+
+    @Test
+    void engineTextFontFileDefaultsToEmpty() {
+        assertEquals("", new PluginConfig.EngineConfig(true, true, "").textFontFile());
+    }
+
+    @Test
+    void engineTextFontFileNeverThrowsForAnUnreadablePath() {
+        String bogus = "/no/such/path/definitely-missing.ttf";
+        assertEquals(bogus, new PluginConfig.EngineConfig(true, true, bogus).textFontFile());
+    }
 }

@@ -29,6 +29,7 @@ import cc.wujm.ashlar.engine.RenderService;
 import cc.wujm.ashlar.engine.SnapshotService;
 import cc.wujm.ashlar.engine.SparseService;
 import cc.wujm.ashlar.engine.TickBudgetExecutor;
+import cc.wujm.ashlar.engine.text.FontSource;
 import cc.wujm.ashlar.handler.FillBatchHandler;
 import cc.wujm.ashlar.handler.HealthHandler;
 import cc.wujm.ashlar.handler.HeightmapHandler;
@@ -124,6 +125,7 @@ public final class AshlarPlugin extends JavaPlugin {
         applyEveryoneCanUse(config);
 
         Path dataFolder = getDataFolder().toPath();
+        FontSource.configure(config.engine().textFontFile(), dataFolder, getLogger());
         this.operationLog = new OperationLog(dataFolder, config.logging().logOperations(), getLogger());
 
         this.executor = new TickBudgetExecutor(this, config, getLogger());
@@ -347,6 +349,7 @@ public final class AshlarPlugin extends JavaPlugin {
         java.util.List<String> coldChanges = ConfigReload.coldChanges(oldConfig, parsedNew);
         PluginConfig applied = ConfigReload.applyHotOnly(oldConfig, parsedNew);
         configHolder.set(applied);
+        FontSource.configure(applied.engine().textFontFile(), getDataFolder().toPath(), getLogger());
 
         if (cooldown != null) {
             cooldown.setCooldownMillis(applied.agent().cooldownSeconds() * 1000L);

@@ -23,6 +23,11 @@ import java.awt.image.BufferedImage;
  * ({@link Font} creation/measurement throws, {@link Font#canDisplay} says the code point is not
  * covered, or the rendered bitmap comes out entirely blank), this throws {@link
  * FontRenderException} rather than returning a blank glyph or the JVM's missing-glyph box.
+ *
+ * <p>The base {@link Font} is {@link FontSource#font()} when a {@code engine.text-font-file} is
+ * configured and loaded successfully, else the JVM's logical {@link Font#SANS_SERIF}
+ * (step8n-prompt.md); {@link Font#canDisplay} above then consults whichever one is in use, so a
+ * configured font that itself lacks the character still produces the same clear error.
  */
 final class AwtGlyphs {
 
@@ -51,7 +56,10 @@ final class AwtGlyphs {
             canvas = new BufferedImage(RENDER_SIZE, RENDER_SIZE, BufferedImage.TYPE_INT_ARGB);
             Graphics2D probe = canvas.createGraphics();
             try {
-                font = new Font(Font.SANS_SERIF, Font.PLAIN, RENDER_SIZE);
+                Font configured = FontSource.font();
+                font = configured != null
+                        ? configured.deriveFont(Font.PLAIN, (float) RENDER_SIZE)
+                        : new Font(Font.SANS_SERIF, Font.PLAIN, RENDER_SIZE);
                 metrics = probe.getFontMetrics(font);
                 // Scale the font so its cap height (ascent, a reasonable proxy) lands on the
                 // target 7px cap height once downscaled by RENDER_SCALE.
@@ -199,11 +207,11 @@ final class AwtGlyphs {
     }
 
     private static String noFontsMessage() {
-        return "this server's Java has no font for that character. Install one on the machine that"
-                + " runs the server (Debian/Ubuntu: apt install fonts-noto-cjk; Alpine:"
-                + " font-noto-cjk) and then restart the Minecraft server - Java reads the system"
-                + " font list once at JVM startup, so /ashlar reload or a plugin reload is not"
-                + " enough. A managed panel usually needs a full server restart from the panel,"
-                + " and a Docker image needs the font installed in the image. Or use ASCII text.";
+        return "this server's Java has no font for that character. Easiest fix in a container:"
+                + " point engine.text-font-file at a .ttf you mount into the container, then"
+                + " /ashlar reload. Otherwise install a font on the machine that runs the server"
+                + " (Debian/Ubuntu: apt install fonts-noto-cjk; Alpine: font-noto-cjk) and restart"
+                + " it - Java reads the system font list once at JVM startup, so a plugin reload"
+                + " alone is not enough there. Or use ASCII text.";
     }
 }

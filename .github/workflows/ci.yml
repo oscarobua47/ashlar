@@ -18,6 +18,12 @@ jobs:
           distribution: temurin
           java-version: "25"
 
+      # mc_build's `text` renders non-ASCII lettering through the JVM's system fonts; a bare
+      # runner has none, so those tests would skip themselves (see AwtGlyphsTest). Installing a
+      # CJK font here keeps that path actually covered on Linux.
+      - name: Install a CJK font for the lettering tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+
       - name: Build with Gradle (includes unit tests)
         working-directory: plugin
         run: ./gradlew build --no-daemon

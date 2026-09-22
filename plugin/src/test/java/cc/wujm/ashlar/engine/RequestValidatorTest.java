@@ -41,7 +41,7 @@ class RequestValidatorTest {
                 new PluginConfig.SnapshotConfig(true, 20, 200_000),
                 new PluginConfig.LoggingConfig(true),
                 new PluginConfig.RunCommandConfig(true),
-                new PluginConfig.EngineConfig(true, true),
+                new PluginConfig.EngineConfig(true, true, ""),
                 new PluginConfig.AgentConfig(PluginConfig.AgentConfig.Mode.OFF, 5, 500, true, false,
                         new PluginConfig.AgentConfig.ModelConfig("http://localhost", "", "test-model", 25, 120_000,
                                 "high", "", false),

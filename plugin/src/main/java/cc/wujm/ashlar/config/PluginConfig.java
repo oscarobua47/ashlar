@@ -114,9 +114,17 @@ public record PluginConfig(
     /**
      * {@code connect-blocks}: whether the Fix 2 connection pass runs by default (step4d-prompt.md).
      * {@code supportWarnings}: whether the post-build support check (step4h-prompt.md) runs at all;
-     * unlike {@code connect-blocks} this has no per-request override.
+     * unlike {@code connect-blocks} this has no per-request override. {@code textFontFile}: path to
+     * a {@code .ttf}/{@code .otf}/{@code .ttc} file {@code mc_build}'s {@code text} entries use for
+     * non-ASCII (CJK) lettering instead of the JVM's logical SANS_SERIF (step8n-prompt.md); empty
+     * (the default) keeps today's behaviour. A relative path resolves against the plugin data
+     * folder, an absolute path is used as-is; this string is not validated here (existence,
+     * directory-ness and {@code Font.createFont} are all checked when {@link
+     * cc.wujm.ashlar.engine.text.FontSource} actually loads it, off the main thread's critical
+     * path - a bad value only falls back to the system font with a warning, never stops the
+     * server, per step8n-prompt.md &sect;A).
      */
-    public record EngineConfig(boolean connectBlocks, boolean supportWarnings) {
+    public record EngineConfig(boolean connectBlocks, boolean supportWarnings, String textFontFile) {
     }
 
     /**
@@ -253,6 +261,7 @@ public record PluginConfig(
         boolean runCommandEnabled = fc.getBoolean("run-command.enabled", true);
         boolean connectBlocks = fc.getBoolean("engine.connect-blocks", true);
         boolean supportWarnings = fc.getBoolean("engine.support-warnings", true);
+        String textFontFile = fc.getString("engine.text-font-file", "");
 
         AgentConfig.Mode agentMode = deployment.agentMode();
         int agentCooldownSeconds = (int) nonNegativeOrDefault(fc, "agent.cooldown-seconds", 5, logger);
@@ -293,7 +302,7 @@ public record PluginConfig(
                 new SnapshotConfig(snapshotEnabled, maxSnapshots, maxVolume),
                 new LoggingConfig(logOperations),
                 new RunCommandConfig(runCommandEnabled),
-                new EngineConfig(connectBlocks, supportWarnings),
+                new EngineConfig(connectBlocks, supportWarnings, textFontFile == null ? "" : textFontFile.trim()),
                 new AgentConfig(agentMode, agentCooldownSeconds, agentMaxMessageLength, agentEchoToMonitors,
                         agentEveryoneCanUse,
                         new AgentConfig.ModelConfig(modelBaseUrl, modelApiKey, modelModel, modelMaxToolCalls,

@@ -10,14 +10,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Unit tests for {@link AwtGlyphs} (step8k-prompt.md &sect;A): a non-ASCII code point renders to a
  * non-blank bitmap, capped at {@link AwtGlyphs#MAX_WIDTH} columns and exactly {@link
- * AwtGlyphs#HEIGHT} rows tall. Whether this passes at all is itself the answer to "does this
- * machine's Java have fonts for non-ASCII text" - see the step8k report.
+ * AwtGlyphs#HEIGHT} rows tall. The CJK case skips itself via {@link TestFonts} on a JVM whose
+ * system font cannot display that character (a bare CI image with no CJK font, step8n-prompt.md)
+ * instead of failing - it stays a meaningful assertion on a machine that does have such a font.
  */
 class AwtGlyphsTest {
 
     @Test
-    void chineseCharacterRendersToANonBlankBitmapCappedAtNineColumns() {
+    void chineseCharacterRendersToANonBlankBitmapCappedAtTwelveColumns() {
         // U+6B22 (CJK "huan" as in "welcome" - the first character of the test-server check below).
+        TestFonts.assumeSystemFontCanDisplay(0x6B22);
         Glyph g = Glyphs.glyphFor(0x6B22);
         assertEquals(AwtGlyphs.HEIGHT, g.height());
         assertTrue(g.width() >= 1 && g.width() <= AwtGlyphs.MAX_WIDTH, "width was " + g.width());
