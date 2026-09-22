@@ -21,6 +21,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -126,6 +127,27 @@ public final class SnapshotStore {
         }
     }
 
+    /**
+     * Snapshots owned by {@code owner} (step8l-prompt.md &sect;A, {@code /ashlar undo}), newest
+     * {@code createdAt} first - a snapshot with no owner (an MCP client's, or one loaded from a
+     * pre-0.4.9 file) is never returned. Subject to the same {@code snapshot.max-snapshots}
+     * eviction as every other snapshot: once a player's oldest owned snapshot is evicted from
+     * {@link #put}, it is gone from this list too, so a player's undo history is bounded by that
+     * setting exactly like the rest of the store.
+     */
+    public List<Snapshot> forOwnerNewestFirst(UUID owner) {
+        synchronized (lock) {
+            List<Snapshot> list = new ArrayList<>();
+            for (Snapshot s : byId.values()) {
+                if (owner.equals(s.ownerUuid())) {
+                    list.add(s);
+                }
+            }
+            list.sort(Comparator.comparing(Snapshot::createdAt).reversed());
+            return list;
+        }
+    }
+
     /** Applies a new cap ({@code /ashlar reload}, step8j-prompt.md); does not itself evict anything - the next {@link #put} does. */
     public void setMaxSnapshots(int maxSnapshots) {
         this.maxSnapshots = maxSnapshots;
@@ -182,10 +204,18 @@ public final class SnapshotStore {
         if (s.label() != null) {
             o.addProperty("label", s.label());
         }
+        if (s.ownerUuid() != null) {
+            o.addProperty("ownerUuid", s.ownerUuid().toString());
+        }
         o.add("data", s.data().toJson());
         return o;
     }
 
+    /**
+     * {@code ownerUuid} is absent from every snapshot file written before step8l-prompt.md; {@link
+     * #has} returns false for those and {@code owner} stays {@code null} - the file still loads,
+     * it is just never returned by {@link #forOwnerNewestFirst}.
+     */
     private static Snapshot fromJson(JsonObject o) {
         String id = o.get("id").getAsString();
         String world = o.get("world").getAsString();
@@ -193,8 +223,10 @@ public final class SnapshotStore {
         long volume = o.get("volume").getAsLong();
         Instant createdAt = Instant.parse(o.get("createdAt").getAsString());
         String label = (o.has("label") && !o.get("label").isJsonNull()) ? o.get("label").getAsString() : null;
+        UUID ownerUuid = (o.has("ownerUuid") && !o.get("ownerUuid").isJsonNull())
+                ? UUID.fromString(o.get("ownerUuid").getAsString()) : null;
         RegionData data = RegionData.fromJson(o.getAsJsonObject("data"));
-        return new Snapshot(id, world, region, volume, createdAt, label, data);
+        return new Snapshot(id, world, region, volume, createdAt, label, data, ownerUuid);
     }
 
     private static JsonObject regionToJson(Region r) {

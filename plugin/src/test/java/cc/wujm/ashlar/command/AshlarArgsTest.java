@@ -507,4 +507,21 @@ class AshlarArgsTest {
         assertEquals(AshlarArgs.Kind.RESET, AshlarArgs.parse(new String[]{"reset"}).kind());
         assertEquals(AshlarArgs.Kind.INVALID, AshlarArgs.parse(new String[]{"reset", "now"}).kind());
     }
+
+    @Test
+    void undoAloneIsItsOwnKind() {
+        assertEquals(AshlarArgs.Kind.UNDO, AshlarArgs.parse(new String[]{"undo"}).kind());
+    }
+
+    @Test
+    void undoIsCaseInsensitive() {
+        assertEquals(AshlarArgs.Kind.UNDO, AshlarArgs.parse(new String[]{"UnDo"}).kind());
+    }
+
+    @Test
+    void undoWithExtraArgsIsInvalid() {
+        AshlarArgs.Parsed p = AshlarArgs.parse(new String[]{"undo", "again"});
+        assertEquals(AshlarArgs.Kind.INVALID, p.kind());
+        assertEquals(AshlarArgs.USAGE_UNDO, p.error());
+    }
 }

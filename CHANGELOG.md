@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- `/ashlar undo`: rolls back the player's own last assistant build with no model call - restores the newest snapshot that player's own requests created (through the same validation/executor/connect-support passes `mc_restore` uses) and marks it undone, so a second `/ashlar undo` goes one step further back. An MCP client's snapshots are never touched. A reply that created a snapshot now hints at this in its usage footer.
 - `mc_build` `text`: a character the server's Java has no font for now fails the call with a message naming the fix (install a CJK font, or use ASCII) instead of rendering the JVM's missing-glyph box, which at block scale looked like deliberate rectangles.
 
 ## 0.4.8

@@ -199,7 +199,11 @@ final class AwtGlyphs {
     }
 
     private static String noFontsMessage() {
-        return "this server's Java has no font for that character (install a CJK font on the server,"
-                + " e.g. fonts-noto-cjk, or use ASCII text)";
+        return "this server's Java has no font for that character. Install one on the machine that"
+                + " runs the server (Debian/Ubuntu: apt install fonts-noto-cjk; Alpine:"
+                + " font-noto-cjk) and then restart the Minecraft server - Java reads the system"
+                + " font list once at JVM startup, so /ashlar reload or a plugin reload is not"
+                + " enough. A managed panel usually needs a full server restart from the panel,"
+                + " and a Docker image needs the font installed in the image. Or use ASCII text.";
     }
 }

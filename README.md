@@ -205,7 +205,7 @@ Everything above needs an AI client on the player's own machine. `/ashlar <reque
 
 `/ashlar ask <request>` is the same thing spelled out - use it when a request happens to start with one of the command words (`usage`, `cancel`, `limit`, ...). Tab completion lists the subcommands the player may use and fills in player names.
 
-The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). Follow-up requests remember the recent conversation - only what the player asked and what the assistant finally answered (coordinates, materials, snapshot id), never the tool traffic in between - so "make the roof taller" works without repeating the whole description while the context stays small; `/ashlar reset` forgets it and starts fresh. Replies come back in whatever language the request was written in. Players with the `ashlar.monitor` permission (default op) see a compact echo of every other player's request and final reply - `"<name> asked: ..."` and `[Ashlar -> <name>]`-prefixed replies, but none of the progress lines; turn it off with `agent.echo-to-monitors: false`.
+The player sees `[Ashlar]`-prefixed progress lines as the assistant works (`> mc_survey ...`, `> mc_build ...`) followed by its final reply. `/ashlar cancel` stops a request in progress (it takes effect between tool calls, not inside one). `/ashlar undo` rolls back the player's own last assistant build with no model call at all - it restores the newest snapshot the caller's own requests created (an MCP client's snapshots are never touched) and marks it undone, so a second `/ashlar undo` goes one step further back; a reply that made a snapshot hints at it in its footer. Follow-up requests remember the recent conversation - only what the player asked and what the assistant finally answered (coordinates, materials, snapshot id), never the tool traffic in between - so "make the roof taller" works without repeating the whole description while the context stays small; `/ashlar reset` forgets it and starts fresh. Replies come back in whatever language the request was written in. Players with the `ashlar.monitor` permission (default op) see a compact echo of every other player's request and final reply - `"<name> asked: ..."` and `[Ashlar -> <name>]`-prefixed replies, but none of the progress lines; turn it off with `agent.echo-to-monitors: false`.
 
 From the server console (no player needed), `ashlar simulate <x> <y> <z> [facing] <request>` drives one request through the same code path, with progress and the final reply printed to the console instead of chat - the way to test the assistant without a player online:
 
@@ -460,7 +460,6 @@ The tool layer lives entirely under `plugin/`: each `mc_*` tool is a Java class 
 ## Roadmap
 
 **v0.4:**
-- `/ashlar undo` - a dedicated command instead of asking the assistant to restore its snapshot.
 - Mid-build cancellation: today `/ashlar cancel` only takes effect between tool calls, not inside a single `mc_build` fill.
 - A native Anthropic-format provider for the embedded assistant, alongside the current OpenAI-compatible chat-completions one.
 

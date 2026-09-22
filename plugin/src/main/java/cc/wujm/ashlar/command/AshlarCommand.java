@@ -11,15 +11,21 @@ import cc.wujm.ashlar.agent.AdminActions;
 import cc.wujm.ashlar.agent.AgentRunner;
 import cc.wujm.ashlar.agent.AgentService;
 import cc.wujm.ashlar.agent.ConsolePlayer;
+import cc.wujm.ashlar.agent.Outbox;
 import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.config.ConfigReloader;
 import cc.wujm.ashlar.config.PluginConfig;
 import cc.wujm.ashlar.config.ReloadOutcome;
+import cc.wujm.ashlar.engine.Region;
 import cc.wujm.ashlar.i18n.Messages;
 import cc.wujm.ashlar.net.WsServer;
 import cc.wujm.ashlar.player.Facing;
 import cc.wujm.ashlar.player.Monitors;
 import cc.wujm.ashlar.player.PlayerJson;
+import cc.wujm.ashlar.rpc.InvocationContext;
+import cc.wujm.ashlar.rpc.RpcHandler;
+import cc.wujm.ashlar.snapshot.Snapshot;
+import cc.wujm.ashlar.snapshot.SnapshotStore;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.Command;
@@ -29,6 +35,9 @@ import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -58,17 +67,39 @@ public final class AshlarCommand implements CommandExecutor {
     private final AllowList allowList;
     private final AgentService agentService;
     private final ConfigReloader reloader;
+    private final SnapshotStore snapshotStore;
+    private final RpcHandler restoreHandler;
+    private final UndoTracker undoTracker;
+    private final Outbox chatOut;
     private final AtomicLong requestCounter = new AtomicLong();
     private final Messages messages = Messages.instance();
 
+    /**
+     * @param snapshotStore  backs {@code /ashlar undo} (step8l-prompt.md): {@link
+     *                       SnapshotStore#forOwnerNewestFirst} finds the caller's own snapshots.
+     * @param restoreHandler the same {@code restore} {@link RpcHandler} instance {@code mc_restore}
+     *                       calls (registered in {@code AshlarPlugin}), reused so undo gets the
+     *                       exact same validation, tick-budgeted executor and connect/support
+     *                       passes with no model call in between.
+     * @param undoTracker    per-run "already undone" bookkeeping so a second {@code /ashlar undo}
+     *                       walks one step further back; see {@link UndoTracker}.
+     * @param chatOut        delivers the (possibly async) undo result back to the player, the same
+     *                       way {@link AgentService} delivers replies - {@code restoreHandler}
+     *                       completes off the main thread.
+     */
     public AshlarCommand(ConfigHolder configHolder, WsServer wsServer, Cooldown cooldown, AllowList allowList,
-                          AgentService agentService, ConfigReloader reloader) {
+                          AgentService agentService, ConfigReloader reloader, SnapshotStore snapshotStore,
+                          RpcHandler restoreHandler, UndoTracker undoTracker, Outbox chatOut) {
         this.configHolder = configHolder;
         this.wsServer = wsServer;
         this.cooldown = cooldown;
         this.allowList = allowList;
         this.agentService = agentService;
         this.reloader = reloader;
+        this.snapshotStore = snapshotStore;
+        this.restoreHandler = restoreHandler;
+        this.undoTracker = undoTracker;
+        this.chatOut = chatOut;
     }
 
     @Override
@@ -141,6 +172,7 @@ public final class AshlarCommand implements CommandExecutor {
             case ALLOW -> handleAllow(player, parsed.targetName());
             case DENY -> handleDeny(player, parsed.targetName());
             case ALLOWED -> handleAllowed(player);
+            case UNDO -> handleUndo(player);
             case HELP -> handleHelp(player);
             case SIMULATE -> throw new IllegalStateException("handled above");
             case RELOAD -> throw new IllegalStateException("handled above");
@@ -376,6 +408,68 @@ public final class AshlarCommand implements CommandExecutor {
         }
     }
 
+    // -- undo (step8l-prompt.md): deterministic restore, no model call ------
+
+    /**
+     * Restores the newest snapshot owned by {@code player} that has not already been undone this
+     * run, through the exact same {@code restoreHandler} {@code mc_restore} calls - same
+     * validation, same tick-budgeted executor, same connect/support passes - then marks it undone
+     * so a following {@code /ashlar undo} walks one step further back. No model call, no new
+     * snapshot: restoring never re-snapshots (step8l-prompt.md &sect;B - "do not let undo pile up
+     * snapshots of its own"). Not gated by the embedded/external mode checks above (added to
+     * {@link #needsConnection}'s false set): it never talks to a connected Node process, and under
+     * a mode with no player-owned snapshots (external/MCP-only use) it naturally reports "nothing
+     * to undo" instead.
+     */
+    private void handleUndo(Player player) {
+        runUndo(player.getUniqueId(), player.getName(), player);
+    }
+
+    /** Core of {@link #handleUndo}, factored out so it can be driven by any {@link CommandSender}. */
+    private void runUndo(UUID uuid, String name, CommandSender sender) {
+        String language = effectiveLanguage(sender);
+        List<Snapshot> owned = snapshotStore.forOwnerNewestFirst(uuid);
+        Optional<Snapshot> target = undoTracker.next(owned);
+        if (target.isEmpty()) {
+            reply(sender, msg(sender, "command.undo.nothing"));
+            return;
+        }
+        Snapshot snapshot = target.get();
+
+        InvocationContext ctx = InvocationContext.of(
+                new InvocationContext.Principal(InvocationContext.Kind.PLAYER, uuid.toString(), name),
+                "undo-" + requestCounter.incrementAndGet(),
+                (done, total) -> { });
+        JsonObject params = new JsonObject();
+        params.addProperty("id", snapshot.id());
+
+        // onCommand (this method's only caller) runs on the main thread, but restoreHandler ->
+        // SnapshotService.restore asserts it is never called from there (same rule every RPC
+        // handler and tool call follows - MainThread.assertNotPrimary). A one-off virtual thread
+        // hops off it first, matching how AgentRunner's tool calls are never made from the main
+        // thread either; chatOut then hops back before touching the Player API for the reply.
+        Thread.ofVirtual().name("ashlar-undo-" + uuid).start(() ->
+                restoreHandler.handle(ctx, params).whenComplete((el, throwable) -> {
+                    if (throwable != null) {
+                        chatOut.send(uuid, messages.get(language, "command.undo.failed", errorMessageOf(throwable)), false);
+                        return;
+                    }
+                    undoTracker.markUndone(snapshot.id());
+                    JsonObject r = el.getAsJsonObject();
+                    Region region = snapshot.region();
+                    String coords = region.minX() + "," + region.minY() + "," + region.minZ()
+                            + "-" + region.maxX() + "," + region.maxY() + "," + region.maxZ();
+                    chatOut.send(uuid, messages.get(language, "command.undo.done",
+                            r.get("restored").getAsLong(), coords, snapshot.id()), false);
+                }));
+    }
+
+    private static String errorMessageOf(Throwable throwable) {
+        Throwable cause = (throwable instanceof CompletionException && throwable.getCause() != null)
+                ? throwable.getCause() : throwable;
+        return cause.getMessage() != null ? cause.getMessage() : cause.toString();
+    }
+
     // -- help ----------------------------------------------------------------
 
     private static final List<HelpLine> HELP_LINES = List.of(
@@ -384,6 +478,7 @@ public final class AshlarCommand implements CommandExecutor {
             new HelpLine("ashlar.use", "help.ask"),
             new HelpLine("ashlar.use", "help.cancel_self"),
             new HelpLine("ashlar.use", "help.reset"),
+            new HelpLine("ashlar.use", "help.undo"),
             new HelpLine("ashlar.admin", "help.cancel_other"),
             new HelpLine("ashlar.use", "help.usage_self"),
             new HelpLine("ashlar.monitor", "help.usage_other"),
@@ -469,7 +564,7 @@ public final class AshlarCommand implements CommandExecutor {
      */
     private static boolean needsConnection(AshlarArgs.Kind kind) {
         return switch (kind) {
-            case HELP, ALLOW, DENY, ALLOWED, RESET, CREDIT_SHOW, CREDIT_SET -> false;
+            case HELP, ALLOW, DENY, ALLOWED, RESET, CREDIT_SHOW, CREDIT_SET, UNDO -> false;
             default -> true;
         };
     }

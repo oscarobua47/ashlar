@@ -13,6 +13,7 @@ import cc.wujm.ashlar.command.AllowList;
 import cc.wujm.ashlar.command.AshlarCommand;
 import cc.wujm.ashlar.command.AshlarTabCompleter;
 import cc.wujm.ashlar.command.Cooldown;
+import cc.wujm.ashlar.command.UndoTracker;
 import cc.wujm.ashlar.config.ConfigException;
 import cc.wujm.ashlar.config.ConfigHolder;
 import cc.wujm.ashlar.config.ConfigReload;
@@ -268,8 +269,12 @@ public final class AshlarPlugin extends JavaPlugin {
         this.cooldown = new Cooldown(config.agent().cooldownSeconds() * 1000L, System::currentTimeMillis);
         AllowList allowList = new AllowList(dataFolder.resolve("allowed-players.yml"), getLogger());
         allowList.load();
+        // /ashlar undo (step8l-prompt.md): reuses restoreHandler - the same RpcHandler mc_restore
+        // calls - and snapshotStore directly, with no model call in between.
+        UndoTracker undoTracker = new UndoTracker();
         getCommand("ashlar").setExecutor(
-                new AshlarCommand(configHolder, wsServer, cooldown, allowList, agentService, this::reloadAshlarConfig));
+                new AshlarCommand(configHolder, wsServer, cooldown, allowList, agentService, this::reloadAshlarConfig,
+                        snapshotStore, restoreHandler, undoTracker, chatOut));
         getCommand("ashlar").setTabCompleter(new AshlarTabCompleter(allowList));
 
         getLogger().info("Ashlar v" + getPluginMeta().getVersion() + " enabled. "

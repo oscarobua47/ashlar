@@ -348,7 +348,8 @@ public final class AgentService {
         UsageStore.DayCounters today = lastRecord[0] != null
                 ? lastRecord[0].today()
                 : usageStore.summary(player.uuid(), player.name()).today();
-        String footer = formatUsageFooter(requestCost[0], requestUsage[0], today, player.uuid(), player.language());
+        String footer = formatUsageFooter(requestCost[0], requestUsage[0], today, player.uuid(), player.language(),
+                result.snapshotCreated());
         String finalText = result.text() + "\n" + footer;
 
         boolean creditUsedUp = usageStore.creditOf(player.uuid()).map(c -> c.balance() <= 0).orElse(false);
@@ -361,8 +362,14 @@ public final class AgentService {
         }
     }
 
-    /** The {@code (this request: ... | today: ...)} footer, mirroring {@code service.ts}'s {@code formatUsageFooter}. */
-    private String formatUsageFooter(double requestCost, Usage requestUsage, UsageStore.DayCounters today, String uuid, String language) {
+    /**
+     * The {@code (this request: ... | today: ...)} footer, mirroring {@code service.ts}'s {@code
+     * formatUsageFooter}. {@code snapshotCreated} (step8l-prompt.md &sect;B) appends a short
+     * {@code /ashlar undo} hint after the closing paren, only when this request actually made at
+     * least one player-owned snapshot - a request that never built anything has nothing to undo.
+     */
+    private String formatUsageFooter(double requestCost, Usage requestUsage, UsageStore.DayCounters today, String uuid,
+            String language, boolean snapshotCreated) {
         long requestTokens = requestUsage.inputTokens() + requestUsage.cachedInputTokens() + requestUsage.outputTokens();
         long todayTokens = today.inputTokens + today.cachedInputTokens + today.outputTokens;
         PluginConfig.AgentConfig.PricingConfig pricing = config.pricing();
@@ -387,7 +394,11 @@ public final class AgentService {
         if (credit.isPresent()) {
             body += messages.get(language, "agent.footer.credit_suffix", UsageStore.fmtCredit(credit.get().balance(), pricing.currency()));
         }
-        return body + ")";
+        body += ")";
+        if (snapshotCreated) {
+            body += messages.get(language, "agent.footer.undo_hint");
+        }
+        return body;
     }
 
     private static String truncate(String s, int max) {

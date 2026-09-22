@@ -115,7 +115,10 @@ snapshot:
   # Whether the snapshot/restore feature is available.
   enabled: true
 
-  # Maximum number of snapshots kept on disk; oldest is evicted first.
+  # Maximum number of snapshots kept on disk; oldest is evicted first. Also bounds
+  # how far back /ashlar undo can go: a player's undo history is exactly their own
+  # snapshots still on disk, so once one of theirs is evicted here it can no longer
+  # be undone.
   max-snapshots: 20
 
   # Maximum region volume that may be captured in a single snapshot.

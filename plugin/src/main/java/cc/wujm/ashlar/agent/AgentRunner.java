@@ -95,7 +95,14 @@ public final class AgentRunner {
         }
     }
 
-    public record RunResult(String text, Usage usage, int toolCalls, List<ChatMessage> exchange) {
+    /**
+     * @param snapshotCreated whether this run's tool calls made at least one player-owned
+     *                        snapshot (a successful {@code mc_build} with {@code "snapshot": true},
+     *                        or a successful {@code mc_snapshot} create) - {@link AgentService}
+     *                        uses it to add the {@code /ashlar undo} hint to the usage footer
+     *                        (step8l-prompt.md &sect;B). Always {@code false} on a cancelled run.
+     */
+    public record RunResult(String text, Usage usage, int toolCalls, List<ChatMessage> exchange, boolean snapshotCreated) {
     }
 
     private record ImageEntry(String toolName, String toolCallId, List<ContentBlock.Image> images) {
@@ -131,12 +138,13 @@ public final class AgentRunner {
         int toolCallCount = 0;
         boolean budgetExhausted = false;
         boolean creditWrappedUp = false;
+        boolean snapshotCreated = false;
         int callIndex = 0;
         int modelCallCount = 0;
 
         for (;;) {
             if (req.cancelled().getAsBoolean()) {
-                return new RunResult("Cancelled.", usage, toolCallCount, exchange);
+                return new RunResult("Cancelled.", usage, toolCallCount, exchange, false);
             }
 
             if (modelCallCount > 0 && !budgetExhausted && !creditWrappedUp
@@ -158,7 +166,7 @@ public final class AgentRunner {
             try {
                 reply = modelApi.chat(new ArrayList<>(messages), tools, noMoreTools ? ToolChoice.NONE : ToolChoice.AUTO, req.cancelled());
             } catch (CancelledException e) {
-                return new RunResult("Cancelled.", usage, toolCallCount, exchange);
+                return new RunResult("Cancelled.", usage, toolCallCount, exchange, false);
             }
             modelCallCount++;
             usage = usage.plus(reply.usage());
@@ -172,14 +180,14 @@ public final class AgentRunner {
             if (toolCalls.isEmpty() || noMoreTools) {
                 String replyText = reply.message().textOfContent().trim();
                 String finalText = !replyText.isEmpty() ? replyText : "(no reply)";
-                return new RunResult(finalText, usage, toolCallCount, exchange);
+                return new RunResult(finalText, usage, toolCallCount, exchange, snapshotCreated);
             }
 
             List<ImageEntry> imagesForThisTurn = new ArrayList<>();
 
             for (ToolCall call : toolCalls) {
                 if (req.cancelled().getAsBoolean()) {
-                    return new RunResult("Cancelled.", usage, toolCallCount, exchange);
+                    return new RunResult("Cancelled.", usage, toolCallCount, exchange, false);
                 }
 
                 JsonObject args = new JsonObject();
@@ -207,6 +215,9 @@ public final class AgentRunner {
                         : callTool(call.functionName(), args, req.player(), callIndex, req.cancelled());
 
                 toolCallCount++;
+                if (!result.isError() && madeASnapshot(call.functionName(), result.text())) {
+                    snapshotCreated = true;
+                }
 
                 ChatMessage toolMessage = ChatMessage.tool(call.id(), !result.text().isEmpty() ? result.text() : "(no text)");
                 messages.add(toolMessage);
@@ -277,6 +288,18 @@ public final class AgentRunner {
 
     private String unknownToolText(String name) {
         return "Unknown tool \"" + name + "\". Valid tools: " + String.join(", ", allowedToolNames) + ".";
+    }
+
+    /**
+     * Whether a successful {@code mc_build}/{@code mc_snapshot} call's text starts with the
+     * "Snapshot &lt;id&gt; created..." line both tools use ({@link
+     * cc.wujm.ashlar.tool.text.ToolText#snapshotLine} and {@code McSnapshot}'s own create-reply
+     * text) - the one marker every successful snapshot-creating call produces, and nothing else
+     * does (step8l-prompt.md &sect;B: only used to decide whether the usage footer gets the
+     * {@code /ashlar undo} hint, never to change what the model sees).
+     */
+    private static boolean madeASnapshot(String toolName, String text) {
+        return ("mc_build".equals(toolName) || "mc_snapshot".equals(toolName)) && text.startsWith("Snapshot ");
     }
 
     private String joinInts(int[] values) {

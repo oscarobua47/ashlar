@@ -205,7 +205,7 @@ WARNINGS (blocks that would fall or pop off in vanilla, including ones next to s
 
 `/ashlar ask <请求>` 是同一件事的另一种写法 —— 当请求恰好以某个命令词（`usage`、`cancel`、`limit` 等）开头时使用它。Tab 补全会列出该玩家可用的子命令，并自动补全玩家名。
 
-玩家会看到带 `[Ashlar]` 前缀的进度行（`> mc_survey ...`、`> mc_build ...`），随后是最终回复。`/ashlar cancel` 会停止正在进行的请求（它在两次工具调用之间生效，而不是在一次调用内部）。后续请求会记住最近的对话 —— 只记住玩家问了什么、助手最终答复了什么（坐标、材料、快照 id），绝不记住中间的工具调用过程 —— 所以"把屋顶再加高一点"这样的话不需要重复整段描述，同时上下文也保持很小；`/ashlar reset` 会忘记它并重新开始。回复所使用的语言与请求本身的语言一致。拥有 `ashlar.monitor` 权限（默认 op）的玩家会看到其他玩家每条请求和最终回复的简要回声 —— `"<name> asked: ..."` 以及带 `[Ashlar -> <name>]` 前缀的回复，但看不到进度行；可以用 `agent.echo-to-monitors: false` 关闭。
+玩家会看到带 `[Ashlar]` 前缀的进度行（`> mc_survey ...`、`> mc_build ...`），随后是最终回复。`/ashlar cancel` 会停止正在进行的请求（它在两次工具调用之间生效，而不是在一次调用内部）。`/ashlar undo` 无需任何模型调用即可撤销玩家自己上一次助手建造的内容——它会恢复该玩家自己的请求所创建的最新快照（MCP 客户端创建的快照不受影响），并将其标记为已撤销，因此再次 `/ashlar undo` 会继续撤销上一步；产生了快照的回复会在页脚里给出提示。后续请求会记住最近的对话 —— 只记住玩家问了什么、助手最终答复了什么（坐标、材料、快照 id），绝不记住中间的工具调用过程 —— 所以"把屋顶再加高一点"这样的话不需要重复整段描述，同时上下文也保持很小；`/ashlar reset` 会忘记它并重新开始。回复所使用的语言与请求本身的语言一致。拥有 `ashlar.monitor` 权限（默认 op）的玩家会看到其他玩家每条请求和最终回复的简要回声 —— `"<name> asked: ..."` 以及带 `[Ashlar -> <name>]` 前缀的回复，但看不到进度行；可以用 `agent.echo-to-monitors: false` 关闭。
 
 从服务器控制台（不需要玩家在线），`ashlar simulate <x> <y> <z> [朝向] <请求>` 会让一次请求走同样的代码路径，进度和最终回复打印到控制台而不是聊天 —— 这是在没有玩家在线时测试助手的方式：
 
@@ -460,7 +460,6 @@ node tools/e2e.mjs        # end-to-end check against a running plugin test serve
 ## 路线图
 
 **v0.4：**
-- `/ashlar undo` —— 一个专门的命令，而不是让助手恢复自己的快照。
 - 建造过程中的取消：目前 `/ashlar cancel` 只在两次工具调用之间生效，无法在一次 `mc_build` 填充内部生效。
 - 为内置助手提供原生 Anthropic 格式的 provider，与现有的兼容 OpenAI 的 chat-completions provider 并存。
 

@@ -5,15 +5,22 @@ import cc.wujm.ashlar.engine.Region;
 import cc.wujm.ashlar.engine.RegionData;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * A stored region snapshot: metadata plus the encoded block data needed to
  * {@code restore} it (spec &sect;3.3, plan.md &sect;3.1). {@code label} is the
  * optional caller-supplied text from the {@code snapshot} request; {@code
- * null} when omitted. Deliberately holds a plain {@link Region} (not a
- * Bukkit {@code World}) plus the world's name as a string, so this record
- * (and therefore {@link SnapshotStore}) has no Bukkit imports and its
- * persisted JSON survives a server restart untouched by loaded-world state.
+ * null} when omitted. {@code ownerUuid} is the uuid of the player whose
+ * request created this snapshot - {@code null} when the snapshot was created
+ * by an MCP client (no {@link cc.wujm.ashlar.rpc.InvocationContext.Kind#PLAYER}
+ * principal), or by a pre-0.4.9 snapshot file with no owner recorded at all
+ * (step8l-prompt.md &sect;A); it is what {@code /ashlar undo} filters on via
+ * {@link SnapshotStore#forOwnerNewestFirst}. Deliberately holds a plain
+ * {@link Region} (not a Bukkit {@code World}) plus the world's name as a
+ * string, so this record (and therefore {@link SnapshotStore}) has no Bukkit
+ * imports and its persisted JSON survives a server restart untouched by
+ * loaded-world state.
  */
-public record Snapshot(String id, String world, Region region, long volume, Instant createdAt, String label, RegionData data) {
+public record Snapshot(String id, String world, Region region, long volume, Instant createdAt, String label, RegionData data, UUID ownerUuid) {
 }

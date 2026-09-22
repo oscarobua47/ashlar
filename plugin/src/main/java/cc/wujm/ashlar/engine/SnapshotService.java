@@ -44,15 +44,25 @@ public final class SnapshotService {
         this.store = store;
     }
 
-    /** Reads {@code region} and stores it as a new {@link Snapshot}. Must not be called from the main thread. */
+    /**
+     * Reads {@code region} and stores it as a new {@link Snapshot}, owned by {@code ctx.principal()}
+     * when it is a {@link InvocationContext.Kind#PLAYER} (a real player's or {@code ashlar
+     * simulate}'s request through the embedded agent - {@link cc.wujm.ashlar.agent.AgentRunner}
+     * always builds a {@code PLAYER} context for every tool call it makes) - {@code null} otherwise
+     * (an MCP client's {@code tool_call}/{@code snapshot} always carries a {@code WS_TOKEN}
+     * context, step8l-prompt.md &sect;A: "an MCP client's snapshots have no owner"). Must not be
+     * called from the main thread.
+     */
     public CompletableFuture<JsonElement> snapshot(World world, Region region, String label, InvocationContext ctx) {
         MainThread.assertNotPrimary("SnapshotService.snapshot");
         ReadTask readTask = new ReadTask(region, world);
         String snapshotId = generateId();
+        java.util.UUID owner = ctx.principal().kind() == InvocationContext.Kind.PLAYER
+                ? java.util.UUID.fromString(ctx.principal().id()) : null;
         return executor.submit(readTask, ctx).thenApply(ignoredReadJson -> {
             RegionData data = readTask.regionData();
             Instant createdAt = Instant.now();
-            Snapshot snapshot = new Snapshot(snapshotId, world.getName(), region, region.volume(), createdAt, label, data);
+            Snapshot snapshot = new Snapshot(snapshotId, world.getName(), region, region.volume(), createdAt, label, data, owner);
             store.put(snapshot);
             return (JsonElement) snapshotResultJson(snapshot);
         });

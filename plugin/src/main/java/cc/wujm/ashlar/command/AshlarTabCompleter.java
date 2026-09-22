@@ -20,7 +20,7 @@ import java.util.Locale;
  */
 public final class AshlarTabCompleter implements TabCompleter {
 
-    private static final List<String> USE_WORDS = List.of("ask", "cancel", "reset", "usage", "help");
+    private static final List<String> USE_WORDS = List.of("ask", "cancel", "reset", "usage", "undo", "help");
     private static final List<String> ADMIN_WORDS = List.of("limit", "credit", "pause", "resume", "allow", "deny", "allowed", "reload");
     private static final List<String> LIMIT_KINDS = List.of("cost", "tokens", "requests", "reset");
     private static final List<String> CREDIT_ACTIONS = List.of("add", "set", "off");

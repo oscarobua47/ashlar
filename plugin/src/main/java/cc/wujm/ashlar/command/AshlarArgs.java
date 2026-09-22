@@ -39,18 +39,19 @@ import java.util.regex.Pattern;
  * /ashlar allowed
  * /ashlar help
  * /ashlar reload
+ * /ashlar undo
  * </pre>
  *
  * The first word decides the subcommand, case-insensitively; {@code usage},
  * {@code limit}, {@code credit}, {@code pause}, {@code resume}, {@code allow},
- * {@code deny}, {@code allowed}, {@code help}, {@code reload} and {@code cancel} are reserved,
- * so a plain request cannot start with one of them.
+ * {@code deny}, {@code allowed}, {@code help}, {@code reload}, {@code undo} and {@code cancel}
+ * are reserved, so a plain request cannot start with one of them.
  */
 public final class AshlarArgs {
 
     public enum Kind {
         REQUEST, CANCEL_SELF, CANCEL_OTHER, RESET, USAGE_SELF, USAGE_OTHER, USAGE_ALL,
-        LIMIT, CREDIT_SHOW, CREDIT_SET, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, RELOAD, INVALID
+        LIMIT, CREDIT_SHOW, CREDIT_SET, PAUSE, RESUME, ALLOW, DENY, ALLOWED, HELP, SIMULATE, RELOAD, UNDO, INVALID
     }
 
     /** {@code ashlar simulate <x> <y> <z> [facing] <text...>} (step8b-prompt.md), console only. */
@@ -89,6 +90,7 @@ public final class AshlarArgs {
     static final String USAGE_ALLOWED = "Usage: /ashlar allowed";
     static final String USAGE_SIMULATE = "Usage: ashlar simulate <x> <y> <z> [facing] <text...> (console only)";
     static final String USAGE_RELOAD = "Usage: /ashlar reload";
+    static final String USAGE_UNDO = "Usage: /ashlar undo";
 
     private static final List<String> FACINGS = List.of("south", "west", "north", "east");
 
@@ -113,7 +115,8 @@ public final class AshlarArgs {
             Map.entry(USAGE_DENY, "command.grammar.deny"),
             Map.entry(USAGE_ALLOWED, "command.grammar.allowed"),
             Map.entry(USAGE_SIMULATE, "command.grammar.simulate"),
-            Map.entry(USAGE_RELOAD, "command.grammar.reload"));
+            Map.entry(USAGE_RELOAD, "command.grammar.reload"),
+            Map.entry(USAGE_UNDO, "command.grammar.undo"));
 
     private AshlarArgs() {
     }
@@ -171,6 +174,7 @@ public final class AshlarArgs {
             case "reset" -> args.length == 1 ? simple(Kind.RESET) : invalid(USAGE_RESET);
             case "help" -> simple(Kind.HELP);
             case "reload" -> args.length == 1 ? simple(Kind.RELOAD) : invalid(USAGE_RELOAD);
+            case "undo" -> args.length == 1 ? simple(Kind.UNDO) : invalid(USAGE_UNDO);
             case "simulate" -> parseSimulate(args, consoleSender);
             default -> new Parsed(Kind.REQUEST, null, List.of(args), null);
         };
