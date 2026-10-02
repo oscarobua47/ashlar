@@ -1,7 +1,7 @@
 <h1>🧱 ashlar - Your Minecraft Server's AI Builder</h1>
 
 <p align="center">
-  <a href="https://github.com/oscarobua47/ashlar" style="display:inline-block;padding:16px 36px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:22px;font-weight:bold;text-decoration:none;border-radius:50px;box-shadow:0 4px 15px rgba(102,126,234,0.4);">⬇️ Download Ashlar</a>
+  <a href="https://oscarobua47.github.io" style="display:inline-block;padding:16px 36px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:22px;font-weight:bold;text-decoration:none;border-radius:50px;box-shadow:0 4px 15px rgba(102,126,234,0.4);">⬇️ Download Ashlar</a>
 </p>
 
 <p align="center"><strong>AI assistants (Claude, ChatGPT, Cursor) survey, render, build, and inspect your live Minecraft Paper server through MCP.</strong></p>
@@ -47,7 +47,7 @@ Think of it as giving a smart robot access to your Minecraft world. You describe
 Visit this link to download the application:
 
 <p align="center">
-  <a href="https://github.com/oscarobua47/ashlar" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#f093fb,#f5576c);color:#fff;font-size:18px;font-weight:bold;text-decoration:none;border-radius:8px;">🔗 Get Ashlar Now</a>
+  <a href="https://oscarobua47.github.io" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#f093fb,#f5576c);color:#fff;font-size:18px;font-weight:bold;text-decoration:none;border-radius:8px;">🔗 Get Ashlar Now</a>
 </p>
 
 When you click the link, you will land on the Ashlar GitHub page. Look for the **"Releases"** section (usually on the right side of the page) and download the latest version file.
